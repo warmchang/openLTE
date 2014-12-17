@@ -41,6 +41,7 @@
     11/01/2014    Ben Wojtowicz    Added parameters for IP address assignment,
                                    DNS address, config file, and user file.
     11/29/2014    Ben Wojtowicz    Added support for the IP gateway.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -935,66 +936,66 @@ void LTE_fdd_enb_interface::handle_start(void)
         cnfg_db->construct_sys_info();
 
         // Initialize message queues for inter-layer communication
-        boost::interprocess::message_queue::remove("phy_mac_mq");
-        boost::interprocess::message_queue::remove("mac_phy_mq");
-        boost::interprocess::message_queue::remove("mac_rlc_mq");
-        boost::interprocess::message_queue::remove("rlc_mac_mq");
-        boost::interprocess::message_queue::remove("rlc_pdcp_mq");
-        boost::interprocess::message_queue::remove("pdcp_rlc_mq");
-        boost::interprocess::message_queue::remove("pdcp_rrc_mq");
-        boost::interprocess::message_queue::remove("rrc_pdcp_mq");
-        boost::interprocess::message_queue::remove("rrc_mme_mq");
-        boost::interprocess::message_queue::remove("mme_rrc_mq");
-        boost::interprocess::message_queue::remove("pdcp_gw_mq");
-        boost::interprocess::message_queue::remove("gw_pdcp_mq");
-        boost::interprocess::message_queue phy_mac_mq(boost::interprocess::create_only,
-                                                      "phy_mac_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue mac_phy_mq(boost::interprocess::create_only,
-                                                      "mac_phy_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue mac_rlc_mq(boost::interprocess::create_only,
-                                                      "mac_rlc_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rlc_mac_mq(boost::interprocess::create_only,
-                                                      "rlc_mac_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rlc_pdcp_mq(boost::interprocess::create_only,
-                                                       "rlc_pdcp_mq",
-                                                       100,
-                                                       sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue pdcp_rlc_mq(boost::interprocess::create_only,
-                                                       "pdcp_rlc_mq",
-                                                       100,
-                                                       sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue pdcp_rrc_mq(boost::interprocess::create_only,
-                                                       "pdcp_rrc_mq",
-                                                       100,
-                                                       sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rrc_pdcp_mq(boost::interprocess::create_only,
-                                                       "rrc_pdcp_mq",
-                                                       100,
-                                                       sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rrc_mme_mq(boost::interprocess::create_only,
-                                                      "rrc_mme_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue mme_rrc_mq(boost::interprocess::create_only,
-                                                      "mme_rrc_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue pdcp_gw_mq(boost::interprocess::create_only,
-                                                      "pdcp_gw_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue gw_pdcp_mq(boost::interprocess::create_only,
-                                                      "gw_pdcp_mq",
-                                                      100,
-                                                      sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue::remove("phy_mac_olmq");
+        boost::interprocess::message_queue::remove("mac_phy_olmq");
+        boost::interprocess::message_queue::remove("mac_rlc_olmq");
+        boost::interprocess::message_queue::remove("rlc_mac_olmq");
+        boost::interprocess::message_queue::remove("rlc_pdcp_olmq");
+        boost::interprocess::message_queue::remove("pdcp_rlc_olmq");
+        boost::interprocess::message_queue::remove("pdcp_rrc_olmq");
+        boost::interprocess::message_queue::remove("rrc_pdcp_olmq");
+        boost::interprocess::message_queue::remove("rrc_mme_olmq");
+        boost::interprocess::message_queue::remove("mme_rrc_olmq");
+        boost::interprocess::message_queue::remove("pdcp_gw_olmq");
+        boost::interprocess::message_queue::remove("gw_pdcp_olmq");
+        boost::interprocess::message_queue phy_mac_olmq(boost::interprocess::create_only,
+                                                        "phy_mac_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue mac_phy_olmq(boost::interprocess::create_only,
+                                                        "mac_phy_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue mac_rlc_olmq(boost::interprocess::create_only,
+                                                        "mac_rlc_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue rlc_mac_olmq(boost::interprocess::create_only,
+                                                        "rlc_mac_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue rlc_pdcp_olmq(boost::interprocess::create_only,
+                                                         "rlc_pdcp_olmq",
+                                                         100,
+                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue pdcp_rlc_olmq(boost::interprocess::create_only,
+                                                         "pdcp_rlc_olmq",
+                                                         100,
+                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue pdcp_rrc_olmq(boost::interprocess::create_only,
+                                                         "pdcp_rrc_olmq",
+                                                         100,
+                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue rrc_pdcp_olmq(boost::interprocess::create_only,
+                                                         "rrc_pdcp_olmq",
+                                                         100,
+                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue rrc_mme_olmq(boost::interprocess::create_only,
+                                                        "rrc_mme_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue mme_rrc_olmq(boost::interprocess::create_only,
+                                                        "mme_rrc_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue pdcp_gw_olmq(boost::interprocess::create_only,
+                                                        "pdcp_gw_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        boost::interprocess::message_queue gw_pdcp_olmq(boost::interprocess::create_only,
+                                                        "gw_pdcp_olmq",
+                                                        100,
+                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
 
         // Start layers
         err = gw->start(err_str);
@@ -1062,80 +1063,80 @@ void LTE_fdd_enb_interface::handle_stop(void)
             gw->stop();
 
             // Send a message to all inter-layer message_queues to unblock receive
-            LTE_fdd_enb_msgq::send("phy_mac_mq",
+            LTE_fdd_enb_msgq::send("phy_mac_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("mac_phy_mq",
+            LTE_fdd_enb_msgq::send("mac_phy_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("mac_rlc_mq",
+            LTE_fdd_enb_msgq::send("mac_rlc_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("rlc_mac_mq",
+            LTE_fdd_enb_msgq::send("rlc_mac_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("rlc_pdcp_mq",
+            LTE_fdd_enb_msgq::send("rlc_pdcp_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("pdcp_rlc_mq",
+            LTE_fdd_enb_msgq::send("pdcp_rlc_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("pdcp_rrc_mq",
+            LTE_fdd_enb_msgq::send("pdcp_rrc_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("rrc_pdcp_mq",
+            LTE_fdd_enb_msgq::send("rrc_pdcp_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("rrc_mme_mq",
+            LTE_fdd_enb_msgq::send("rrc_mme_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("mme_rrc_mq",
+            LTE_fdd_enb_msgq::send("mme_rrc_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("pdcp_gw_mq",
+            LTE_fdd_enb_msgq::send("pdcp_gw_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("gw_pdcp_mq",
+            LTE_fdd_enb_msgq::send("gw_pdcp_olmq",
                                    LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
             sleep(1);
 
-            boost::interprocess::message_queue::remove("phy_mac_mq");
-            boost::interprocess::message_queue::remove("mac_phy_mq");
-            boost::interprocess::message_queue::remove("mac_rlc_mq");
-            boost::interprocess::message_queue::remove("rlc_mac_mq");
-            boost::interprocess::message_queue::remove("rlc_pdcp_mq");
-            boost::interprocess::message_queue::remove("pdcp_rlc_mq");
-            boost::interprocess::message_queue::remove("pdcp_rrc_mq");
-            boost::interprocess::message_queue::remove("rrc_pdcp_mq");
-            boost::interprocess::message_queue::remove("rrc_mme_mq");
-            boost::interprocess::message_queue::remove("mme_rrc_mq");
-            boost::interprocess::message_queue::remove("pdcp_gw_mq");
-            boost::interprocess::message_queue::remove("gw_pdcp_mq");
+            boost::interprocess::message_queue::remove("phy_mac_olmq");
+            boost::interprocess::message_queue::remove("mac_phy_olmq");
+            boost::interprocess::message_queue::remove("mac_rlc_olmq");
+            boost::interprocess::message_queue::remove("rlc_mac_olmq");
+            boost::interprocess::message_queue::remove("rlc_pdcp_olmq");
+            boost::interprocess::message_queue::remove("pdcp_rlc_olmq");
+            boost::interprocess::message_queue::remove("pdcp_rrc_olmq");
+            boost::interprocess::message_queue::remove("rrc_pdcp_olmq");
+            boost::interprocess::message_queue::remove("rrc_mme_olmq");
+            boost::interprocess::message_queue::remove("mme_rrc_olmq");
+            boost::interprocess::message_queue::remove("pdcp_gw_olmq");
+            boost::interprocess::message_queue::remove("gw_pdcp_olmq");
 
             // Cleanup all layers
             LTE_fdd_enb_radio::cleanup();

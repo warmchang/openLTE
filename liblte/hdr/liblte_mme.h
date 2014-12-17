@@ -29,6 +29,7 @@
     09/03/2014    Ben Wojtowicz    Added more decoding/encoding.
     11/01/2014    Ben Wojtowicz    Added more decoding/encoding.
     11/29/2014    Ben Wojtowicz    Added more decoding/encoding.
+    12/16/2014    Ben Wojtowicz    Added more decoding/encoding.
 
 *******************************************************************************/
 
@@ -602,9 +603,9 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_csfb_response_ie(uint8 **ie_ptr,
                                                      uint8  *csfb_resp);
 
 /*********************************************************************
-    IE Name: Daylight Savings Time
+    IE Name: Daylight Saving Time
 
-    Description: Encodes the daylight savings time in steps of 1 hour.
+    Description: Encodes the daylight saving time in steps of 1 hour.
 
     Document Reference: 24.301 v10.2.0 Section 9.9.3.6
                         24.008 v10.2.0 Section 10.5.3.12
@@ -612,22 +613,22 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_csfb_response_ie(uint8 **ie_ptr,
 // Defines
 // Enums
 typedef enum{
-    LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_NO_ADJUSTMENT = 0,
-    LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_PLUS_ONE_HOUR,
-    LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_PLUS_TWO_HOURS,
-    LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_RESERVED,
-    LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_N_ITEMS,
-}LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_ENUM;
-static const char liblte_mme_daylight_savings_time_text[LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_N_ITEMS][20] = {"No Adjustment",
-                                                                                                         "+1 Hour",
-                                                                                                         "+2 Hours",
-                                                                                                         "RESERVED"};
+    LIBLTE_MME_DAYLIGHT_SAVING_TIME_NO_ADJUSTMENT = 0,
+    LIBLTE_MME_DAYLIGHT_SAVING_TIME_PLUS_ONE_HOUR,
+    LIBLTE_MME_DAYLIGHT_SAVING_TIME_PLUS_TWO_HOURS,
+    LIBLTE_MME_DAYLIGHT_SAVING_TIME_RESERVED,
+    LIBLTE_MME_DAYLIGHT_SAVING_TIME_N_ITEMS,
+}LIBLTE_MME_DAYLIGHT_SAVING_TIME_ENUM;
+static const char liblte_mme_daylight_saving_time_text[LIBLTE_MME_DAYLIGHT_SAVING_TIME_N_ITEMS][20] = {"No Adjustment",
+                                                                                                       "+1 Hour",
+                                                                                                       "+2 Hours",
+                                                                                                       "RESERVED"};
 // Structs
 // Functions
-LIBLTE_ERROR_ENUM liblte_mme_pack_daylight_savings_time_ie(LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_ENUM   dst,
-                                                           uint8                                 **ie_ptr);
-LIBLTE_ERROR_ENUM liblte_mme_unpack_daylight_savings_time_ie(uint8                                 **ie_ptr,
-                                                             LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_ENUM  *dst);
+LIBLTE_ERROR_ENUM liblte_mme_pack_daylight_saving_time_ie(LIBLTE_MME_DAYLIGHT_SAVING_TIME_ENUM   dst,
+                                                          uint8                                **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_daylight_saving_time_ie(uint8                                **ie_ptr,
+                                                            LIBLTE_MME_DAYLIGHT_SAVING_TIME_ENUM  *dst);
 
 /*********************************************************************
     IE Name: Detach Type
@@ -1196,9 +1197,23 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_nas_security_algorithms_ie(uint8            
 *********************************************************************/
 // Defines
 // Enums
+typedef enum{
+    LIBLTE_MME_ADD_CI_DONT_ADD = 0,
+    LIBLTE_MME_ADD_CI_ADD,
+    LIBLTE_MME_ADD_CI_N_ITEMS,
+}LIBLTE_MME_ADD_CI_ENUM;
+static const char liblte_mme_add_ci_text[LIBLTE_MME_ADD_CI_N_ITEMS][20] = {"Don't add",
+                                                                           "Add"};
 // Structs
+typedef struct{
+    std::string            name;
+    LIBLTE_MME_ADD_CI_ENUM add_ci;
+}LIBLTE_MME_NETWORK_NAME_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_network_name_ie(LIBLTE_MME_NETWORK_NAME_STRUCT  *net_name,
+                                                  uint8                          **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_network_name_ie(uint8                          **ie_ptr,
+                                                    LIBLTE_MME_NETWORK_NAME_STRUCT  *net_name);
 
 /*********************************************************************
     IE Name: Nonce
@@ -2895,10 +2910,35 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_downlink_nas_transport_msg(LIBLTE_BYTE_MSG_S
     Document Reference: 24.301 v10.2.0 Section 8.2.13
 *********************************************************************/
 // Defines
+#define LIBLTE_MME_FULL_NAME_FOR_NETWORK_IEI              0x43
+#define LIBLTE_MME_SHORT_NAME_FOR_NETWORK_IEI             0x45
+#define LIBLTE_MME_LOCAL_TIME_ZONE_IEI                    0x46
+#define LIBLTE_MME_UNIVERSAL_TIME_AND_LOCAL_TIME_ZONE_IEI 0x47
+#define LIBLTE_MME_NETWORK_DAYLIGHT_SAVING_TIME_IEI       0x49
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_MME_NETWORK_NAME_STRUCT       full_net_name;
+    LIBLTE_MME_NETWORK_NAME_STRUCT       short_net_name;
+    LIBLTE_MME_TIME_ZONE_AND_TIME_STRUCT utc_and_local_time_zone;
+    LIBLTE_MME_DAYLIGHT_SAVING_TIME_ENUM net_dst;
+    uint8                                local_time_zone;
+    bool                                 full_net_name_present;
+    bool                                 short_net_name_present;
+    bool                                 local_time_zone_present;
+    bool                                 utc_and_local_time_zone_present;
+    bool                                 net_dst_present;
+}LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_emm_information_msg(LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT *emm_info,
+                                                      uint8                                  sec_hdr_type,
+                                                      uint8                                 *key_256,
+                                                      uint32                                 count,
+                                                      uint8                                  direction,
+                                                      uint8                                  rb_id,
+                                                      LIBLTE_BYTE_MSG_STRUCT                *msg);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_emm_information_msg(LIBLTE_BYTE_MSG_STRUCT                *msg,
+                                                        LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT *emm_info);
 
 /*********************************************************************
     Message Name: EMM Status

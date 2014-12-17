@@ -36,6 +36,8 @@
     11/29/2014    Ben Wojtowicz    Added service request, service reject, and
                                    activate dedicated EPS bearer context
                                    request support.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queue and
+                                   sending of EMM information message.
 
 *******************************************************************************/
 
@@ -121,10 +123,10 @@ void LTE_fdd_enb_mme::start(void)
     if(!started)
     {
         started       = true;
-        rrc_comm_msgq = new LTE_fdd_enb_msgq("rrc_mme_mq",
+        rrc_comm_msgq = new LTE_fdd_enb_msgq("rrc_mme_olmq",
                                              rrc_cb);
-        mme_rrc_mq    = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                               "mme_rrc_mq");
+        mme_rrc_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                               "mme_rrc_olmq");
 
         cnfg_db->get_param(LTE_FDD_ENB_PARAM_IP_ADDR_START, next_ip_addr);
         cnfg_db->get_param(LTE_FDD_ENB_PARAM_DNS_ADDR, dns_addr);
@@ -1046,6 +1048,7 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
 {
     LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_hss       *hss       = LTE_fdd_enb_hss::get_instance();
+    LTE_fdd_enb_user_mgr  *user_mgr  = LTE_fdd_enb_user_mgr::get_instance();
 
     switch(rb->get_mme_state())
     {
@@ -1053,7 +1056,7 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
         send_identity_request(user, rb, LIBLTE_MME_ID_TYPE_2_IMSI);
         break;
     case LTE_FDD_ENB_MME_STATE_REJECT:
-        user->set_delete_at_idle(true);
+        user_mgr->del_user(user, true);
         send_attach_reject(user, rb);
         break;
     case LTE_FDD_ENB_MME_STATE_AUTHENTICATE:
@@ -1237,7 +1240,7 @@ void LTE_fdd_enb_mme::send_attach_accept(LTE_fdd_enb_user *user,
     cmd_ready.user = user;
     cmd_ready.rb   = rb;
     cmd_ready.cmd  = LTE_FDD_ENB_RRC_CMD_SETUP_DEF_DRB;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
@@ -1279,7 +1282,7 @@ void LTE_fdd_enb_mme::send_attach_reject(LTE_fdd_enb_user *user,
     // Signal RRC for NAS message
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -1311,7 +1314,7 @@ void LTE_fdd_enb_mme::send_authentication_reject(LTE_fdd_enb_user *user,
     // Signal RRC for NAS message
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -1359,12 +1362,65 @@ void LTE_fdd_enb_mme::send_authentication_request(LTE_fdd_enb_user *user,
         // Signal RRC
         nas_msg_ready.user = user;
         nas_msg_ready.rb   = rb;
-        LTE_fdd_enb_msgq::send(mme_rrc_mq,
+        LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                                LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
                                LTE_FDD_ENB_DEST_LAYER_RRC,
                                (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
                                sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
     }
+}
+void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
+                                           LTE_fdd_enb_rb   *rb)
+{
+    LTE_fdd_enb_interface                    *interface = LTE_fdd_enb_interface::get_instance();
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT  nas_msg_ready;
+    LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT     emm_info;
+    LIBLTE_BYTE_MSG_STRUCT                    msg;
+    struct tm                                *broken_down_time;
+    time_t                                    tmp_time;
+
+    tmp_time         = time(NULL);
+    broken_down_time = localtime(&tmp_time);
+
+    emm_info.full_net_name_present           = false;
+    emm_info.short_net_name_present          = false;
+    emm_info.local_time_zone_present         = false;
+    emm_info.utc_and_local_time_zone_present = true;
+    emm_info.utc_and_local_time_zone.year    = (((broken_down_time->tm_year % 100)/10) << 4) | (broken_down_time->tm_year % 10);
+    emm_info.utc_and_local_time_zone.month   = ((broken_down_time->tm_mon/10) << 4) | (broken_down_time->tm_mon % 10);
+    emm_info.utc_and_local_time_zone.day     = ((broken_down_time->tm_mday/10) << 4) | (broken_down_time->tm_mday % 10);
+    emm_info.utc_and_local_time_zone.hour    = ((broken_down_time->tm_hour/10) << 4) | (broken_down_time->tm_hour % 10);
+    emm_info.utc_and_local_time_zone.minute  = ((broken_down_time->tm_min/10) << 4) | (broken_down_time->tm_min % 10);
+    emm_info.utc_and_local_time_zone.second  = ((broken_down_time->tm_sec/10) << 4) | (broken_down_time->tm_sec % 10);
+    emm_info.utc_and_local_time_zone.tz      = 0; // FIXME
+    emm_info.net_dst_present                 = false;
+    liblte_mme_pack_emm_information_msg(&emm_info,
+                                        LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY_AND_CIPHERED,
+                                        user->get_auth_vec()->k_nas_int,
+                                        user->get_auth_vec()->nas_count_dl,
+                                        LIBLTE_SECURITY_DIRECTION_DOWNLINK,
+                                        rb->get_rb_id()-1,
+                                        &msg);
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                              __FILE__,
+                              __LINE__,
+                              &msg,
+                              "Sending EMM Information for RNTI=%u, RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    // Queue the NAS message for RRC
+    rb->queue_rrc_nas_msg(&msg);
+
+    // Signal RRC
+    nas_msg_ready.user = user;
+    nas_msg_ready.rb   = rb;
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
+                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                           LTE_FDD_ENB_DEST_LAYER_RRC,
+                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_identity_request(LTE_fdd_enb_user *user,
                                             LTE_fdd_enb_rb   *rb,
@@ -1392,7 +1448,7 @@ void LTE_fdd_enb_mme::send_identity_request(LTE_fdd_enb_user *user,
     // Signal RRC
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -1464,7 +1520,7 @@ void LTE_fdd_enb_mme::send_security_mode_command(LTE_fdd_enb_user *user,
     // Signal RRC
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -1503,7 +1559,7 @@ void LTE_fdd_enb_mme::send_service_reject(LTE_fdd_enb_user *user,
 
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -1584,7 +1640,7 @@ void LTE_fdd_enb_mme::send_activate_dedicated_eps_bearer_context_request(LTE_fdd
     cmd_ready.user = user;
     cmd_ready.rb   = rb;
     cmd_ready.cmd  = LTE_FDD_ENB_RRC_CMD_SETUP_DED_DRB;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
@@ -1630,7 +1686,7 @@ void LTE_fdd_enb_mme::send_esm_information_request(LTE_fdd_enb_user *user,
     // Signal RRC
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -1646,7 +1702,7 @@ void LTE_fdd_enb_mme::send_rrc_command(LTE_fdd_enb_user         *user,
     cmd_ready.user = user;
     cmd_ready.rb   = rb;
     cmd_ready.cmd  = cmd;
-    LTE_fdd_enb_msgq::send(mme_rrc_mq,
+    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
                            LTE_FDD_ENB_DEST_LAYER_RRC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,

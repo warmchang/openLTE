@@ -37,6 +37,7 @@
                                    procedures, and PDCP configs, moved almost
                                    everything to byte messages structs, added
                                    IP gateway and RLC UMD support.
+    12/16/2014    Ben Wojtowicz    Added QoS for default data services.
 
 *******************************************************************************/
 
@@ -170,14 +171,17 @@ static const char LTE_fdd_enb_mac_config_text[LTE_FDD_ENB_MAC_CONFIG_N_ITEMS][20
 typedef enum{
     LTE_FDD_ENB_QOS_NONE = 0,
     LTE_FDD_ENB_QOS_SIGNALLING,
+    LTE_FDD_ENB_QOS_DEFAULT_DATA,
     LTE_FDD_ENB_QOS_N_ITEMS,
 }LTE_FDD_ENB_QOS_ENUM;
 static const char LTE_fdd_enb_qos_text[LTE_FDD_ENB_QOS_N_ITEMS][20] = {"None",
-                                                                       "Signalling"};
+                                                                       "Signalling",
+                                                                       "Default Data"};
 
 typedef struct{
-    uint32 tti_frequency;
-    uint32 bytes_per_subfn;
+    LTE_FDD_ENB_QOS_ENUM qos;
+    uint32               tti_frequency;
+    uint32               bytes_per_subfn;
 }LTE_FDD_ENB_QOS_STRUCT;
 
 /*******************************************************************************

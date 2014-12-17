@@ -149,3 +149,9 @@ v00.18.00     Added IP packet support to LTE_fdd_enodeb.  Specifically, added th
               support in MME, timer reset, and IP gateway support, using the
               latest LTE library, and refactored C-RNTI assignement and release
               in LTE_fdd_enodeb.
+v00.18.01     Added more MME encoding and decoding to the LTE library, pulled in
+              a patch from Ruben Merz to add USRP X300 support for LTE_fdd_dl_scan
+              and LTE_fdd_enodeb, added to enodeb_nat_script.sh, added delayed
+              user deletion, ol extension to all message queues, ability to send
+              EMM information message, and QoS for default data services to
+              LTE_fdd_enodeb.

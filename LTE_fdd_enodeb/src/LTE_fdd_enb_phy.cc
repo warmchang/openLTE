@@ -38,6 +38,7 @@
                                    support.
     06/15/2014    Ben Wojtowicz    Changed fn_combo to current_tti.
     08/03/2014    Ben Wojtowicz    Added support for limiting PCAP output.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
 
 *******************************************************************************/
 
@@ -282,10 +283,10 @@ void LTE_fdd_enb_phy::start(LTE_fdd_enb_interface *iface)
         }
 
         // Communication
-        mac_comm_msgq = new LTE_fdd_enb_msgq("mac_phy_mq",
+        mac_comm_msgq = new LTE_fdd_enb_msgq("mac_phy_olmq",
                                              cb);
-        phy_mac_mq    = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                               "phy_mac_mq");
+        phy_mac_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                               "phy_mac_olmq");
 
         interface = iface;
         started   = true;
@@ -714,7 +715,7 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
         rts.dl_current_tti   = (dl_current_tti + 2) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
         rts.ul_current_tti   = (ul_current_tti + 2) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
         last_rts_current_tti = rts.dl_current_tti;
-        LTE_fdd_enb_msgq::send(phy_mac_mq,
+        LTE_fdd_enb_msgq::send(phy_mac_olmq,
                                LTE_FDD_ENB_MESSAGE_TYPE_READY_TO_SEND,
                                LTE_FDD_ENB_DEST_LAYER_MAC,
                                (LTE_FDD_ENB_MESSAGE_UNION *)&rts,
@@ -771,7 +772,7 @@ void LTE_fdd_enb_phy::process_ul(LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf)
                                         prach_decode.preamble,
                                         prach_decode.timing_adv);
 
-                LTE_fdd_enb_msgq::send(phy_mac_mq,
+                LTE_fdd_enb_msgq::send(phy_mac_olmq,
                                        LTE_FDD_ENB_MESSAGE_TYPE_PRACH_DECODE,
                                        LTE_FDD_ENB_DEST_LAYER_MAC,
                                        (LTE_FDD_ENB_MESSAGE_UNION *)&prach_decode,
@@ -811,7 +812,7 @@ void LTE_fdd_enb_phy::process_ul(LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf)
                     pusch_decode.current_tti = ul_current_tti;
                     pusch_decode.rnti        = ul_schedule[ul_subframe.num].decodes.alloc[i].rnti;
 
-                    LTE_fdd_enb_msgq::send(phy_mac_mq,
+                    LTE_fdd_enb_msgq::send(phy_mac_olmq,
                                            LTE_FDD_ENB_MESSAGE_TYPE_PUSCH_DECODE,
                                            LTE_FDD_ENB_DEST_LAYER_MAC,
                                            (LTE_FDD_ENB_MESSAGE_UNION *)&pusch_decode,

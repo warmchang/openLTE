@@ -35,6 +35,8 @@
     11/29/2014    Ben Wojtowicz    Added service request, service reject, and
                                    activate dedicated EPS bearer context
                                    request support.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queue and
+                                   sending of EMM information message.
 
 *******************************************************************************/
 
@@ -96,7 +98,7 @@ private:
     // Communication
     void handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
     LTE_fdd_enb_msgq                   *rrc_comm_msgq;
-    boost::interprocess::message_queue *mme_rrc_mq;
+    boost::interprocess::message_queue *mme_rrc_olmq;
 
     // RRC Message Handlers
     void handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *nas_msg);
@@ -124,6 +126,7 @@ private:
     void send_attach_reject(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_authentication_reject(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_authentication_request(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void send_emm_information(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_identity_request(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, uint8 id_type);
     void send_security_mode_command(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_service_reject(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, uint8 cause);

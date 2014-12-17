@@ -30,6 +30,7 @@
     06/15/2014    Ben Wojtowicz    Added uplink scheduling and changed fn_combo
                                    to current_tti.
     11/29/2014    Ben Wojtowicz    Using the byte message struct for SDUs.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -116,8 +117,8 @@ private:
     void handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
     LTE_fdd_enb_msgq                   *phy_comm_msgq;
     LTE_fdd_enb_msgq                   *rlc_comm_msgq;
-    boost::interprocess::message_queue *mac_phy_mq;
-    boost::interprocess::message_queue *mac_rlc_mq;
+    boost::interprocess::message_queue *mac_phy_olmq;
+    boost::interprocess::message_queue *mac_rlc_olmq;
 
     // PHY Message Handlers
     void handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT *rts);

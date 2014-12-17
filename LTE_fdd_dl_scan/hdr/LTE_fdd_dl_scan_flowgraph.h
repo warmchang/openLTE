@@ -31,6 +31,8 @@
     11/30/2013    Ben Wojtowicz    Added support for bladeRF.
     04/12/2014    Ben Wojtowicz    Pulled in a patch from Jevgenij for
                                    supporting non-B2X0 USRPs.
+    12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
+                                   USRP X300 support.
 
 *******************************************************************************/
 
@@ -68,6 +70,7 @@ typedef enum{
     LTE_FDD_DL_SCAN_HW_TYPE_HACKRF,
     LTE_FDD_DL_SCAN_HW_TYPE_USRP_B,
     LTE_FDD_DL_SCAN_HW_TYPE_USRP_N,
+    LTE_FDD_DL_SCAN_HW_TYPE_USRP_X,
     LTE_FDD_DL_SCAN_HW_TYPE_BLADERF,
     LTE_FDD_DL_SCAN_HW_TYPE_UNKNOWN,
 }LTE_FDD_DL_SCAN_HW_TYPE_ENUM;

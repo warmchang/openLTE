@@ -39,6 +39,8 @@
                                    parameter.
     08/03/2014    Ben Wojtowicz    Fixed clock_source bug.
     09/03/2014    Ben Wojtowicz    Fixed stop issue.
+    12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
+                                   USRP X300 support.
 
 *******************************************************************************/
 
@@ -146,6 +148,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start(void)
     LTE_FDD_ENB_ERROR_ENUM     err = LTE_FDD_ENB_ERROR_CANT_START;
     int64                      dl_earfcn;
     int64                      ul_earfcn;
+    bool                       master_clock_set = false;
 
     if(false == started)
     {
@@ -163,10 +166,22 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start(void)
                 cnfg_db->get_param(LTE_FDD_ENB_PARAM_N_ANT, N_ant);
 
                 // Setup the USRP
+                if(devs[selected_radio_idx-1]["type"] == "x300")
+                {
+                    devs[selected_radio_idx-1]["master_clock_rate"] = "184320000";
+                    master_clock_set                                = true;
+                }
                 usrp = uhd::usrp::multi_usrp::make(devs[selected_radio_idx-1]);
                 usrp->set_clock_source(clock_source);
-                usrp->set_master_clock_rate(30720000);
-                if(2.0 >= fabs(usrp->get_master_clock_rate() - 30720000.0))
+                if(!master_clock_set)
+                {
+                    usrp->set_master_clock_rate(30720000);
+                    if(2.0 >= fabs(usrp->get_master_clock_rate() - 30720000.0))
+                    {
+                        master_clock_set = true;
+                    }
+                }
+                if(master_clock_set)
                 {
                     usrp->set_tx_rate(get_sample_rate());
                     usrp->set_rx_rate(get_sample_rate());

@@ -27,6 +27,7 @@
     11/09/2013    Ben Wojtowicz    Created file
     05/04/2014    Ben Wojtowicz    Added communication to RLC and RRC.
     11/29/2014    Ben Wojtowicz    Added communication to IP gateway.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -92,9 +93,9 @@ private:
     LTE_fdd_enb_msgq                   *rlc_comm_msgq;
     LTE_fdd_enb_msgq                   *rrc_comm_msgq;
     LTE_fdd_enb_msgq                   *gw_comm_msgq;
-    boost::interprocess::message_queue *pdcp_rlc_mq;
-    boost::interprocess::message_queue *pdcp_rrc_mq;
-    boost::interprocess::message_queue *pdcp_gw_mq;
+    boost::interprocess::message_queue *pdcp_rlc_olmq;
+    boost::interprocess::message_queue *pdcp_rrc_olmq;
+    boost::interprocess::message_queue *pdcp_gw_olmq;
 
     // RLC Message Handlers
     void handle_pdu_ready(LTE_FDD_ENB_PDCP_PDU_READY_MSG_STRUCT *pdu_ready);

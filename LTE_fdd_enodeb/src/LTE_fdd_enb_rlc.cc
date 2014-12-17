@@ -34,6 +34,7 @@
     11/01/2014    Ben Wojtowicz    Fixed VRR updating and added debug.
     11/29/2014    Ben Wojtowicz    Using the byte message structure and added
                                    UMD support.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -115,14 +116,14 @@ void LTE_fdd_enb_rlc::start(void)
     if(!started)
     {
         started        = true;
-        mac_comm_msgq  = new LTE_fdd_enb_msgq("mac_rlc_mq",
+        mac_comm_msgq  = new LTE_fdd_enb_msgq("mac_rlc_olmq",
                                               mac_cb);
-        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_rlc_mq",
+        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_rlc_olmq",
                                               pdcp_cb);
-        rlc_mac_mq     = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "rlc_mac_mq");
-        rlc_pdcp_mq    = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "rlc_pdcp_mq");
+        rlc_mac_olmq   = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                                "rlc_mac_olmq");
+        rlc_pdcp_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                                "rlc_pdcp_olmq");
     }
 }
 void LTE_fdd_enb_rlc::stop(void)
@@ -165,7 +166,7 @@ void LTE_fdd_enb_rlc::handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
         }
     }else{
         // Forward message to PDCP
-        rlc_pdcp_mq->send(&msg, sizeof(msg), 0);
+        rlc_pdcp_olmq->send(&msg, sizeof(msg), 0);
     }
 }
 void LTE_fdd_enb_rlc::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
@@ -193,7 +194,7 @@ void LTE_fdd_enb_rlc::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
         }
     }else{
         // Forward message to MAC
-        rlc_mac_mq->send(&msg, sizeof(msg), 0);
+        rlc_mac_olmq->send(&msg, sizeof(msg), 0);
     }
 }
 
@@ -244,7 +245,7 @@ void LTE_fdd_enb_rlc::handle_retransmit(LIBLTE_RLC_AMD_PDU_STRUCT *amd,
     // Signal MAC
     mac_sdu_ready.user = user;
     mac_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rlc_mac_mq,
+    LTE_fdd_enb_msgq::send(rlc_mac_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_MAC_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_MAC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&mac_sdu_ready,
@@ -316,7 +317,7 @@ void LTE_fdd_enb_rlc::handle_tm_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
     // Signal PDCP
     pdcp_pdu_ready.user = user;
     pdcp_pdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rlc_pdcp_mq,
+    LTE_fdd_enb_msgq::send(rlc_pdcp_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_PDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_pdu_ready,
@@ -363,7 +364,7 @@ void LTE_fdd_enb_rlc::handle_um_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
             // Signal PDCP
             pdcp_pdu_ready.user = user;
             pdcp_pdu_ready.rb   = rb;
-            LTE_fdd_enb_msgq::send(rlc_pdcp_mq,
+            LTE_fdd_enb_msgq::send(rlc_pdcp_olmq,
                                    LTE_FDD_ENB_MESSAGE_TYPE_PDCP_PDU_READY,
                                    LTE_FDD_ENB_DEST_LAYER_PDCP,
                                    (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_pdu_ready,
@@ -447,7 +448,7 @@ void LTE_fdd_enb_rlc::handle_am_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
                     // Signal PDCP
                     pdcp_pdu_ready.user = user;
                     pdcp_pdu_ready.rb   = rb;
-                    LTE_fdd_enb_msgq::send(rlc_pdcp_mq,
+                    LTE_fdd_enb_msgq::send(rlc_pdcp_olmq,
                                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_PDU_READY,
                                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_pdu_ready,
@@ -579,7 +580,7 @@ void LTE_fdd_enb_rlc::handle_tm_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
     // Signal MAC
     mac_sdu_ready.user = user;
     mac_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rlc_mac_mq,
+    LTE_fdd_enb_msgq::send(rlc_mac_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_MAC_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_MAC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&mac_sdu_ready,
@@ -624,7 +625,7 @@ void LTE_fdd_enb_rlc::handle_um_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
         // Signal MAC
         mac_sdu_ready.user = user;
         mac_sdu_ready.rb   = rb;
-        LTE_fdd_enb_msgq::send(rlc_mac_mq,
+        LTE_fdd_enb_msgq::send(rlc_mac_olmq,
                                LTE_FDD_ENB_MESSAGE_TYPE_MAC_SDU_READY,
                                LTE_FDD_ENB_DEST_LAYER_MAC,
                                (LTE_FDD_ENB_MESSAGE_UNION *)&mac_sdu_ready,
@@ -674,7 +675,7 @@ void LTE_fdd_enb_rlc::handle_um_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
             // Signal MAC
             mac_sdu_ready.user = user;
             mac_sdu_ready.rb   = rb;
-            LTE_fdd_enb_msgq::send(rlc_mac_mq,
+            LTE_fdd_enb_msgq::send(rlc_mac_olmq,
                                    LTE_FDD_ENB_MESSAGE_TYPE_MAC_SDU_READY,
                                    LTE_FDD_ENB_DEST_LAYER_MAC,
                                    (LTE_FDD_ENB_MESSAGE_UNION *)&mac_sdu_ready,
@@ -767,7 +768,7 @@ void LTE_fdd_enb_rlc::send_status_pdu(LIBLTE_RLC_STATUS_PDU_STRUCT *status_pdu,
     // Signal MAC
     mac_sdu_ready.user = user;
     mac_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rlc_mac_mq,
+    LTE_fdd_enb_msgq::send(rlc_mac_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_MAC_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_MAC,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&mac_sdu_ready,
@@ -816,7 +817,7 @@ void LTE_fdd_enb_rlc::send_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd,
         // Signal MAC
         mac_sdu_ready.user = user;
         mac_sdu_ready.rb   = rb;
-        LTE_fdd_enb_msgq::send(rlc_mac_mq,
+        LTE_fdd_enb_msgq::send(rlc_mac_olmq,
                                LTE_FDD_ENB_MESSAGE_TYPE_MAC_SDU_READY,
                                LTE_FDD_ENB_DEST_LAYER_MAC,
                                (LTE_FDD_ENB_MESSAGE_UNION *)&mac_sdu_ready,

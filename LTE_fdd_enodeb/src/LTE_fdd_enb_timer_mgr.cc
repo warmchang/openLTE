@@ -29,6 +29,7 @@
     06/15/2014    Ben Wojtowicz    Added millisecond resolution.
     08/03/2014    Ben Wojtowicz    Added an invalid timer id.
     11/29/2014    Ben Wojtowicz    Added timer reset support.
+    12/16/2014    Ben Wojtowicz    Passing timer tick to user_mgr.
 
 *******************************************************************************/
 
@@ -37,6 +38,7 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_timer_mgr.h"
+#include "LTE_fdd_enb_user_mgr.h"
 #include <list>
 
 /*******************************************************************************
@@ -156,8 +158,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::reset_timer(uint32 timer_id)
 }
 void LTE_fdd_enb_timer_mgr::handle_tick(void)
 {
-    std::map<uint32, LTE_fdd_enb_timer *>::iterator iter;
-    std::list<uint32>                               expired_list;
+    LTE_fdd_enb_user_mgr                            *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    std::map<uint32, LTE_fdd_enb_timer *>::iterator  iter;
+    std::list<uint32>                                expired_list;
 
     timer_mutex.lock();
     for(iter=timer_map.begin(); iter!=timer_map.end(); iter++)
@@ -183,4 +186,7 @@ void LTE_fdd_enb_timer_mgr::handle_tick(void)
         }
         expired_list.pop_front();
     }
+
+    // Pass tick to user_mgr
+    user_mgr->handle_tick();
 }

@@ -34,6 +34,7 @@
     11/01/2014    Ben Wojtowicz    Added more MME support.
     11/29/2014    Ben Wojtowicz    Added DRB setup/teardown and C-RNTI release
                                    timer support.
+    12/16/2014    Ben Wojtowicz    Changed the delayed delete functionality.
 
 *******************************************************************************/
 
@@ -100,7 +101,7 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
     srb0 = new LTE_fdd_enb_rb(LTE_FDD_ENB_RB_SRB0, this);
     srb1 = NULL;
     srb2 = NULL;
-    for(i=0; i<31; i++)
+    for(i=0; i<8; i++)
     {
         drb[i] = NULL;
     }
@@ -119,14 +120,14 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
     ul_ndi = false;
 
     // Generic
-    delete_at_idle = false;
+    N_del_ticks = 0;
 }
 LTE_fdd_enb_user::~LTE_fdd_enb_user()
 {
     uint32 i;
 
     // Radio Bearers
-    for(i=0; i<31; i++)
+    for(i=0; i<8; i++)
     {
         delete drb[i];
     }
@@ -143,7 +144,7 @@ void LTE_fdd_enb_user::init(void)
     uint32 i;
 
     // Radio Bearers
-    for(i=0; i<31; i++)
+    for(i=0; i<8; i++)
     {
         delete drb[i];
         drb[i] = NULL;
@@ -609,13 +610,13 @@ void LTE_fdd_enb_user::flip_ul_ndi(void)
 /*****************/
 /*    Generic    */
 /*****************/
-void LTE_fdd_enb_user::set_delete_at_idle(bool dai)
+void LTE_fdd_enb_user::set_N_del_ticks(uint32 N_ticks)
 {
-    delete_at_idle = dai;
+    N_del_ticks = N_ticks;
 }
-bool LTE_fdd_enb_user::get_delete_at_idle(void)
+uint32 LTE_fdd_enb_user::get_N_del_ticks(void)
 {
-    return(delete_at_idle);
+    return(N_del_ticks);
 }
 void LTE_fdd_enb_user::handle_timer_expiry(uint32 timer_id)
 {

@@ -30,6 +30,7 @@
                                    and MNC packing.
     11/01/2014    Ben Wojtowicz    Added more decoding/encoding.
     11/29/2014    Ben Wojtowicz    Added more decoding/encoding.
+    12/16/2014    Ben Wojtowicz    Added more decoding/encoding.
 
 *******************************************************************************/
 
@@ -1097,15 +1098,15 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_csfb_response_ie(uint8 **ie_ptr,
 }
 
 /*********************************************************************
-    IE Name: Daylight Savings Time
+    IE Name: Daylight Saving Time
 
-    Description: Encodes the daylight savings time in steps of 1 hour.
+    Description: Encodes the daylight saving time in steps of 1 hour.
 
     Document Reference: 24.301 v10.2.0 Section 9.9.3.6
                         24.008 v10.2.0 Section 10.5.3.12
 *********************************************************************/
-LIBLTE_ERROR_ENUM liblte_mme_pack_daylight_savings_time_ie(LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_ENUM   dst,
-                                                           uint8                                 **ie_ptr)
+LIBLTE_ERROR_ENUM liblte_mme_pack_daylight_saving_time_ie(LIBLTE_MME_DAYLIGHT_SAVING_TIME_ENUM   dst,
+                                                          uint8                                **ie_ptr)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
 
@@ -1120,15 +1121,15 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_daylight_savings_time_ie(LIBLTE_MME_DAYLIGHT_S
 
     return(err);
 }
-LIBLTE_ERROR_ENUM liblte_mme_unpack_daylight_savings_time_ie(uint8                                 **ie_ptr,
-                                                             LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_ENUM  *dst)
+LIBLTE_ERROR_ENUM liblte_mme_unpack_daylight_saving_time_ie(uint8                                **ie_ptr,
+                                                            LIBLTE_MME_DAYLIGHT_SAVING_TIME_ENUM  *dst)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
 
     if(ie_ptr != NULL &&
        dst    != NULL)
     {
-        *dst     = (LIBLTE_MME_DAYLIGHT_SAVINGS_TIME_ENUM)((*ie_ptr)[1] & 0x03);
+        *dst     = (LIBLTE_MME_DAYLIGHT_SAVING_TIME_ENUM)((*ie_ptr)[1] & 0x03);
         *ie_ptr += 2;
 
         err = LIBLTE_SUCCESS;
@@ -2162,7 +2163,211 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_nas_security_algorithms_ie(uint8            
     Document Reference: 24.301 v10.2.0 Section 9.9.3.24
                         24.008 v10.2.0 Section 10.5.3.5A
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_network_name_ie(LIBLTE_MME_NETWORK_NAME_STRUCT  *net_name,
+                                                  uint8                          **ie_ptr)
+{
+    LIBLTE_ERROR_ENUM  err = LIBLTE_ERROR_INVALID_INPUTS;
+    uint32             i;
+    uint32             bit_offset;
+    uint32             byte_offset;
+    const char        *char_str = net_name->name.c_str();
+
+    if(net_name != NULL &&
+       ie_ptr   != NULL)
+    {
+        bit_offset  = 0;
+        byte_offset = 2;
+        for(i=0; i<net_name->name.size(); i++)
+        {
+            if(char_str[i]  == 0x0A  ||
+               char_str[i]  == 0x0D  ||
+               (char_str[i] >= 0x20  &&
+                char_str[i] <= 0x3F) ||
+               (char_str[i] >= 0x41  &&
+                char_str[i] <= 0x5A) ||
+               (char_str[i] >= 0x61  &&
+                char_str[i] <= 0x7A))
+            {
+                switch(bit_offset)
+                {
+                case 0:
+                    (*ie_ptr)[byte_offset] = char_str[i];
+                    bit_offset = 7;
+                    break;
+                case 1:
+                    (*ie_ptr)[byte_offset] |= (char_str[i] << 1);
+                    bit_offset = 0;
+                    byte_offset++;
+                    break;
+                case 2:
+                    (*ie_ptr)[byte_offset] |= ((char_str[i] << 2) & 0xFC);
+                    byte_offset++;
+                    (*ie_ptr)[byte_offset] = ((char_str[i] >> 6) & 0x01);
+                    bit_offset = 1;
+                    break;
+                case 3:
+                    (*ie_ptr)[byte_offset] |= ((char_str[i] << 3) & 0xF8);
+                    byte_offset++;
+                    (*ie_ptr)[byte_offset] = ((char_str[i] >> 5) & 0x03);
+                    bit_offset = 2;
+                    break;
+                case 4:
+                    (*ie_ptr)[byte_offset] |= ((char_str[i] << 4) & 0xF0);
+                    byte_offset++;
+                    (*ie_ptr)[byte_offset] = ((char_str[i] >> 4) & 0x07);
+                    bit_offset = 3;
+                    break;
+                case 5:
+                    (*ie_ptr)[byte_offset] |= ((char_str[i] << 5) & 0xE0);
+                    byte_offset++;
+                    (*ie_ptr)[byte_offset] = ((char_str[i] >> 3) & 0x0F);
+                    bit_offset = 4;
+                    break;
+                case 6:
+                    (*ie_ptr)[byte_offset] |= ((char_str[i] << 6) & 0xC0);
+                    byte_offset++;
+                    (*ie_ptr)[byte_offset] = ((char_str[i] >> 2) & 0x1F);
+                    bit_offset = 5;
+                    break;
+                case 7:
+                    (*ie_ptr)[byte_offset] |= ((char_str[i] << 7) & 0x80);
+                    byte_offset++;
+                    (*ie_ptr)[byte_offset] = ((char_str[i] >> 1) & 0x3F);
+                    bit_offset = 6;
+                    break;
+                }
+            }
+        }
+        if(0 == bit_offset)
+        {
+            (*ie_ptr)[0]  = byte_offset - 1;
+            (*ie_ptr)[1]  = 0x80 | ((net_name->add_ci & 0x01) << 3);
+            *ie_ptr      += byte_offset;
+        }else{
+            (*ie_ptr)[0]  = byte_offset;
+            (*ie_ptr)[1]  = 0x80 | ((net_name->add_ci & 0x01) << 3) | ((8 - bit_offset) & 0x07);
+            *ie_ptr      += byte_offset + 1;
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
+LIBLTE_ERROR_ENUM liblte_mme_unpack_network_name_ie(uint8                          **ie_ptr,
+                                                    LIBLTE_MME_NETWORK_NAME_STRUCT  *net_name)
+{
+    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    uint32            i;
+    uint32            bit_offset;
+    uint32            byte_offset;
+    uint32            N_bytes;
+    uint8             spare_field;
+    char              tmp_char;
+
+    if(ie_ptr   != NULL &&
+       net_name != NULL)
+    {
+        net_name->add_ci = (LIBLTE_MME_ADD_CI_ENUM)(((*ie_ptr)[1] >> 3) & 0x01);
+        spare_field      = (*ie_ptr)[1] & 0x07;
+        N_bytes          = (*ie_ptr)[0];
+        bit_offset       = 0;
+        byte_offset      = 2;
+        net_name->name   = "";
+        while(byte_offset < N_bytes)
+        {
+            switch(bit_offset)
+            {
+            case 0:
+                tmp_char = (*ie_ptr)[byte_offset] & 0x7F;
+                bit_offset = 7;
+                break;
+            case 1:
+                tmp_char = ((*ie_ptr)[byte_offset] >> 1) & 0x7F;
+                bit_offset = 0;
+                byte_offset++;
+                break;
+            case 2:
+                tmp_char = ((*ie_ptr)[byte_offset] >> 2) & 0x3F;
+                byte_offset++;
+                tmp_char |= ((*ie_ptr)[byte_offset] << 6) & 0x40;
+                bit_offset = 1;
+                break;
+            case 3:
+                tmp_char = ((*ie_ptr)[byte_offset] >> 3) & 0x1F;
+                byte_offset++;
+                tmp_char |= ((*ie_ptr)[byte_offset] << 5) & 0x60;
+                bit_offset = 2;
+                break;
+            case 4:
+                tmp_char = ((*ie_ptr)[byte_offset] >> 4) & 0x0F;
+                byte_offset++;
+                tmp_char |= ((*ie_ptr)[byte_offset] << 4) & 0x70;
+                bit_offset = 3;
+                break;
+            case 5:
+                tmp_char = ((*ie_ptr)[byte_offset] >> 5) & 0x07;
+                byte_offset++;
+                tmp_char |= ((*ie_ptr)[byte_offset] << 3) & 0x78;
+                bit_offset = 4;
+                break;
+            case 6:
+                tmp_char = ((*ie_ptr)[byte_offset] >> 6) & 0x03;
+                byte_offset++;
+                tmp_char |= ((*ie_ptr)[byte_offset] << 2) & 0x7C;
+                bit_offset = 5;
+                break;
+            case 7:
+                tmp_char = ((*ie_ptr)[byte_offset] >> 7) & 0x01;
+                byte_offset++;
+                tmp_char |= ((*ie_ptr)[byte_offset] << 1) & 0x7E;
+                bit_offset = 6;
+                break;
+            }
+
+            if(tmp_char  == 0x0A  ||
+               tmp_char  == 0x0D  ||
+               (tmp_char >= 0x20  &&
+                tmp_char <= 0x3F) ||
+               (tmp_char >= 0x41  &&
+                tmp_char <= 0x5A) ||
+               (tmp_char >= 0x61  &&
+                tmp_char <= 0x7A))
+            {
+                net_name->name += tmp_char;
+            }
+        }
+
+        if(0  == bit_offset ||
+           (1 == bit_offset &&
+            0 == spare_field))
+        {
+            if(0 == bit_offset)
+            {
+                tmp_char = (*ie_ptr)[byte_offset] & 0x7F;
+            }else{
+                tmp_char = ((*ie_ptr)[byte_offset] >> 1) & 0x7F;
+            }
+            if(tmp_char  == 0x0A  ||
+               tmp_char  == 0x0D  ||
+               (tmp_char >= 0x20  &&
+                tmp_char <= 0x3F) ||
+               (tmp_char >= 0x41  &&
+                tmp_char <= 0x5A) ||
+               (tmp_char >= 0x61  &&
+                tmp_char <= 0x7A))
+            {
+                net_name->name += tmp_char;
+            }
+        }
+
+        *ie_ptr += byte_offset + 1;
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
 
 /*********************************************************************
     IE Name: Nonce
@@ -6267,7 +6472,179 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_downlink_nas_transport_msg(LIBLTE_BYTE_MSG_S
 
     Document Reference: 24.301 v10.2.0 Section 8.2.13
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_emm_information_msg(LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT *emm_info,
+                                                      uint8                                  sec_hdr_type,
+                                                      uint8                                 *key_256,
+                                                      uint32                                 count,
+                                                      uint8                                  direction,
+                                                      uint8                                  rb_id,
+                                                      LIBLTE_BYTE_MSG_STRUCT                *msg)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(emm_info != NULL &&
+       msg      != NULL)
+    {
+        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS != sec_hdr_type)
+        {
+            // Protocol Discriminator and Security Header Type
+            *msg_ptr = (sec_hdr_type << 4) | (LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT);
+            msg_ptr++;
+
+            // MAC will be filled in later
+            msg_ptr += 4;
+
+            // Sequence Number
+            *msg_ptr = count & 0xFF;
+            msg_ptr++;
+        }
+
+        // Protocol Discriminator and Security Header Type
+        *msg_ptr = (LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS << 4) | (LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT);
+        msg_ptr++;
+
+        // Message Type
+        *msg_ptr = LIBLTE_MME_MSG_TYPE_EMM_INFORMATION;
+        msg_ptr++;
+
+        // Full Name For Network
+        if(emm_info->full_net_name_present)
+        {
+            *msg_ptr = LIBLTE_MME_FULL_NAME_FOR_NETWORK_IEI;
+            msg_ptr++;
+            liblte_mme_pack_network_name_ie(&emm_info->full_net_name, &msg_ptr);
+        }
+
+        // Short Name For Network
+        if(emm_info->short_net_name_present)
+        {
+            *msg_ptr = LIBLTE_MME_SHORT_NAME_FOR_NETWORK_IEI;
+            msg_ptr++;
+            liblte_mme_pack_network_name_ie(&emm_info->short_net_name, &msg_ptr);
+        }
+
+        // Local Time Zone
+        if(emm_info->local_time_zone_present)
+        {
+            *msg_ptr = LIBLTE_MME_LOCAL_TIME_ZONE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_time_zone_ie(emm_info->local_time_zone, &msg_ptr);
+        }
+
+        // Universal Time And Local Time Zone
+        if(emm_info->utc_and_local_time_zone_present)
+        {
+            *msg_ptr = LIBLTE_MME_UNIVERSAL_TIME_AND_LOCAL_TIME_ZONE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_time_zone_and_time_ie(&emm_info->utc_and_local_time_zone, &msg_ptr);
+        }
+
+        // Network Daylight Saving Time
+        if(emm_info->net_dst_present)
+        {
+            *msg_ptr = LIBLTE_MME_NETWORK_DAYLIGHT_SAVING_TIME_IEI;
+            msg_ptr++;
+            liblte_mme_pack_daylight_saving_time_ie(emm_info->net_dst, &msg_ptr);
+        }
+
+        // Fill in the number of bytes used
+        msg->N_bytes = msg_ptr - msg->msg;
+
+        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS != sec_hdr_type)
+        {
+            // Calculate MAC
+            liblte_security_128_eia2(&key_256[16],
+                                     count,
+                                     rb_id,
+                                     direction,
+                                     &msg->msg[5],
+                                     msg->N_bytes-5,
+                                     &msg->msg[1]);
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
+LIBLTE_ERROR_ENUM liblte_mme_unpack_emm_information_msg(LIBLTE_BYTE_MSG_STRUCT                *msg,
+                                                        LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT *emm_info)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+    uint8              sec_hdr_type;
+
+    if(msg      != NULL &&
+       emm_info != NULL)
+    {
+        // Security Header Type
+        sec_hdr_type = (msg->msg[0] & 0xF0) >> 4;
+        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS == sec_hdr_type)
+        {
+            msg_ptr++;
+        }else{
+            msg_ptr += 7;
+        }
+
+        // Skip Message Type
+        msg_ptr++;
+
+        // Full Name For Network
+        if(LIBLTE_MME_FULL_NAME_FOR_NETWORK_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_network_name_ie(&msg_ptr, &emm_info->full_net_name);
+            emm_info->full_net_name_present = true;
+        }else{
+            emm_info->full_net_name_present = false;
+        }
+
+        // Short Name For Network
+        if(LIBLTE_MME_SHORT_NAME_FOR_NETWORK_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_network_name_ie(&msg_ptr, &emm_info->short_net_name);
+            emm_info->short_net_name_present = true;
+        }else{
+            emm_info->short_net_name_present = false;
+        }
+
+        // Local Time Zone
+        if(LIBLTE_MME_LOCAL_TIME_ZONE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_time_zone_ie(&msg_ptr, &emm_info->local_time_zone);
+            emm_info->local_time_zone_present = true;
+        }else{
+            emm_info->local_time_zone_present = false;
+        }
+
+        // Universal Time And Local Time Zone
+        if(LIBLTE_MME_UNIVERSAL_TIME_AND_LOCAL_TIME_ZONE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_time_zone_and_time_ie(&msg_ptr, &emm_info->utc_and_local_time_zone);
+            emm_info->utc_and_local_time_zone_present = true;
+        }else{
+            emm_info->utc_and_local_time_zone_present = false;
+        }
+
+        // Network Daylight Saving Time
+        if(LIBLTE_MME_NETWORK_DAYLIGHT_SAVING_TIME_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_daylight_saving_time_ie(&msg_ptr, &emm_info->net_dst);
+            emm_info->net_dst_present = true;
+        }else{
+            emm_info->net_dst_present = false;
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
 
 /*********************************************************************
     Message Name: EMM Status

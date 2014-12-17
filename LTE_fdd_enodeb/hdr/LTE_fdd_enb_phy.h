@@ -29,6 +29,7 @@
                                    added the ability to handle late subframes.
     05/04/2014    Ben Wojtowicz    Added PHICH support.
     06/15/2014    Ben Wojtowicz    Changed fn_combo to current_tti.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
 
 *******************************************************************************/
 
@@ -98,7 +99,7 @@ private:
     // Communication
     void handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
     LTE_fdd_enb_msgq                   *mac_comm_msgq;
-    boost::interprocess::message_queue *phy_mac_mq;
+    boost::interprocess::message_queue *phy_mac_olmq;
 
     // Generic parameters
     LIBLTE_PHY_STRUCT *phy_struct;

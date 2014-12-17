@@ -34,6 +34,7 @@
     11/29/2014    Ben Wojtowicz    Refactored C-RNTI assign/release, added
                                    C-RNTI transfer, added more ways to add,
                                    delete, and find users.
+    12/16/2014    Ben Wojtowicz    Added delayed user delete functionality.
 
 *******************************************************************************/
 
@@ -181,7 +182,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::release_c_rnti(uint16 c_rnti)
         {
             (*iter).second->init();
         }else{
-            del_user((*iter).second);
+            del_user((*iter).second, false);
         }
 
         // Release the C-RNTI
@@ -222,8 +223,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::transfer_c_rnti(LTE_fdd_enb_user *o
         {
             old_user->init();
         }else{
-            // FIXME: HACK
-//            del_user(old_user);
+            del_user(old_user, true);
         }
 
         // Update the C-RNTI map
@@ -417,7 +417,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(uint32             ip_add
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user,
+                                                      bool              delayed)
 {
     boost::mutex::scoped_lock               lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
@@ -433,7 +434,12 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                delete tmp_user;
+                if(delayed)
+                {
+                    delayed_del_user_list.push_back(tmp_user);
+                }else{
+                    delete tmp_user;
+                }
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -449,7 +455,12 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                delete tmp_user;
+                if(delayed)
+                {
+                    delayed_del_user_list.push_back(tmp_user);
+                }else{
+                    delete tmp_user;
+                }
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -461,7 +472,12 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                delete tmp_user;
+                if(delayed)
+                {
+                    delayed_del_user_list.push_back(tmp_user);
+                }else{
+                    delete tmp_user;
+                }
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -470,7 +486,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi,
+                                                      bool        delayed)
 {
     boost::mutex::scoped_lock               lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
@@ -495,7 +512,12 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                delete tmp_user;
+                if(delayed)
+                {
+                    delayed_del_user_list.push_back(tmp_user);
+                }else{
+                    delete tmp_user;
+                }
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -504,7 +526,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti,
+                                                      bool   delayed)
 {
     boost::mutex::scoped_lock               lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
@@ -518,7 +541,12 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti)
         {
             tmp_user = (*iter);
             user_list.erase(iter);
-            delete tmp_user;
+            if(delayed)
+            {
+                delayed_del_user_list.push_back(tmp_user);
+            }else{
+                delete tmp_user;
+            }
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
         }
@@ -526,7 +554,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti)
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti,
+                                                      bool                                  delayed)
 {
     boost::mutex::scoped_lock               lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
@@ -544,13 +573,37 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_G
         {
             tmp_user = (*iter);
             user_list.erase(iter);
-            delete tmp_user;
+            if(delayed)
+            {
+                delayed_del_user_list.push_back(tmp_user);
+            }else{
+                delete tmp_user;
+            }
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
         }
     }
 
     return(err);
+}
+void LTE_fdd_enb_user_mgr::handle_tick(void)
+{
+    LTE_fdd_enb_user *tmp_user;
+    uint32            i;
+    uint32            size = delayed_del_user_list.size();
+
+    for(i=0; i<size; i++)
+    {
+        tmp_user = delayed_del_user_list.front();
+        delayed_del_user_list.pop_front();
+        if(tmp_user->get_N_del_ticks() > 100)
+        {
+            delete tmp_user;
+        }else{
+            tmp_user->set_N_del_ticks(tmp_user->get_N_del_ticks()+1);
+            delayed_del_user_list.push_back(tmp_user);
+        }
+    }
 }
 
 /**********************/

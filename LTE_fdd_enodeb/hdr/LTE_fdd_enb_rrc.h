@@ -35,6 +35,7 @@
                                    security mode command messages.
     11/29/2014    Ben Wojtowicz    Added user and rb update to
                                    parse_ul_ccch_message.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -99,8 +100,8 @@ private:
     void handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
     LTE_fdd_enb_msgq                   *pdcp_comm_msgq;
     LTE_fdd_enb_msgq                   *mme_comm_msgq;
-    boost::interprocess::message_queue *rrc_pdcp_mq;
-    boost::interprocess::message_queue *rrc_mme_mq;
+    boost::interprocess::message_queue *rrc_pdcp_olmq;
+    boost::interprocess::message_queue *rrc_mme_olmq;
 
     // PDCP Message Handlers
     void handle_pdu_ready(LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT *pdu_ready);

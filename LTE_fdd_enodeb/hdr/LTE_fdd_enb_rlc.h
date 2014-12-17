@@ -29,6 +29,7 @@
     06/15/2014    Ben Wojtowicz    Using the latest LTE library.
     08/03/2014    Ben Wojtowicz    Added transmit functionality.
     11/29/2014    Ben Wojtowicz    Using the byte message structure.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -93,8 +94,8 @@ private:
     void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
     LTE_fdd_enb_msgq                   *mac_comm_msgq;
     LTE_fdd_enb_msgq                   *pdcp_comm_msgq;
-    boost::interprocess::message_queue *rlc_mac_mq;
-    boost::interprocess::message_queue *rlc_pdcp_mq;
+    boost::interprocess::message_queue *rlc_mac_olmq;
+    boost::interprocess::message_queue *rlc_pdcp_olmq;
 
     // MAC Message Handlers
     void handle_pdu_ready(LTE_FDD_ENB_RLC_PDU_READY_MSG_STRUCT *pdu_ready);

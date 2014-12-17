@@ -25,6 +25,7 @@
     Revision History
     ----------    -------------    --------------------------------------------
     11/29/2014    Ben Wojtowicz    Created file
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
 
 *******************************************************************************/
 
@@ -82,7 +83,7 @@ private:
     // Communication
     void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
     LTE_fdd_enb_msgq                   *pdcp_comm_msgq;
-    boost::interprocess::message_queue *gw_pdcp_mq;
+    boost::interprocess::message_queue *gw_pdcp_olmq;
 
     // PDCP Message Handlers
     void handle_gw_data(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT *gw_data);

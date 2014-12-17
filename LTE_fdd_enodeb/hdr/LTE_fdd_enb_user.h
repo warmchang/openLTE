@@ -33,6 +33,7 @@
     11/01/2014    Ben Wojtowicz    Added more MME support and RRC key storage.
     11/29/2014    Ben Wojtowicz    Added DRB setup/teardown and C-RNTI release
                                    timer support.
+    12/16/2014    Ben Wojtowicz    Changed the delayed delete functionality.
 
 *******************************************************************************/
 
@@ -177,8 +178,8 @@ public:
     LIBLTE_MAC_PDU_STRUCT pusch_mac_pdu;
 
     // Generic
-    void set_delete_at_idle(bool dai);
-    bool get_delete_at_idle(void);
+    void set_N_del_ticks(uint32 N_ticks);
+    uint32 get_N_del_ticks(void);
 
 private:
     // Identity
@@ -211,7 +212,7 @@ private:
     LTE_fdd_enb_rb *srb0;
     LTE_fdd_enb_rb *srb1;
     LTE_fdd_enb_rb *srb2;
-    LTE_fdd_enb_rb *drb[31];
+    LTE_fdd_enb_rb *drb[8];
 
     // MME
     LIBLTE_MME_PROTOCOL_CONFIG_OPTIONS_STRUCT protocol_cnfg_opts;
@@ -228,7 +229,7 @@ private:
 
     // Generic
     void handle_timer_expiry(uint32 timer_id);
-    bool delete_at_idle;
+    uint32 N_del_ticks;
 };
 
 #endif /* __LTE_FDD_ENB_USER_H__ */

@@ -31,6 +31,7 @@
     11/29/2014    Ben Wojtowicz    Refactored C-RNTI assign/release, added
                                    C-RNTI transfer, added more ways to add,
                                    delete, and find users.
+    12/16/2014    Ben Wojtowicz    Added delayed user delete functionality.
 
 *******************************************************************************/
 
@@ -84,10 +85,11 @@ public:
     LTE_FDD_ENB_ERROR_ENUM find_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM find_user(LIBLTE_RRC_S_TMSI_STRUCT *s_tmsi, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM find_user(uint32 ip_addr, LTE_fdd_enb_user **user);
-    LTE_FDD_ENB_ERROR_ENUM del_user(LTE_fdd_enb_user *user);
-    LTE_FDD_ENB_ERROR_ENUM del_user(std::string imsi);
-    LTE_FDD_ENB_ERROR_ENUM del_user(uint16 c_rnti);
-    LTE_FDD_ENB_ERROR_ENUM del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti);
+    LTE_FDD_ENB_ERROR_ENUM del_user(LTE_fdd_enb_user *user, bool delayed);
+    LTE_FDD_ENB_ERROR_ENUM del_user(std::string imsi, bool delayed);
+    LTE_FDD_ENB_ERROR_ENUM del_user(uint16 c_rnti, bool delayed);
+    LTE_FDD_ENB_ERROR_ENUM del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti, bool delayed);
+    void handle_tick(void);
 
 private:
     // Singleton
@@ -100,6 +102,7 @@ private:
 
     // User storage
     std::list<LTE_fdd_enb_user*>        user_list;
+    std::list<LTE_fdd_enb_user*>        delayed_del_user_list;
     std::map<uint16, LTE_fdd_enb_user*> c_rnti_map;
     std::map<uint32, uint16>            timer_id_map_forward;
     std::map<uint16, uint32>            timer_id_map_reverse;

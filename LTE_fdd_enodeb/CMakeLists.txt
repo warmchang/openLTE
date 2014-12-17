@@ -26,5 +26,5 @@ add_executable(LTE_fdd_enodeb
 )
 target_link_libraries(LTE_fdd_enodeb lte fftw3f tools pthread rt ${POLARSSL_LIBRARIES} ${UHD_LIBRARIES} ${Boost_LIBRARIES} ${GNURADIO_RUNTIME_LIBRARIES} ${GNURADIO_PMT_LIBRARIES})
 install(TARGETS LTE_fdd_enodeb DESTINATION bin)
-install(CODE "execute_process(COMMAND chmod +x ${CMAKE_SOURCE_DIR}/enodeb_nat_script.sh)")
-install(CODE "execute_process(COMMAND ${CMAKE_SOURCE_DIR}/enodeb_nat_script.sh)")
+install(CODE "execute_process(COMMAND chmod +x \"${CMAKE_SOURCE_DIR}/enodeb_nat_script.sh\")")
+install(CODE "execute_process(COMMAND \"${CMAKE_SOURCE_DIR}/enodeb_nat_script.sh\")")

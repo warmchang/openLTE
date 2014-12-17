@@ -38,6 +38,7 @@
     11/29/2014    Ben Wojtowicz    Added more DRB support, moved almost
                                    everything to byte messages structs, added
                                    IP gateway and RLC UMD support.
+    12/16/2014    Ben Wojtowicz    Added QoS for default data services.
 
 *******************************************************************************/
 
@@ -147,8 +148,9 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
     mac_con_res_id = 0;
 
     // Setup the QoS
-    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){ 0,  0};
-    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){20, 22};
+    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,   0};
+    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20,  22};
+    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 20, 150};
     qos          = LTE_FDD_ENB_QOS_NONE;
 }
 LTE_fdd_enb_rb::~LTE_fdd_enb_rb()

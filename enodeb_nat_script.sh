@@ -44,3 +44,9 @@ chmod +x /etc/network/if-up.d/iptablesload
 # Give cap_net_admin capabilities to LTE_fdd_enodeb
 tmp_loc=$(which LTE_fdd_enodeb)
 setcap cap_net_admin=eip $tmp_loc
+
+# Give global read/write permissions to /dev/net/tun
+chmod 666 /dev/net/tun
+
+# Remove all shared memories for message queues
+rm -f /dev/shm/*_olmq

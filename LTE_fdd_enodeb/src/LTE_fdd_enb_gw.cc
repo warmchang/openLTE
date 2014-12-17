@@ -26,6 +26,7 @@
     Revision History
     ----------    -------------    --------------------------------------------
     11/29/2014    Ben Wojtowicz    Created file
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
 
 *******************************************************************************/
 
@@ -185,10 +186,10 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_gw::start(char *err_str)
         }
 
         // Setup PDCP communication
-        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_gw_mq",
+        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_gw_olmq",
                                               pdcp_cb);
-        gw_pdcp_mq     = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "gw_pdcp_mq");
+        gw_pdcp_olmq   = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                                "gw_pdcp_olmq");
 
         // Setup a thread to receive packets from the TUN device
         pthread_create(&rx_thread, NULL, &receive_thread, this);
@@ -312,7 +313,7 @@ void* LTE_fdd_enb_gw::receive_thread(void *inputs)
 
                     // Send message to PDCP
                     pdcp_data_sdu.rb->queue_pdcp_data_sdu(&msg);
-                    LTE_fdd_enb_msgq::send(gw->gw_pdcp_mq,
+                    LTE_fdd_enb_msgq::send(gw->gw_pdcp_olmq,
                                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_DATA_SDU_READY,
                                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_data_sdu,

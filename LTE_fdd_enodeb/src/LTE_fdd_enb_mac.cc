@@ -41,6 +41,7 @@
                                    the first downlink RLC message.
     11/01/2014    Ben Wojtowicz    Added NDI toggling.
     11/29/2014    Ben Wojtowicz    Using the byte message struct for SDUs.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -127,15 +128,15 @@ void LTE_fdd_enb_mac::start(LTE_fdd_enb_interface *iface)
     {
         interface     = iface;
         started       = true;
-        phy_comm_msgq = new LTE_fdd_enb_msgq("phy_mac_mq",
+        phy_comm_msgq = new LTE_fdd_enb_msgq("phy_mac_olmq",
                                              phy_cb,
                                              90);
-        rlc_comm_msgq = new LTE_fdd_enb_msgq("rlc_mac_mq",
+        rlc_comm_msgq = new LTE_fdd_enb_msgq("rlc_mac_olmq",
                                              rlc_cb);
-        mac_phy_mq    = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                               "mac_phy_mq");
-        mac_rlc_mq    = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                               "mac_rlc_mq");
+        mac_phy_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                               "mac_phy_olmq");
+        mac_rlc_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                               "mac_rlc_olmq");
 
         // Scheduler
         cnfg_db->get_sys_info(sys_info);
@@ -210,7 +211,7 @@ void LTE_fdd_enb_mac::handle_phy_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
         }
     }else{
         // Forward message to RLC
-        mac_rlc_mq->send(&msg, sizeof(msg), 0);
+        mac_rlc_olmq->send(&msg, sizeof(msg), 0);
     }
 }
 void LTE_fdd_enb_mac::handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
@@ -236,7 +237,7 @@ void LTE_fdd_enb_mac::handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
         }
     }else{
         // Forward message to PHY
-        mac_phy_mq->send(&msg, sizeof(msg), 0);
+        mac_phy_olmq->send(&msg, sizeof(msg), 0);
     }
 }
 
@@ -356,12 +357,12 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
         }
     }
 
-    LTE_fdd_enb_msgq::send(mac_phy_mq,
+    LTE_fdd_enb_msgq::send(mac_phy_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_DL_SCHEDULE,
                            LTE_FDD_ENB_DEST_LAYER_PHY,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&sched_dl_subfr[sched_cur_dl_subfn],
                            sizeof(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT));
-    LTE_fdd_enb_msgq::send(mac_phy_mq,
+    LTE_fdd_enb_msgq::send(mac_phy_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_UL_SCHEDULE,
                            LTE_FDD_ENB_DEST_LAYER_PHY,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&sched_ul_subfr[sched_cur_ul_subfn],
@@ -611,7 +612,7 @@ void LTE_fdd_enb_mac::handle_ulsch_ccch_sdu(LTE_fdd_enb_user       *user,
         // Signal RLC
         rlc_pdu_ready.user = user;
         rlc_pdu_ready.rb   = rb;
-        LTE_fdd_enb_msgq::send(mac_rlc_mq,
+        LTE_fdd_enb_msgq::send(mac_rlc_olmq,
                                LTE_FDD_ENB_MESSAGE_TYPE_RLC_PDU_READY,
                                LTE_FDD_ENB_DEST_LAYER_RLC,
                                (LTE_FDD_ENB_MESSAGE_UNION *)&rlc_pdu_ready,
@@ -670,7 +671,7 @@ void LTE_fdd_enb_mac::handle_ulsch_dcch_sdu(LTE_fdd_enb_user       *user,
             // Signal RLC
             rlc_pdu_ready.user = user;
             rlc_pdu_ready.rb   = rb;
-            LTE_fdd_enb_msgq::send(mac_rlc_mq,
+            LTE_fdd_enb_msgq::send(mac_rlc_olmq,
                                    LTE_FDD_ENB_MESSAGE_TYPE_RLC_PDU_READY,
                                    LTE_FDD_ENB_DEST_LAYER_RLC,
                                    (LTE_FDD_ENB_MESSAGE_UNION *)&rlc_pdu_ready,
@@ -722,7 +723,7 @@ void LTE_fdd_enb_mac::handle_ulsch_c_rnti(LTE_fdd_enb_user            **user,
     if(c_rnti->c_rnti != (*user)->get_c_rnti())
     {
         user_mgr->find_user(c_rnti->c_rnti, user);
-        user_mgr->del_user(old_c_rnti);
+        user_mgr->del_user(old_c_rnti, false);
     }
 }
 void LTE_fdd_enb_mac::handle_ulsch_truncated_bsr(LTE_fdd_enb_user                   *user,

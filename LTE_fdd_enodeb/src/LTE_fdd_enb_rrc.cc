@@ -37,6 +37,7 @@
                                    security mode command messages.
     11/29/2014    Ben Wojtowicz    Added DRB1 and DRB2 support and user
                                    recovery on RRC connection request.
+    12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
 
 *******************************************************************************/
 
@@ -119,14 +120,14 @@ void LTE_fdd_enb_rrc::start(void)
     if(!started)
     {
         started        = true;
-        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_rrc_mq",
+        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_rrc_olmq",
                                               pdcp_cb);
-        mme_comm_msgq  = new LTE_fdd_enb_msgq("mme_rrc_mq",
+        mme_comm_msgq  = new LTE_fdd_enb_msgq("mme_rrc_olmq",
                                               mme_cb);
-        rrc_pdcp_mq    = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "rrc_pdcp_mq");
-        rrc_mme_mq     = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "rrc_mme_mq");
+        rrc_pdcp_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                                "rrc_pdcp_olmq");
+        rrc_mme_olmq   = new boost::interprocess::message_queue(boost::interprocess::open_only,
+                                                                "rrc_mme_olmq");
     }
 }
 void LTE_fdd_enb_rrc::stop(void)
@@ -169,7 +170,7 @@ void LTE_fdd_enb_rrc::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
         }
     }else{
         // Forward message to MME
-        rrc_mme_mq->send(&msg, sizeof(msg), 0);
+        rrc_mme_olmq->send(&msg, sizeof(msg), 0);
     }
 }
 void LTE_fdd_enb_rrc::handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
@@ -201,7 +202,7 @@ void LTE_fdd_enb_rrc::handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
         }
     }else{
         // Forward message to PDCP
-        rrc_pdcp_mq->send(&msg, sizeof(msg), 0);
+        rrc_pdcp_olmq->send(&msg, sizeof(msg), 0);
     }
 }
 
@@ -617,7 +618,7 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
         // Signal MME
         nas_msg_ready.user = user;
         nas_msg_ready.rb   = rb;
-        LTE_fdd_enb_msgq::send(rrc_mme_mq,
+        LTE_fdd_enb_msgq::send(rrc_mme_olmq,
                                LTE_FDD_ENB_MESSAGE_TYPE_MME_NAS_MSG_READY,
                                LTE_FDD_ENB_DEST_LAYER_MME,
                                (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -632,7 +633,7 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
             // Signal MME
             nas_msg_ready.user = user;
             nas_msg_ready.rb   = rb;
-            LTE_fdd_enb_msgq::send(rrc_mme_mq,
+            LTE_fdd_enb_msgq::send(rrc_mme_olmq,
                                    LTE_FDD_ENB_MESSAGE_TYPE_MME_NAS_MSG_READY,
                                    LTE_FDD_ENB_DEST_LAYER_MME,
                                    (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
@@ -652,7 +653,7 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
         cmd_resp.user     = user;
         cmd_resp.rb       = rb;
         cmd_resp.cmd_resp = LTE_FDD_ENB_MME_RRC_CMD_RESP_SECURITY;
-        LTE_fdd_enb_msgq::send(rrc_mme_mq,
+        LTE_fdd_enb_msgq::send(rrc_mme_olmq,
                                LTE_FDD_ENB_MESSAGE_TYPE_MME_RRC_CMD_RESP,
                                LTE_FDD_ENB_DEST_LAYER_MME,
                                (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_resp,
@@ -704,7 +705,7 @@ void LTE_fdd_enb_rrc::send_dl_info_transfer(LTE_fdd_enb_user       *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_mq,
+    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
@@ -826,7 +827,7 @@ void LTE_fdd_enb_rrc::send_rrc_con_reconfig(LTE_fdd_enb_user       *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_mq,
+    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
@@ -858,7 +859,7 @@ void LTE_fdd_enb_rrc::send_rrc_con_release(LTE_fdd_enb_user *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_mq,
+    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
@@ -913,7 +914,7 @@ void LTE_fdd_enb_rrc::send_rrc_con_setup(LTE_fdd_enb_user *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_mq,
+    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
@@ -949,7 +950,7 @@ void LTE_fdd_enb_rrc::send_security_mode_command(LTE_fdd_enb_user *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_mq,
+    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
                            LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,

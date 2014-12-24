@@ -30,6 +30,7 @@
     11/01/2014    Ben Wojtowicz    Added more decoding/encoding.
     11/29/2014    Ben Wojtowicz    Added more decoding/encoding.
     12/16/2014    Ben Wojtowicz    Added more decoding/encoding.
+    12/24/2014    Ben Wojtowicz    Cleaned up the Time Zone and Time IE.
 
 *******************************************************************************/
 
@@ -1340,13 +1341,13 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_time_zone_ie(uint8 **ie_ptr,
 // Enums
 // Structs
 typedef struct{
-    uint8 year;
-    uint8 month;
-    uint8 day;
-    uint8 hour;
-    uint8 minute;
-    uint8 second;
-    uint8 tz;
+    uint16 year;
+    uint8  month;
+    uint8  day;
+    uint8  hour;
+    uint8  minute;
+    uint8  second;
+    uint8  tz;
 }LIBLTE_MME_TIME_ZONE_AND_TIME_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mme_pack_time_zone_and_time_ie(LIBLTE_MME_TIME_ZONE_AND_TIME_STRUCT  *ttz,

@@ -155,3 +155,10 @@ v00.18.01     Added more MME encoding and decoding to the LTE library, pulled in
               user deletion, ol extension to all message queues, ability to send
               EMM information message, and QoS for default data services to
               LTE_fdd_enodeb.
+v00.18.02     Fixed several bugs in LTE_fdd_enodeb.  Specifically, cleaned up the
+              Time Zone and Time IE and added C-RNTI support to
+              get_tbs_mcs_and_N_prb_for_dl in liblte, added asymmetric QoS support,
+              dynamically determining MCS for downlink data, sending EMM information
+              message, added more time spec information in radio debug, copying
+              SRB1 PDCP config to SRB2, fixed a UMD reassembly bug, and did a hack
+              to get around a crash when releasing a C-RNTI in LTE_fdd_enodeb.

@@ -31,6 +31,7 @@
     11/01/2014    Ben Wojtowicz    Added more decoding/encoding.
     11/29/2014    Ben Wojtowicz    Added more decoding/encoding.
     12/16/2014    Ben Wojtowicz    Added more decoding/encoding.
+    12/24/2014    Ben Wojtowicz    Cleaned up the Time Zone and Time IE.
 
 *******************************************************************************/
 
@@ -2642,12 +2643,12 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_time_zone_and_time_ie(LIBLTE_MME_TIME_ZONE_AND
     if(ttz    != NULL &&
        ie_ptr != NULL)
     {
-        (*ie_ptr)[0]  = ttz->year;
-        (*ie_ptr)[1]  = ttz->month;
-        (*ie_ptr)[2]  = ttz->day;
-        (*ie_ptr)[3]  = ttz->hour;
-        (*ie_ptr)[4]  = ttz->minute;
-        (*ie_ptr)[5]  = ttz->second;
+        (*ie_ptr)[0]  = ((ttz->year % 10) << 4) | ((ttz->year % 100) / 10);
+        (*ie_ptr)[1]  = ((ttz->month % 10) << 4) | (ttz->month / 10);
+        (*ie_ptr)[2]  = ((ttz->day % 10) << 4) | (ttz->day / 10);
+        (*ie_ptr)[3]  = ((ttz->hour % 10) << 4) | (ttz->hour / 10);
+        (*ie_ptr)[4]  = ((ttz->minute % 10) << 4) | (ttz->minute / 10);
+        (*ie_ptr)[5]  = ((ttz->second % 10) << 4) | (ttz->second / 10);
         (*ie_ptr)[6]  = ttz->tz;
         *ie_ptr      += 7;
 
@@ -2664,12 +2665,12 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_time_zone_and_time_ie(uint8                 
     if(ie_ptr != NULL &&
        ttz    != NULL)
     {
-        ttz->year    = (*ie_ptr)[0];
-        ttz->month   = (*ie_ptr)[1];
-        ttz->day     = (*ie_ptr)[2];
-        ttz->hour    = (*ie_ptr)[3];
-        ttz->minute  = (*ie_ptr)[4];
-        ttz->second  = (*ie_ptr)[5];
+        ttz->year    = 2000 + (((*ie_ptr)[0] & 0x0F) * 10) + (((*ie_ptr)[0] >> 4) & 0x0F);
+        ttz->month   = (((*ie_ptr)[1] & 0x0F) * 10) + (((*ie_ptr)[1] >> 4) & 0x0F);
+        ttz->day     = (((*ie_ptr)[2] & 0x0F) * 10) + (((*ie_ptr)[2] >> 4) & 0x0F);
+        ttz->hour    = (((*ie_ptr)[3] & 0x0F) * 10) + (((*ie_ptr)[3] >> 4) & 0x0F);
+        ttz->minute  = (((*ie_ptr)[4] & 0x0F) * 10) + (((*ie_ptr)[4] >> 4) & 0x0F);
+        ttz->second  = (((*ie_ptr)[5] & 0x0F) * 10) + (((*ie_ptr)[5] >> 4) & 0x0F);
         ttz->tz      = (*ie_ptr)[6];
         *ie_ptr     += 7;
 

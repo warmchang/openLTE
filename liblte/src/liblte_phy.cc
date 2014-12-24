@@ -101,6 +101,8 @@
                                    bits_2_value functions.
     11/29/2014    Ben Wojtowicz    Using the common liblte_value_2_bits and
                                    liblte_bits_2_value functions.
+    12/24/2014    Ben Wojtowicz    Added C-RNTI support to
+                                   get_tbs_mcs_and_N_prb_for_dl.
 
 *******************************************************************************/
 
@@ -5923,6 +5925,7 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_dl(uint32  N_bits,
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
+    uint32            j;
     uint32            code_rate;
     uint32            N_prb_tmp;
     uint32            N_bits_per_prb;
@@ -5971,7 +5974,28 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_dl(uint32  N_bits,
                 err = LIBLTE_SUCCESS;
             }
         }else{
-            // FIXME: Add support for other RNTIs
+            *N_prb = 0;
+            for(i=0; i<27; i++)
+            {
+                for(j=0; j<N_rb_dl; j++)
+                {
+                    if(N_bits <= TBS_71721[i][j])
+                    {
+                        *tbs   = TBS_71721[i][j];
+                        *mcs   = i;
+                        *N_prb = j + 1;
+                        break;
+                    }
+                }
+                if(*N_prb != 0)
+                {
+                    break;
+                }
+            }
+            if(*N_prb != 0)
+            {
+                err = LIBLTE_SUCCESS;
+            }
         }
     }
 

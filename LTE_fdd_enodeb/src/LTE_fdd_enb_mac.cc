@@ -42,6 +42,8 @@
     11/01/2014    Ben Wojtowicz    Added NDI toggling.
     11/29/2014    Ben Wojtowicz    Using the byte message struct for SDUs.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    12/24/2014    Ben Wojtowicz    Dynamically determining MCS for downlink
+                                   data.
 
 *******************************************************************************/
 
@@ -514,7 +516,6 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
         }
         sys_info_mutex.unlock();
         alloc.rnti = user->get_c_rnti();
-        alloc.mcs  = 0;
         alloc.tpc  = LIBLTE_PHY_TPC_COMMAND_DCI_1_1A_1B_1D_2_3_DB_ZERO;
         alloc.ndi  = user->get_dl_ndi();
         user->flip_dl_ndi();
@@ -1009,11 +1010,13 @@ void LTE_fdd_enb_mac::scheduler(void)
             // Pack the message and determine TBS
             liblte_mac_pack_mac_pdu(&dl_sched->mac_pdu,
                                     &dl_sched->alloc.msg);
-            liblte_phy_get_tbs_and_n_prb_for_dl(dl_sched->alloc.msg.N_bits,
-                                                sys_info.N_rb_dl,
-                                                dl_sched->alloc.mcs,
-                                                &dl_sched->alloc.tbs,
-                                                &dl_sched->alloc.N_prb);
+            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(dl_sched->alloc.msg.N_bits,
+                                                    dl_sched->current_tti % 10,
+                                                    sys_info.N_rb_dl,
+                                                    dl_sched->alloc.rnti,
+                                                    &dl_sched->alloc.tbs,
+                                                    &dl_sched->alloc.mcs,
+                                                    &dl_sched->alloc.N_prb);
 
             // Pad and repack if needed
             if(dl_sched->alloc.tbs > dl_sched->alloc.msg.N_bits)
@@ -1064,7 +1067,10 @@ void LTE_fdd_enb_mac::scheduler(void)
                                           __FILE__,
                                           __LINE__,
                                           &dl_sched->alloc.msg,
-                                          "DL allocation sent for RNTI=%u CURRENT_TTI=%u",
+                                          "DL allocation (mcs=%u, tbs=%u, N_prb=%u) sent for RNTI=%u CURRENT_TTI=%u",
+                                          dl_sched->alloc.mcs,
+                                          dl_sched->alloc.tbs,
+                                          dl_sched->alloc.N_prb,
                                           dl_sched->alloc.rnti,
                                           sched_dl_subfr[sched_cur_dl_subfn].current_tti);
 

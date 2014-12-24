@@ -41,6 +41,7 @@
     09/03/2014    Ben Wojtowicz    Fixed stop issue.
     12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
                                    USRP X300 support.
+    12/24/2014    Ben Wojtowicz    Added more time spec information in debug.
 
 *******************************************************************************/
 
@@ -678,18 +679,20 @@ void* LTE_fdd_enb_radio::radio_thread_func(void *inputs)
                 num_samps = radio->rx_stream->recv(radio->rx_buf, radio->N_rx_samps, metadata);
                 if(0 != num_samps)
                 {
+                    next_rx_ts_ticks  = next_rx_ts.to_ticks(samp_rate);
+                    metadata_ts_ticks = metadata.time_spec.to_ticks(samp_rate);
                     if(num_samps != radio->N_rx_samps)
                     {
                         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                                   LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
                                                   __FILE__,
                                                   __LINE__,
-                                                  "RX packet size issue %u %u",
+                                                  "RX packet size issue %u %u %lld %lld",
                                                   num_samps,
-                                                  radio->N_rx_samps);
+                                                  radio->N_rx_samps,
+                                                  metadata_ts_ticks,
+                                                  next_rx_ts_ticks);
                     }
-                    next_rx_ts_ticks  = next_rx_ts.to_ticks(samp_rate);
-                    metadata_ts_ticks = metadata.time_spec.to_ticks(samp_rate);
                     if((next_rx_ts_ticks - metadata_ts_ticks) > 1)
                     {
                         // FIXME: Not sure this will ever happen

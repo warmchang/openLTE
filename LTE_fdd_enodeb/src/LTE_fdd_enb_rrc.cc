@@ -38,6 +38,8 @@
     11/29/2014    Ben Wojtowicz    Added DRB1 and DRB2 support and user
                                    recovery on RRC connection request.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    12/24/2014    Ben Wojtowicz    Using default data QoS and copying SRB1
+                                   PDCP config to SRB2.
 
 *******************************************************************************/
 
@@ -336,6 +338,7 @@ void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
             srb2->set_rrc_state(cmd->rb->get_rrc_state());
             srb2->set_mme_procedure(cmd->rb->get_mme_procedure());
             srb2->set_mme_state(cmd->rb->get_mme_state());
+            srb2->set_pdcp_config(cmd->rb->get_pdcp_config());
             srb2->set_qos(cmd->rb->get_qos());
 
             // Configure DRB1
@@ -343,7 +346,7 @@ void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
             drb1->set_drb_id(1);
             drb1->set_lc_id(3);
             drb1->set_log_chan_group(2);
-            drb1->set_qos(cmd->rb->get_qos());
+            drb1->set_qos(LTE_FDD_ENB_QOS_DEFAULT_DATA);
 
             if(LTE_FDD_ENB_ERROR_NONE == cmd->rb->get_next_rrc_nas_msg(&msg))
             {
@@ -370,6 +373,7 @@ void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
             srb2->set_rrc_state(cmd->rb->get_rrc_state());
             srb2->set_mme_procedure(cmd->rb->get_mme_procedure());
             srb2->set_mme_state(cmd->rb->get_mme_state());
+            srb2->set_pdcp_config(cmd->rb->get_pdcp_config());
             srb2->set_qos(cmd->rb->get_qos());
 
             // Configure DRB1
@@ -377,14 +381,14 @@ void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
             drb1->set_drb_id(1);
             drb1->set_lc_id(3);
             drb1->set_log_chan_group(2);
-            drb1->set_qos(cmd->rb->get_qos());
+            drb1->set_qos(LTE_FDD_ENB_QOS_DEFAULT_DATA);
 
             // Configure DRB2
             drb2->set_eps_bearer_id(cmd->user->get_eps_bearer_id()+1);
             drb2->set_drb_id(2);
             drb2->set_lc_id(4);
             drb2->set_log_chan_group(3);
-            drb2->set_qos(cmd->rb->get_qos());
+            drb2->set_qos(LTE_FDD_ENB_QOS_DEFAULT_DATA);
 
             if(LTE_FDD_ENB_ERROR_NONE == cmd->rb->get_next_rrc_nas_msg(&msg))
             {

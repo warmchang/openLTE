@@ -38,6 +38,7 @@
                                    everything to byte messages structs, added
                                    IP gateway and RLC UMD support.
     12/16/2014    Ben Wojtowicz    Added QoS for default data services.
+    12/24/2014    Ben Wojtowicz    Added asymmetric QoS support.
 
 *******************************************************************************/
 
@@ -181,7 +182,8 @@ static const char LTE_fdd_enb_qos_text[LTE_FDD_ENB_QOS_N_ITEMS][20] = {"None",
 typedef struct{
     LTE_FDD_ENB_QOS_ENUM qos;
     uint32               tti_frequency;
-    uint32               bytes_per_subfn;
+    uint32               ul_bytes_per_subfn;
+    uint32               dl_bytes_per_subfn;
 }LTE_FDD_ENB_QOS_STRUCT;
 
 /*******************************************************************************
@@ -311,7 +313,8 @@ public:
     void set_qos(LTE_FDD_ENB_QOS_ENUM _qos);
     LTE_FDD_ENB_QOS_ENUM get_qos(void);
     uint32 get_qos_tti_freq(void);
-    uint32 get_qos_bytes_per_subfn(void);
+    uint32 get_qos_ul_bytes_per_subfn(void);
+    uint32 get_qos_dl_bytes_per_subfn(void);
 
 private:
     // Identity

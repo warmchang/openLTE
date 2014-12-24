@@ -39,6 +39,8 @@
                                    everything to byte messages structs, added
                                    IP gateway and RLC UMD support.
     12/16/2014    Ben Wojtowicz    Added QoS for default data services.
+    12/24/2014    Ben Wojtowicz    Added asymmetric QoS support and fixed a
+                                   UMD reassembly bug.
 
 *******************************************************************************/
 
@@ -148,9 +150,9 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
     mac_con_res_id = 0;
 
     // Setup the QoS
-    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,   0};
-    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20,  22};
-    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 20, 150};
+    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,   0,   0};
+    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20,  22,  22};
+    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 20,  22, 250};
     qos          = LTE_FDD_ENB_QOS_NONE;
 }
 LTE_fdd_enb_rb::~LTE_fdd_enb_rb()
@@ -692,6 +694,10 @@ void LTE_fdd_enb_rb::rlc_add_to_um_reception_buffer(LIBLTE_RLC_UMD_PDU_STRUCT *u
             }else if(LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT == umd_pdu->hdr.fi){
                 rlc_last_um_segment_sn = umd_pdu->hdr.sn;
             }
+            if(rlc_last_um_segment_sn < rlc_first_um_segment_sn)
+            {
+                rlc_last_um_segment_sn = 0xFFFF;
+            }
         }else{
             delete new_pdu;
         }
@@ -786,7 +792,7 @@ void LTE_fdd_enb_rb::handle_ul_sched_timer_expiry(uint32 timer_id)
 {
     LTE_fdd_enb_mac *mac = LTE_fdd_enb_mac::get_instance();
 
-    mac->sched_ul(user, avail_qos[qos].bytes_per_subfn*8);
+    mac->sched_ul(user, avail_qos[qos].ul_bytes_per_subfn*8);
     if(LTE_FDD_ENB_RRC_PROC_IDLE  != rrc_procedure &&
        LTE_FDD_ENB_RRC_STATE_IDLE != rrc_state)
     {
@@ -955,7 +961,11 @@ uint32 LTE_fdd_enb_rb::get_qos_tti_freq(void)
 {
     return(avail_qos[qos].tti_frequency);
 }
-uint32 LTE_fdd_enb_rb::get_qos_bytes_per_subfn(void)
+uint32 LTE_fdd_enb_rb::get_qos_ul_bytes_per_subfn(void)
 {
-    return(avail_qos[qos].bytes_per_subfn);
+    return(avail_qos[qos].ul_bytes_per_subfn);
+}
+uint32 LTE_fdd_enb_rb::get_qos_dl_bytes_per_subfn(void)
+{
+    return(avail_qos[qos].dl_bytes_per_subfn);
 }

@@ -38,6 +38,7 @@
                                    request support.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue and
                                    sending of EMM information message.
+    12/24/2014    Ben Wojtowicz    Actually sending EMM information message.
 
 *******************************************************************************/
 
@@ -1081,6 +1082,7 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
         send_attach_accept(user, rb);
         break;
     case LTE_FDD_ENB_MME_STATE_ATTACHED:
+        send_emm_information(user, rb);
         send_rrc_command(user, rb, LTE_FDD_ENB_RRC_CMD_RELEASE);
         break;
     default:
@@ -1382,16 +1384,20 @@ void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
     tmp_time         = time(NULL);
     broken_down_time = localtime(&tmp_time);
 
-    emm_info.full_net_name_present           = false;
-    emm_info.short_net_name_present          = false;
+    emm_info.full_net_name_present           = true;
+    emm_info.full_net_name.name              = "openLTE";
+    emm_info.full_net_name.add_ci            = LIBLTE_MME_ADD_CI_DONT_ADD;
+    emm_info.short_net_name_present          = true;
+    emm_info.short_net_name.name             = "oLTE";
+    emm_info.short_net_name.add_ci           = LIBLTE_MME_ADD_CI_DONT_ADD;
     emm_info.local_time_zone_present         = false;
     emm_info.utc_and_local_time_zone_present = true;
-    emm_info.utc_and_local_time_zone.year    = (((broken_down_time->tm_year % 100)/10) << 4) | (broken_down_time->tm_year % 10);
-    emm_info.utc_and_local_time_zone.month   = ((broken_down_time->tm_mon/10) << 4) | (broken_down_time->tm_mon % 10);
-    emm_info.utc_and_local_time_zone.day     = ((broken_down_time->tm_mday/10) << 4) | (broken_down_time->tm_mday % 10);
-    emm_info.utc_and_local_time_zone.hour    = ((broken_down_time->tm_hour/10) << 4) | (broken_down_time->tm_hour % 10);
-    emm_info.utc_and_local_time_zone.minute  = ((broken_down_time->tm_min/10) << 4) | (broken_down_time->tm_min % 10);
-    emm_info.utc_and_local_time_zone.second  = ((broken_down_time->tm_sec/10) << 4) | (broken_down_time->tm_sec % 10);
+    emm_info.utc_and_local_time_zone.year    = broken_down_time->tm_year;
+    emm_info.utc_and_local_time_zone.month   = broken_down_time->tm_mon + 1;
+    emm_info.utc_and_local_time_zone.day     = broken_down_time->tm_mday;
+    emm_info.utc_and_local_time_zone.hour    = broken_down_time->tm_hour;
+    emm_info.utc_and_local_time_zone.minute  = broken_down_time->tm_min;
+    emm_info.utc_and_local_time_zone.second  = broken_down_time->tm_sec;
     emm_info.utc_and_local_time_zone.tz      = 0; // FIXME
     emm_info.net_dst_present                 = false;
     liblte_mme_pack_emm_information_msg(&emm_info,

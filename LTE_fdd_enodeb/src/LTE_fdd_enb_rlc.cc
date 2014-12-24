@@ -35,6 +35,7 @@
     11/29/2014    Ben Wojtowicz    Using the byte message structure and added
                                    UMD support.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    12/24/2014    Ben Wojtowicz    Using asymmetric QoS.
 
 *******************************************************************************/
 
@@ -595,7 +596,7 @@ void LTE_fdd_enb_rlc::handle_um_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
     LIBLTE_RLC_UMD_PDU_STRUCT             umd;
     LIBLTE_BYTE_MSG_STRUCT                pdu;
     uint32                                byte_idx        = 0;
-    uint32                                bytes_per_subfn = rb->get_qos_bytes_per_subfn();
+    uint32                                bytes_per_subfn = rb->get_qos_dl_bytes_per_subfn();
     uint16                                vtus            = rb->get_rlc_vtus();
 
     if(sdu->N_bytes <= bytes_per_subfn)
@@ -689,7 +690,7 @@ void LTE_fdd_enb_rlc::handle_am_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
 {
     LIBLTE_RLC_AMD_PDU_STRUCT amd;
     uint32                    byte_idx        = 0;
-    uint32                    bytes_per_subfn = rb->get_qos_bytes_per_subfn();
+    uint32                    bytes_per_subfn = rb->get_qos_dl_bytes_per_subfn();
     uint16                    vts             = rb->get_rlc_vts();
 
     if(sdu->N_bytes <= bytes_per_subfn)

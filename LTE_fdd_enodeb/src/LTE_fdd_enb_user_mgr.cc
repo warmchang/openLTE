@@ -35,6 +35,8 @@
                                    C-RNTI transfer, added more ways to add,
                                    delete, and find users.
     12/16/2014    Ben Wojtowicz    Added delayed user delete functionality.
+    12/24/2014    Ben Wojtowicz    Hack to get around a crash when releasing a
+                                   C-RNTI.
 
 *******************************************************************************/
 
@@ -634,6 +636,7 @@ void LTE_fdd_enb_user_mgr::handle_c_rnti_timer_expiry(uint32 timer_id)
         timer_id_map_forward.erase(forward_iter);
 
         timer_id_mutex.unlock();
-        release_c_rnti(c_rnti);
+        // FIXME: TIMER_ID_MAP IS NOT UPDATED WHEN C-RNTI IS TRANSFERRED
+//        release_c_rnti(c_rnti);
     }
 }

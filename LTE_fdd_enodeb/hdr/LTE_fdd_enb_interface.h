@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -40,6 +40,8 @@
     11/01/2014    Ben Wojtowicz    Added parameters for IP address assignment,
                                    DNS address, config file, and user file.
     11/29/2014    Ben Wojtowicz    Added support for the IP gateway.
+    02/15/2015    Ben Wojtowicz    Moved to new messageq queue, added IP pcap
+                                   support, and put error enum into common hdr.
 
 *******************************************************************************/
 
@@ -50,6 +52,8 @@
                               INCLUDES
 *******************************************************************************/
 
+#include "LTE_fdd_enb_common.h"
+#include "LTE_fdd_enb_msgq.h"
 #include "liblte_common.h"
 #include "libtools_socket_wrap.h"
 #include <boost/thread/mutex.hpp>
@@ -70,56 +74,6 @@
 /*******************************************************************************
                               TYPEDEFS
 *******************************************************************************/
-
-typedef enum{
-    LTE_FDD_ENB_ERROR_NONE = 0,
-    LTE_FDD_ENB_ERROR_INVALID_COMMAND,
-    LTE_FDD_ENB_ERROR_INVALID_PARAM,
-    LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS,
-    LTE_FDD_ENB_ERROR_EXCEPTION,
-    LTE_FDD_ENB_ERROR_ALREADY_STARTED,
-    LTE_FDD_ENB_ERROR_ALREADY_STOPPED,
-    LTE_FDD_ENB_ERROR_CANT_START,
-    LTE_FDD_ENB_ERROR_CANT_STOP,
-    LTE_FDD_ENB_ERROR_BAD_ALLOC,
-    LTE_FDD_ENB_ERROR_USER_NOT_FOUND,
-    LTE_FDD_ENB_ERROR_NO_FREE_C_RNTI,
-    LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND,
-    LTE_FDD_ENB_ERROR_CANT_SCHEDULE,
-    LTE_FDD_ENB_ERROR_VARIABLE_NOT_DYNAMIC,
-    LTE_FDD_ENB_ERROR_MASTER_CLOCK_FAIL,
-    LTE_FDD_ENB_ERROR_NO_MSG_IN_QUEUE,
-    LTE_FDD_ENB_ERROR_RB_NOT_SETUP,
-    LTE_FDD_ENB_ERROR_RB_ALREADY_SETUP,
-    LTE_FDD_ENB_ERROR_TIMER_NOT_FOUND,
-    LTE_FDD_ENB_ERROR_CANT_REASSEMBLE_SDU,
-    LTE_FDD_ENB_ERROR_DUPLICATE_ENTRY,
-    LTE_FDD_ENB_ERROR_READ_ONLY,
-    LTE_FDD_ENB_ERROR_N_ITEMS,
-}LTE_FDD_ENB_ERROR_ENUM;
-static const char LTE_fdd_enb_error_text[LTE_FDD_ENB_ERROR_N_ITEMS][100] = {"none",
-                                                                            "invalid command",
-                                                                            "invalid parameter",
-                                                                            "out of bounds",
-                                                                            "exception",
-                                                                            "already started",
-                                                                            "already stopped",
-                                                                            "cant start",
-                                                                            "cant stop",
-                                                                            "bad alloc",
-                                                                            "user not found",
-                                                                            "no free C-RNTI",
-                                                                            "C-RNTI not found",
-                                                                            "cant schedule",
-                                                                            "variable not dynamic",
-                                                                            "unable to set master clock rate",
-                                                                            "no message in queue",
-                                                                            "RB not setup",
-                                                                            "RB already setup",
-                                                                            "timer not found",
-                                                                            "cant reassemble SDU",
-                                                                            "duplicate entry",
-                                                                            "read only"};
 
 typedef enum{
     LTE_FDD_ENB_DEBUG_TYPE_ERROR = 0,
@@ -146,6 +100,7 @@ typedef enum{
     LTE_FDD_ENB_DEBUG_LEVEL_RB,
     LTE_FDD_ENB_DEBUG_LEVEL_TIMER,
     LTE_FDD_ENB_DEBUG_LEVEL_IFACE,
+    LTE_FDD_ENB_DEBUG_LEVEL_MSGQ,
     LTE_FDD_ENB_DEBUG_LEVEL_N_ITEMS,
 }LTE_FDD_ENB_DEBUG_LEVEL_ENUM;
 static const char LTE_fdd_enb_debug_level_text[LTE_FDD_ENB_DEBUG_LEVEL_N_ITEMS][100] = {"radio",
@@ -159,7 +114,8 @@ static const char LTE_fdd_enb_debug_level_text[LTE_FDD_ENB_DEBUG_LEVEL_N_ITEMS][
                                                                                         "user",
                                                                                         "rb",
                                                                                         "timer",
-                                                                                        "iface"};
+                                                                                        "iface",
+                                                                                        "msgq"};
 
 typedef enum{
     LTE_FDD_ENB_PCAP_DIRECTION_UL = 0,
@@ -313,8 +269,10 @@ public:
     void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, std::string msg, ...);
     void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, LIBLTE_BIT_MSG_STRUCT *lte_msg, std::string msg, ...);
     void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, LIBLTE_BYTE_MSG_STRUCT *lte_msg, std::string msg, ...);
-    void open_pcap_fd(void);
-    void send_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM dir, uint32 rnti, uint32 current_tti, uint8 *msg, uint32 N_bits);
+    void open_lte_pcap_fd(void);
+    void open_ip_pcap_fd(void);
+    void send_lte_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM dir, uint32 rnti, uint32 current_tti, uint8 *msg, uint32 N_bits);
+    void send_ip_pcap_msg(uint8 *msg, uint32 N_bytes);
     static void handle_ctrl_msg(std::string msg);
     static void handle_ctrl_connect(void);
     static void handle_ctrl_disconnect(void);
@@ -325,7 +283,8 @@ public:
     static void handle_debug_error(LIBTOOLS_SOCKET_WRAP_ERROR_ENUM err);
     boost::mutex          ctrl_mutex;
     boost::mutex          debug_mutex;
-    FILE                 *pcap_fd;
+    FILE                 *lte_pcap_fd;
+    FILE                 *ip_pcap_fd;
     libtools_socket_wrap *ctrl_socket;
     libtools_socket_wrap *debug_socket;
     int16                 ctrl_port;
@@ -369,6 +328,21 @@ private:
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, std::string value);
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, uint32 value);
     bool is_string_valid_as_number(std::string str, uint32 length, uint8 max_value);
+
+    // Inter-stack communication
+    LTE_fdd_enb_msgq *phy_to_mac_comm;
+    LTE_fdd_enb_msgq *mac_to_phy_comm;
+    LTE_fdd_enb_msgq *mac_to_rlc_comm;
+    LTE_fdd_enb_msgq *mac_to_timer_comm;
+    LTE_fdd_enb_msgq *rlc_to_mac_comm;
+    LTE_fdd_enb_msgq *rlc_to_pdcp_comm;
+    LTE_fdd_enb_msgq *pdcp_to_rlc_comm;
+    LTE_fdd_enb_msgq *pdcp_to_rrc_comm;
+    LTE_fdd_enb_msgq *rrc_to_pdcp_comm;
+    LTE_fdd_enb_msgq *rrc_to_mme_comm;
+    LTE_fdd_enb_msgq *mme_to_rrc_comm;
+    LTE_fdd_enb_msgq *pdcp_to_gw_comm;
+    LTE_fdd_enb_msgq *gw_to_pdcp_comm;
 };
 
 #endif /* __LTE_FDD_ENB_INTERFACE_H__ */

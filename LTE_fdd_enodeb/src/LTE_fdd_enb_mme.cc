@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_mme.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -39,6 +39,8 @@
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue and
                                    sending of EMM information message.
     12/24/2014    Ben Wojtowicz    Actually sending EMM information message.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue, added more debug
+                                   log points, and using the fixed user switch.
 
 *******************************************************************************/
 
@@ -47,7 +49,6 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_mme.h"
-#include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_hss.h"
 #include "LTE_fdd_enb_user_mgr.h"
 #include "liblte_mme.h"
@@ -115,7 +116,9 @@ LTE_fdd_enb_mme::~LTE_fdd_enb_mme()
 /********************/
 /*    Start/Stop    */
 /********************/
-void LTE_fdd_enb_mme::start(void)
+void LTE_fdd_enb_mme::start(LTE_fdd_enb_msgq      *from_rrc,
+                            LTE_fdd_enb_msgq      *to_rrc,
+                            LTE_fdd_enb_interface *iface)
 {
     boost::mutex::scoped_lock  lock(start_mutex);
     LTE_fdd_enb_cnfg_db       *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
@@ -123,11 +126,11 @@ void LTE_fdd_enb_mme::start(void)
 
     if(!started)
     {
+        interface     = iface;
         started       = true;
-        rrc_comm_msgq = new LTE_fdd_enb_msgq("rrc_mme_olmq",
-                                             rrc_cb);
-        mme_rrc_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                               "mme_rrc_olmq");
+        msgq_from_rrc = from_rrc;
+        msgq_to_rrc   = to_rrc;
+        msgq_from_rrc->attach_rx(rrc_cb);
 
         cnfg_db->get_param(LTE_FDD_ENB_PARAM_IP_ADDR_START, next_ip_addr);
         cnfg_db->get_param(LTE_FDD_ENB_PARAM_DNS_ADDR, dns_addr);
@@ -141,26 +144,21 @@ void LTE_fdd_enb_mme::stop(void)
     if(started)
     {
         started = false;
-        delete rrc_comm_msgq;
     }
 }
 
 /***********************/
 /*    Communication    */
 /***********************/
-void LTE_fdd_enb_mme::handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
+void LTE_fdd_enb_mme::handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-
-    switch(msg->type)
+    switch(msg.type)
     {
     case LTE_FDD_ENB_MESSAGE_TYPE_MME_NAS_MSG_READY:
-        handle_nas_msg(&msg->msg.mme_nas_msg_ready);
-        delete msg;
+        handle_nas_msg(&msg.msg.mme_nas_msg_ready);
         break;
     case LTE_FDD_ENB_MESSAGE_TYPE_MME_RRC_CMD_RESP:
-        handle_rrc_cmd_resp(&msg->msg.mme_rrc_cmd_resp);
-        delete msg;
+        handle_rrc_cmd_resp(&msg.msg.mme_rrc_cmd_resp);
         break;
     default:
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -168,8 +166,7 @@ void LTE_fdd_enb_mme::handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
                                   __FILE__,
                                   __LINE__,
                                   "Received invalid RRC message %s",
-                                  LTE_fdd_enb_message_type_text[msg->type]);
-        delete msg;
+                                  LTE_fdd_enb_message_type_text[msg.type]);
         break;
     }
 }
@@ -191,7 +188,6 @@ void LTE_fdd_enb_mme::update_sys_info(void)
 /******************************/
 void LTE_fdd_enb_mme::handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *nas_msg)
 {
-    LTE_fdd_enb_interface  *interface = LTE_fdd_enb_interface::get_instance();
     LIBLTE_BYTE_MSG_STRUCT *msg;
     uint8                   pd;
     uint8                   msg_type;
@@ -223,6 +219,34 @@ void LTE_fdd_enb_mme::handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *n
         case LIBLTE_MME_MSG_TYPE_AUTHENTICATION_RESPONSE:
             parse_authentication_response(msg, nas_msg->user, nas_msg->rb);
             break;
+        case LIBLTE_MME_MSG_TYPE_DETACH_REQUEST:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Detach Request");
+            break;
+        case LIBLTE_MME_MSG_TYPE_EMM_STATUS:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling EMM Status");
+            break;
+        case LIBLTE_MME_MSG_TYPE_EXTENDED_SERVICE_REQUEST:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Extended Service Request");
+            break;
+        case LIBLTE_MME_MSG_TYPE_GUTI_REALLOCATION_COMPLETE:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling GUTI Reallocation Complete");
+            break;
         case LIBLTE_MME_MSG_TYPE_IDENTITY_RESPONSE:
             parse_identity_response(msg, nas_msg->user, nas_msg->rb);
             break;
@@ -235,8 +259,113 @@ void LTE_fdd_enb_mme::handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *n
         case LIBLTE_MME_SECURITY_HDR_TYPE_SERVICE_REQUEST:
             parse_service_request(msg, nas_msg->user, nas_msg->rb);
             break;
+        case LIBLTE_MME_MSG_TYPE_TRACKING_AREA_UPDATE_COMPLETE:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Tracking Area Update Complete");
+            break;
+        case LIBLTE_MME_MSG_TYPE_TRACKING_AREA_UPDATE_REQUEST:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Tracking Area Update Request");
+            break;
+        case LIBLTE_MME_MSG_TYPE_UPLINK_NAS_TRANSPORT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Uplink NAS Transport");
+            break;
+        case LIBLTE_MME_MSG_TYPE_UPLINK_GENERIC_NAS_TRANSPORT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Uplink Generic NAS Transport");
+            break;
+        case LIBLTE_MME_MSG_TYPE_ACTIVATE_DEDICATED_EPS_BEARER_CONTEXT_ACCEPT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Activate Dedicated EPS Bearer Context Accept");
+            break;
+        case LIBLTE_MME_MSG_TYPE_ACTIVATE_DEDICATED_EPS_BEARER_CONTEXT_REJECT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Activate Dedicated EPS Bearer Context Reject");
+            break;
+        case LIBLTE_MME_MSG_TYPE_ACTIVATE_DEFAULT_EPS_BEARER_CONTEXT_ACCEPT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Activate Default EPS Bearer Context Accept");
+            break;
+        case LIBLTE_MME_MSG_TYPE_ACTIVATE_DEFAULT_EPS_BEARER_CONTEXT_REJECT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Activate Default EPS Bearer Context Reject");
+            break;
+        case LIBLTE_MME_MSG_TYPE_BEARER_RESOURCE_ALLOCATION_REQUEST:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Bearer Resource Allocation Request");
+            break;
+        case LIBLTE_MME_MSG_TYPE_BEARER_RESOURCE_MODIFICATION_REQUEST:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Bearer Resource Modification Request");
+            break;
+        case LIBLTE_MME_MSG_TYPE_DEACTIVATE_EPS_BEARER_CONTEXT_ACCEPT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Deactivate EPS Bearer Context Accept");
+            break;
         case LIBLTE_MME_MSG_TYPE_ESM_INFORMATION_RESPONSE:
             parse_esm_information_response(msg, nas_msg->user, nas_msg->rb);
+            break;
+        case LIBLTE_MME_MSG_TYPE_MODIFY_EPS_BEARER_CONTEXT_ACCEPT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Modify EPS Bearer Context Accept");
+            break;
+        case LIBLTE_MME_MSG_TYPE_MODIFY_EPS_BEARER_CONTEXT_REJECT:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling Modify EPS Bearer Context Reject");
+            break;
+        case LIBLTE_MME_MSG_TYPE_PDN_CONNECTIVITY_REQUEST:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling PDN Connectivity Request");
+            break;
+        case LIBLTE_MME_MSG_TYPE_PDN_DISCONNECT_REQUEST:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Not handling PDN Disconnect Request");
             break;
         default:
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -282,8 +411,6 @@ void LTE_fdd_enb_mme::handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *n
 }
 void LTE_fdd_enb_mme::handle_rrc_cmd_resp(LTE_FDD_ENB_MME_RRC_CMD_RESP_MSG_STRUCT *rrc_cmd_resp)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-
     switch(rrc_cmd_resp->cmd_resp)
     {
     case LTE_FDD_ENB_MME_RRC_CMD_RESP_SECURITY:
@@ -331,10 +458,9 @@ void LTE_fdd_enb_mme::parse_attach_complete(LIBLTE_BYTE_MSG_STRUCT *msg,
                                             LTE_fdd_enb_user       *user,
                                             LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                 *interface = LTE_fdd_enb_interface::get_instance();
-    LIBLTE_MME_ATTACH_COMPLETE_MSG_STRUCT  attach_comp;
-    uint8                                  pd;
-    uint8                                  msg_type;
+    LIBLTE_MME_ATTACH_COMPLETE_MSG_STRUCT attach_comp;
+    uint8                                 pd;
+    uint8                                 msg_type;
 
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -374,11 +500,9 @@ void LTE_fdd_enb_mme::parse_attach_request(LIBLTE_BYTE_MSG_STRUCT  *msg,
                                            LTE_fdd_enb_user       **user,
                                            LTE_fdd_enb_rb         **rb)
 {
-    LTE_fdd_enb_interface                *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_hss                      *hss       = LTE_fdd_enb_hss::get_instance();
     LTE_fdd_enb_user_mgr                 *user_mgr  = LTE_fdd_enb_user_mgr::get_instance();
     LTE_fdd_enb_user                     *act_user;
-    LTE_fdd_enb_rb                       *tmp_rb;
     LIBLTE_MME_ATTACH_REQUEST_MSG_STRUCT  attach_req;
     uint64                                imsi_num = 0;
     uint64                                imei_num = 0;
@@ -455,23 +579,20 @@ void LTE_fdd_enb_mme::parse_attach_request(LIBLTE_BYTE_MSG_STRUCT  *msg,
         {
             if(act_user != (*user))
             {
-                (*user)->get_srb0(&tmp_rb);
-                act_user->copy_rb(tmp_rb);
-                (*user)->get_srb1(&tmp_rb);
-                act_user->copy_rb(tmp_rb);
+                act_user->copy_rbs((*user));
+                (*user)->clear_rbs();
                 user_mgr->transfer_c_rnti(*user, act_user);
                 *user = act_user;
-                (*user)->get_srb1(rb);
             }
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                       LTE_FDD_ENB_DEBUG_LEVEL_MME,
                                       __FILE__,
                                       __LINE__,
                                       "IMSI=%015llu is associated with RNTI=%u, RB=%s",
-                                      imsi_num,
+                                      (*user)->get_id()->imsi,
                                       (*user)->get_c_rnti(),
                                       LTE_fdd_enb_rb_text[(*rb)->get_rb_id()]);
-            (*rb)->set_mme_state(LTE_FDD_ENB_MME_STATE_ATTACH_ACCEPT);
+            (*rb)->set_mme_state(LTE_FDD_ENB_MME_STATE_AUTHENTICATE);
         }else{
             if((*user)->is_id_set())
             {
@@ -548,7 +669,6 @@ void LTE_fdd_enb_mme::parse_authentication_failure(LIBLTE_BYTE_MSG_STRUCT *msg,
                                                    LTE_fdd_enb_user       *user,
                                                    LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                        *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_hss                              *hss       = LTE_fdd_enb_hss::get_instance();
     LIBLTE_MME_AUTHENTICATION_FAILURE_MSG_STRUCT  auth_fail;
 
@@ -585,7 +705,6 @@ void LTE_fdd_enb_mme::parse_authentication_response(LIBLTE_BYTE_MSG_STRUCT *msg,
                                                     LTE_fdd_enb_user       *user,
                                                     LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                         *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_hss                               *hss       = LTE_fdd_enb_hss::get_instance();
     LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT      *auth_vec  = NULL;
     LIBLTE_MME_AUTHENTICATION_RESPONSE_MSG_STRUCT  auth_resp;
@@ -662,7 +781,6 @@ void LTE_fdd_enb_mme::parse_identity_response(LIBLTE_BYTE_MSG_STRUCT *msg,
                                               LTE_fdd_enb_user       *user,
                                               LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface             *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_hss                   *hss       = LTE_fdd_enb_hss::get_instance();
     LIBLTE_MME_ID_RESPONSE_MSG_STRUCT  id_resp;
     uint64                             imsi_num = 0;
@@ -751,10 +869,9 @@ void LTE_fdd_enb_mme::parse_security_mode_complete(LIBLTE_BYTE_MSG_STRUCT *msg,
                                                    LTE_fdd_enb_user       *user,
                                                    LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                        *interface = LTE_fdd_enb_interface::get_instance();
-    LIBLTE_MME_SECURITY_MODE_COMPLETE_MSG_STRUCT  sec_mode_comp;
-    uint64                                        imei_num = 0;
-    uint32                                        i;
+    LIBLTE_MME_SECURITY_MODE_COMPLETE_MSG_STRUCT sec_mode_comp;
+    uint64                                       imei_num = 0;
+    uint32                                       i;
 
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -806,8 +923,7 @@ void LTE_fdd_enb_mme::parse_security_mode_reject(LIBLTE_BYTE_MSG_STRUCT *msg,
                                                  LTE_fdd_enb_user       *user,
                                                  LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                      *interface = LTE_fdd_enb_interface::get_instance();
-    LIBLTE_MME_SECURITY_MODE_REJECT_MSG_STRUCT  sec_mode_rej;
+    LIBLTE_MME_SECURITY_MODE_REJECT_MSG_STRUCT sec_mode_rej;
 
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -834,9 +950,8 @@ void LTE_fdd_enb_mme::parse_service_request(LIBLTE_BYTE_MSG_STRUCT *msg,
                                             LTE_fdd_enb_user       *user,
                                             LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                    *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_hss                          *hss       = LTE_fdd_enb_hss::get_instance();
-    LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT *auth_vec  = user->get_auth_vec();
+    LTE_fdd_enb_hss                          *hss      = LTE_fdd_enb_hss::get_instance();
+    LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT *auth_vec = user->get_auth_vec();
     LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT *hss_auth_vec;
     LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT      cmd_ready;
     LIBLTE_MME_SERVICE_REQUEST_MSG_STRUCT     service_req;
@@ -903,8 +1018,7 @@ void LTE_fdd_enb_mme::parse_activate_default_eps_bearer_context_accept(LIBLTE_BY
                                                                        LTE_fdd_enb_user       *user,
                                                                        LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                                            *interface = LTE_fdd_enb_interface::get_instance();
-    LIBLTE_MME_ACTIVATE_DEFAULT_EPS_BEARER_CONTEXT_ACCEPT_MSG_STRUCT  act_def_eps_bearer_context_accept;
+    LIBLTE_MME_ACTIVATE_DEFAULT_EPS_BEARER_CONTEXT_ACCEPT_MSG_STRUCT act_def_eps_bearer_context_accept;
 
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -925,8 +1039,7 @@ void LTE_fdd_enb_mme::parse_esm_information_response(LIBLTE_BYTE_MSG_STRUCT *msg
                                                      LTE_fdd_enb_user       *user,
                                                      LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                          *interface = LTE_fdd_enb_interface::get_instance();
-    LIBLTE_MME_ESM_INFORMATION_RESPONSE_MSG_STRUCT  esm_info_resp;
+    LIBLTE_MME_ESM_INFORMATION_RESPONSE_MSG_STRUCT esm_info_resp;
 
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -947,10 +1060,9 @@ void LTE_fdd_enb_mme::parse_pdn_connectivity_request(LIBLTE_BYTE_MSG_STRUCT *msg
                                                      LTE_fdd_enb_user       *user,
                                                      LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_interface                          *interface = LTE_fdd_enb_interface::get_instance();
-    LIBLTE_MME_PDN_CONNECTIVITY_REQUEST_MSG_STRUCT  pdn_con_req;
-    LIBLTE_MME_PROTOCOL_CONFIG_OPTIONS_STRUCT       pco_resp;
-    uint32                                          i;
+    LIBLTE_MME_PDN_CONNECTIVITY_REQUEST_MSG_STRUCT pdn_con_req;
+    LIBLTE_MME_PROTOCOL_CONFIG_OPTIONS_STRUCT      pco_resp;
+    uint32                                         i;
 
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -1047,9 +1159,8 @@ void LTE_fdd_enb_mme::parse_pdn_connectivity_request(LIBLTE_BYTE_MSG_STRUCT *msg
 void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
                                 LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_hss       *hss       = LTE_fdd_enb_hss::get_instance();
-    LTE_fdd_enb_user_mgr  *user_mgr  = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_hss      *hss      = LTE_fdd_enb_hss::get_instance();
+    LTE_fdd_enb_user_mgr *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
 
     switch(rb->get_mme_state())
     {
@@ -1082,8 +1193,8 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
         send_attach_accept(user, rb);
         break;
     case LTE_FDD_ENB_MME_STATE_ATTACHED:
-        send_emm_information(user, rb);
-        send_rrc_command(user, rb, LTE_FDD_ENB_RRC_CMD_RELEASE);
+//        send_emm_information(user, rb);
+//        send_rrc_command(user, rb, LTE_FDD_ENB_RRC_CMD_RELEASE);
         break;
     default:
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -1100,8 +1211,6 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
 void LTE_fdd_enb_mme::service_req_sm(LTE_fdd_enb_user *user,
                                      LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-
     switch(rb->get_mme_state())
     {
     case LTE_FDD_ENB_MME_STATE_RELEASE:
@@ -1132,8 +1241,7 @@ void LTE_fdd_enb_mme::service_req_sm(LTE_fdd_enb_user *user,
 void LTE_fdd_enb_mme::send_attach_accept(LTE_fdd_enb_user *user,
                                          LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                                             *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_user_mgr                                              *user_mgr  = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_user_mgr                                              *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
     LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT                               cmd_ready;
     LIBLTE_MME_ATTACH_ACCEPT_MSG_STRUCT                                attach_accept;
     LIBLTE_MME_ACTIVATE_DEFAULT_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT  act_def_eps_bearer_context_req;
@@ -1242,20 +1350,18 @@ void LTE_fdd_enb_mme::send_attach_accept(LTE_fdd_enb_user *user,
     cmd_ready.user = user;
     cmd_ready.rb   = rb;
     cmd_ready.cmd  = LTE_FDD_ENB_RRC_CMD_SETUP_DEF_DRB;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
-                           sizeof(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
+                      sizeof(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_attach_reject(LTE_fdd_enb_user *user,
                                          LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                    *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT  nas_msg_ready;
-    LIBLTE_MME_ATTACH_REJECT_MSG_STRUCT       attach_rej;
-    LIBLTE_BYTE_MSG_STRUCT                    msg;
-    uint64                                    imsi_num;
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT nas_msg_ready;
+    LIBLTE_MME_ATTACH_REJECT_MSG_STRUCT      attach_rej;
+    LIBLTE_BYTE_MSG_STRUCT                   msg;
+    uint64                                   imsi_num;
 
     if(user->is_id_set())
     {
@@ -1284,21 +1390,19 @@ void LTE_fdd_enb_mme::send_attach_reject(LTE_fdd_enb_user *user,
     // Signal RRC for NAS message
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 
     send_rrc_command(user, rb, LTE_FDD_ENB_RRC_CMD_RELEASE);
 }
 void LTE_fdd_enb_mme::send_authentication_reject(LTE_fdd_enb_user *user,
                                                  LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                       *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT     nas_msg_ready;
-    LIBLTE_MME_AUTHENTICATION_REJECT_MSG_STRUCT  auth_rej;
-    LIBLTE_BYTE_MSG_STRUCT                       msg;
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT    nas_msg_ready;
+    LIBLTE_MME_AUTHENTICATION_REJECT_MSG_STRUCT auth_rej;
+    LIBLTE_BYTE_MSG_STRUCT                      msg;
 
     liblte_mme_pack_authentication_reject_msg(&auth_rej, &msg);
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
@@ -1316,20 +1420,18 @@ void LTE_fdd_enb_mme::send_authentication_reject(LTE_fdd_enb_user *user,
     // Signal RRC for NAS message
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 
     send_rrc_command(user, rb, LTE_FDD_ENB_RRC_CMD_RELEASE);
 }
 void LTE_fdd_enb_mme::send_authentication_request(LTE_fdd_enb_user *user,
                                                   LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                        *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_hss                              *hss       = LTE_fdd_enb_hss::get_instance();
-    LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT     *auth_vec  = NULL;
+    LTE_fdd_enb_hss                              *hss      = LTE_fdd_enb_hss::get_instance();
+    LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT     *auth_vec = NULL;
     LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT      nas_msg_ready;
     LIBLTE_MME_AUTHENTICATION_REQUEST_MSG_STRUCT  auth_req;
     LIBLTE_BYTE_MSG_STRUCT                        msg;
@@ -1364,17 +1466,15 @@ void LTE_fdd_enb_mme::send_authentication_request(LTE_fdd_enb_user *user,
         // Signal RRC
         nas_msg_ready.user = user;
         nas_msg_ready.rb   = rb;
-        LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                               LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                               LTE_FDD_ENB_DEST_LAYER_RRC,
-                               (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                               sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+        msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                          LTE_FDD_ENB_DEST_LAYER_RRC,
+                          (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                          sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
     }
 }
 void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
                                            LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                    *interface = LTE_fdd_enb_interface::get_instance();
     LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT  nas_msg_ready;
     LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT     emm_info;
     LIBLTE_BYTE_MSG_STRUCT                    msg;
@@ -1407,6 +1507,7 @@ void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
                                         LIBLTE_SECURITY_DIRECTION_DOWNLINK,
                                         rb->get_rb_id()-1,
                                         &msg);
+    user->increment_nas_count_dl();
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
                               __FILE__,
@@ -1422,20 +1523,18 @@ void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
     // Signal RRC
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_identity_request(LTE_fdd_enb_user *user,
                                             LTE_fdd_enb_rb   *rb,
                                             uint8             id_type)
 {
-    LTE_fdd_enb_interface                    *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT  nas_msg_ready;
-    LIBLTE_MME_ID_REQUEST_MSG_STRUCT          id_req;
-    LIBLTE_BYTE_MSG_STRUCT                    msg;
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT nas_msg_ready;
+    LIBLTE_MME_ID_REQUEST_MSG_STRUCT         id_req;
+    LIBLTE_BYTE_MSG_STRUCT                   msg;
 
     id_req.id_type = id_type;
     liblte_mme_pack_identity_request_msg(&id_req, &msg);
@@ -1454,20 +1553,18 @@ void LTE_fdd_enb_mme::send_identity_request(LTE_fdd_enb_user *user,
     // Signal RRC
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_security_mode_command(LTE_fdd_enb_user *user,
                                                  LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                       *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT     nas_msg_ready;
-    LIBLTE_MME_SECURITY_MODE_COMMAND_MSG_STRUCT  sec_mode_cmd;
-    LIBLTE_BYTE_MSG_STRUCT                       msg;
-    uint32                                       i;
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT    nas_msg_ready;
+    LIBLTE_MME_SECURITY_MODE_COMMAND_MSG_STRUCT sec_mode_cmd;
+    LIBLTE_BYTE_MSG_STRUCT                      msg;
+    uint32                                      i;
 
     sec_mode_cmd.selected_nas_sec_algs.type_of_eea = LIBLTE_MME_TYPE_OF_CIPHERING_ALGORITHM_EEA0;
     sec_mode_cmd.selected_nas_sec_algs.type_of_eia = LIBLTE_MME_TYPE_OF_INTEGRITY_ALGORITHM_128_EIA2;
@@ -1526,20 +1623,18 @@ void LTE_fdd_enb_mme::send_security_mode_command(LTE_fdd_enb_user *user,
     // Signal RRC
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_service_reject(LTE_fdd_enb_user *user,
                                           LTE_fdd_enb_rb   *rb,
                                           uint8             cause)
 {
-    LTE_fdd_enb_interface                    *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT  nas_msg_ready;
-    LIBLTE_MME_SERVICE_REJECT_MSG_STRUCT      service_rej;
-    LIBLTE_BYTE_MSG_STRUCT                    msg;
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT nas_msg_ready;
+    LIBLTE_MME_SERVICE_REJECT_MSG_STRUCT     service_rej;
+    LIBLTE_BYTE_MSG_STRUCT                   msg;
 
     service_rej.emm_cause     = cause;
     service_rej.t3442_present = false;
@@ -1565,20 +1660,18 @@ void LTE_fdd_enb_mme::send_service_reject(LTE_fdd_enb_user *user,
 
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_activate_dedicated_eps_bearer_context_request(LTE_fdd_enb_user *user,
                                                                          LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                                               *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT                                 cmd_ready;
-    LIBLTE_MME_ACTIVATE_DEDICATED_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT  act_ded_eps_bearer_context_req;
-    LIBLTE_BYTE_MSG_STRUCT                                               msg;
-    LIBLTE_BYTE_MSG_STRUCT                                               sec_msg;
+    LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT                                cmd_ready;
+    LIBLTE_MME_ACTIVATE_DEDICATED_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT act_ded_eps_bearer_context_req;
+    LIBLTE_BYTE_MSG_STRUCT                                              msg;
+    LIBLTE_BYTE_MSG_STRUCT                                              sec_msg;
 
     if(0 == user->get_eps_bearer_id())
     {
@@ -1646,20 +1739,18 @@ void LTE_fdd_enb_mme::send_activate_dedicated_eps_bearer_context_request(LTE_fdd
     cmd_ready.user = user;
     cmd_ready.rb   = rb;
     cmd_ready.cmd  = LTE_FDD_ENB_RRC_CMD_SETUP_DED_DRB;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
-                           sizeof(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
+                      sizeof(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_esm_information_request(LTE_fdd_enb_user *user,
                                                    LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                         *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT       nas_msg_ready;
-    LIBLTE_MME_ESM_INFORMATION_REQUEST_MSG_STRUCT  esm_info_req;
-    LIBLTE_BYTE_MSG_STRUCT                         msg;
-    LIBLTE_BYTE_MSG_STRUCT                         sec_msg;
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT      nas_msg_ready;
+    LIBLTE_MME_ESM_INFORMATION_REQUEST_MSG_STRUCT esm_info_req;
+    LIBLTE_BYTE_MSG_STRUCT                        msg;
+    LIBLTE_BYTE_MSG_STRUCT                        sec_msg;
 
     esm_info_req.eps_bearer_id = 0;
     if(0 == user->get_proc_transaction_id())
@@ -1692,11 +1783,10 @@ void LTE_fdd_enb_mme::send_esm_information_request(LTE_fdd_enb_user *user,
     // Signal RRC
     nas_msg_ready.user = user;
     nas_msg_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_mme::send_rrc_command(LTE_fdd_enb_user         *user,
                                        LTE_fdd_enb_rb           *rb,
@@ -1708,11 +1798,10 @@ void LTE_fdd_enb_mme::send_rrc_command(LTE_fdd_enb_user         *user,
     cmd_ready.user = user;
     cmd_ready.rb   = rb;
     cmd_ready.cmd  = cmd;
-    LTE_fdd_enb_msgq::send(mme_rrc_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
-                           LTE_FDD_ENB_DEST_LAYER_RRC,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
-                           sizeof(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT));
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
+                      sizeof(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT));
 
     if(LTE_FDD_ENB_RRC_CMD_RELEASE == cmd)
     {

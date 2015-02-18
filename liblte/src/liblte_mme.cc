@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,7 @@
     11/29/2014    Ben Wojtowicz    Added more decoding/encoding.
     12/16/2014    Ben Wojtowicz    Added more decoding/encoding.
     12/24/2014    Ben Wojtowicz    Cleaned up the Time Zone and Time IE.
+    02/15/2015    Ben Wojtowicz    Added more decoding/encoding.
 
 *******************************************************************************/
 
@@ -4682,7 +4683,16 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_request_type_ie(uint8 **ie_ptr,
 
     Document Reference: 24.301 v10.2.0 Section 9.9.4.15
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_traffic_flow_aggregate_description_ie(LIBLTE_MME_TRAFFIC_FLOW_AGGREGATE_DESCRIPTION_STRUCT  *tfad,
+                                                                        uint8                                                **ie_ptr)
+{
+    return(liblte_mme_pack_traffic_flow_template_ie((LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT *)tfad, ie_ptr));
+}
+LIBLTE_ERROR_ENUM liblte_mme_unpack_traffic_flow_aggregate_description_ie(uint8                                                **ie_ptr,
+                                                                          LIBLTE_MME_TRAFFIC_FLOW_AGGREGATE_DESCRIPTION_STRUCT  *tfad)
+{
+    return(liblte_mme_unpack_traffic_flow_template_ie(ie_ptr, (LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT *)tfad));
+}
 
 /*********************************************************************
     IE Name: Traffic Flow Template
@@ -8926,7 +8936,7 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_activate_dedicated_eps_bearer_context_request_
         // Negotiated QoS
         if(act_ded_eps_bearer_context_req->negotiated_qos_present)
         {
-            *msg_ptr = LIBLTE_MME_NEGOTIATED_QOS_IEI;
+            *msg_ptr = LIBLTE_MME_QUALITY_OF_SERVICE_IEI;
             msg_ptr++;
             liblte_mme_pack_quality_of_service_ie(&act_ded_eps_bearer_context_req->negotiated_qos, &msg_ptr);
         }
@@ -8934,7 +8944,7 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_activate_dedicated_eps_bearer_context_request_
         // Negotiated LLC SAPI
         if(act_ded_eps_bearer_context_req->llc_sapi_present)
         {
-            *msg_ptr = LIBLTE_MME_NEGOTIATED_LLC_SAPI_IEI;
+            *msg_ptr = LIBLTE_MME_LLC_SAPI_IEI;
             msg_ptr++;
             liblte_mme_pack_llc_service_access_point_identifier_ie(act_ded_eps_bearer_context_req->llc_sapi, &msg_ptr);
         }
@@ -9012,7 +9022,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_activate_dedicated_eps_bearer_context_reques
         }
 
         // Negotiated QoS
-        if(LIBLTE_MME_NEGOTIATED_QOS_IEI == *msg_ptr)
+        if(LIBLTE_MME_QUALITY_OF_SERVICE_IEI == *msg_ptr)
         {
             msg_ptr++;
             liblte_mme_unpack_quality_of_service_ie(&msg_ptr, &act_ded_eps_bearer_context_req->negotiated_qos);
@@ -9022,7 +9032,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_activate_dedicated_eps_bearer_context_reques
         }
 
         // Negotiated LLC SAPI
-        if(LIBLTE_MME_NEGOTIATED_LLC_SAPI_IEI == *msg_ptr)
+        if(LIBLTE_MME_LLC_SAPI_IEI == *msg_ptr)
         {
             msg_ptr++;
             liblte_mme_unpack_llc_service_access_point_identifier_ie(&msg_ptr, &act_ded_eps_bearer_context_req->llc_sapi);
@@ -9284,7 +9294,7 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_activate_default_eps_bearer_context_request_ms
         // Negotiated QoS
         if(act_def_eps_bearer_context_req->negotiated_qos_present)
         {
-            *msg_ptr = LIBLTE_MME_NEGOTIATED_QOS_IEI;
+            *msg_ptr = LIBLTE_MME_QUALITY_OF_SERVICE_IEI;
             msg_ptr++;
             liblte_mme_pack_quality_of_service_ie(&act_def_eps_bearer_context_req->negotiated_qos, &msg_ptr);
         }
@@ -9292,7 +9302,7 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_activate_default_eps_bearer_context_request_ms
         // Negotiated LLC SAPI
         if(act_def_eps_bearer_context_req->llc_sapi_present)
         {
-            *msg_ptr = LIBLTE_MME_NEGOTIATED_LLC_SAPI_IEI;
+            *msg_ptr = LIBLTE_MME_LLC_SAPI_IEI;
             msg_ptr++;
             liblte_mme_pack_llc_service_access_point_identifier_ie(act_def_eps_bearer_context_req->llc_sapi, &msg_ptr);
         }
@@ -9393,7 +9403,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_activate_default_eps_bearer_context_request_
         }
 
         // Negotiated QoS
-        if(LIBLTE_MME_NEGOTIATED_QOS_IEI == *msg_ptr)
+        if(LIBLTE_MME_QUALITY_OF_SERVICE_IEI == *msg_ptr)
         {
             msg_ptr++;
             liblte_mme_unpack_quality_of_service_ie(&msg_ptr, &act_def_eps_bearer_context_req->negotiated_qos);
@@ -9403,7 +9413,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_activate_default_eps_bearer_context_request_
         }
 
         // Negotiated LLC SAPI
-        if(LIBLTE_MME_NEGOTIATED_LLC_SAPI_IEI == *msg_ptr)
+        if(LIBLTE_MME_LLC_SAPI_IEI == *msg_ptr)
         {
             msg_ptr++;
             liblte_mme_unpack_llc_service_access_point_identifier_ie(&msg_ptr, &act_def_eps_bearer_context_req->llc_sapi);
@@ -9591,7 +9601,114 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_allocation_reject_msg(LIBLTE
 
     Document Reference: 24.301 v10.2.0 Section 8.3.8
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_bearer_resource_allocation_request_msg(LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_MSG_STRUCT *bearer_res_alloc_req,
+                                                                         LIBLTE_BYTE_MSG_STRUCT                                   *msg)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(bearer_res_alloc_req != NULL &&
+       msg                  != NULL)
+    {
+        // Protocol Discriminator and EPS Bearer ID
+        *msg_ptr = (bearer_res_alloc_req->eps_bearer_id << 4) | (LIBLTE_MME_PD_EPS_SESSION_MANAGEMENT);
+        msg_ptr++;
+
+        // Procedure Transaction ID
+        *msg_ptr = bearer_res_alloc_req->proc_transaction_id;
+        msg_ptr++;
+
+        // Message Type
+        *msg_ptr = LIBLTE_MME_MSG_TYPE_BEARER_RESOURCE_ALLOCATION_REQUEST;
+        msg_ptr++;
+
+        // Linked EPS Bearer Identity & Spare Half Octet
+        liblte_mme_pack_linked_eps_bearer_identity_ie(bearer_res_alloc_req->linked_eps_bearer_id, 0, &msg_ptr);
+
+        // Traffic Flow Aggregate
+        liblte_mme_pack_traffic_flow_aggregate_description_ie(&bearer_res_alloc_req->tfa, &msg_ptr);
+
+        // Required Traffic Flow QoS
+        liblte_mme_pack_eps_quality_of_service_ie(&bearer_res_alloc_req->req_tf_qos, &msg_ptr);
+
+        // Protocol Configuration Options
+        if(bearer_res_alloc_req->protocol_cnfg_opts_present)
+        {
+            *msg_ptr = LIBLTE_MME_PROTOCOL_CONFIGURATION_OPTIONS_IEI;
+            msg_ptr++;
+            liblte_mme_pack_protocol_config_options_ie(&bearer_res_alloc_req->protocol_cnfg_opts, &msg_ptr);
+        }
+
+        // Device Properties
+        if(bearer_res_alloc_req->device_properties_present)
+        {
+            *msg_ptr = LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_DEVICE_PROPERTIES_IEI << 4;
+            liblte_mme_pack_device_properties_ie(bearer_res_alloc_req->device_properties, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Fill in the number of bytes used
+        msg->N_bytes = msg_ptr - msg->msg;
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
+LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_allocation_request_msg(LIBLTE_BYTE_MSG_STRUCT                                   *msg,
+                                                                           LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_MSG_STRUCT *bearer_res_alloc_req)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(msg                  != NULL &&
+       bearer_res_alloc_req != NULL)
+    {
+        // EPS Bearer ID
+        bearer_res_alloc_req->eps_bearer_id = (*msg_ptr >> 4);
+        msg_ptr++;
+
+        // Procedure Transaction ID
+        bearer_res_alloc_req->proc_transaction_id = *msg_ptr;
+        msg_ptr++;
+
+        // Skip Message Type
+        msg_ptr++;
+
+        // Linked EPS Bearer Identity & Spare Half Octet
+        liblte_mme_unpack_linked_eps_bearer_identity_ie(&msg_ptr, 0, &bearer_res_alloc_req->linked_eps_bearer_id);
+
+        // Traffic Flow Aggregate
+        liblte_mme_unpack_traffic_flow_aggregate_description_ie(&msg_ptr, &bearer_res_alloc_req->tfa);
+
+        // Required Traffic Flow QoS
+        liblte_mme_unpack_eps_quality_of_service_ie(&msg_ptr, &bearer_res_alloc_req->req_tf_qos);
+
+        // Protocol Configuration Options
+        if(LIBLTE_MME_PROTOCOL_CONFIGURATION_OPTIONS_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_protocol_config_options_ie(&msg_ptr, &bearer_res_alloc_req->protocol_cnfg_opts);
+            bearer_res_alloc_req->protocol_cnfg_opts_present = true;
+        }else{
+            bearer_res_alloc_req->protocol_cnfg_opts_present = false;
+        }
+
+        // Device Properties
+        if((LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_DEVICE_PROPERTIES_IEI << 4) == *msg_ptr)
+        {
+            liblte_mme_unpack_device_properties_ie(&msg_ptr, 0, &bearer_res_alloc_req->device_properties);
+            msg_ptr++;
+            bearer_res_alloc_req->device_properties_present = true;
+        }else{
+            bearer_res_alloc_req->device_properties_present = false;
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
 
 /*********************************************************************
     Message Name: Bearer Resource Modification Reject
@@ -9706,7 +9823,144 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_modification_reject_msg(LIBL
 
     Document Reference: 24.301 v10.2.0 Section 8.3.10
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_bearer_resource_modification_request_msg(LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_MSG_STRUCT *bearer_res_mod_req,
+                                                                           LIBLTE_BYTE_MSG_STRUCT                                     *msg)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(bearer_res_mod_req != NULL &&
+       msg                != NULL)
+    {
+        // Protocol Discriminator and EPS Bearer ID
+        *msg_ptr = (bearer_res_mod_req->eps_bearer_id << 4) | (LIBLTE_MME_PD_EPS_SESSION_MANAGEMENT);
+        msg_ptr++;
+
+        // Procedure Transaction ID
+        *msg_ptr = bearer_res_mod_req->proc_transaction_id;
+        msg_ptr++;
+
+        // Message Type
+        *msg_ptr = LIBLTE_MME_MSG_TYPE_BEARER_RESOURCE_MODIFICATION_REQUEST;
+        msg_ptr++;
+
+        // EPS Bearer Identity For Packet Filter & Spare Half Octet
+        liblte_mme_pack_linked_eps_bearer_identity_ie(bearer_res_mod_req->eps_bearer_id_for_packet_filter, 0, &msg_ptr);
+
+        // Traffic Flow Aggregate
+        liblte_mme_pack_traffic_flow_aggregate_description_ie(&bearer_res_mod_req->tfa, &msg_ptr);
+
+        // Required Traffic Flow QoS
+        if(bearer_res_mod_req->req_tf_qos_present)
+        {
+            *msg_ptr = LIBLTE_MME_EPS_QUALITY_OF_SERVICE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_eps_quality_of_service_ie(&bearer_res_mod_req->req_tf_qos, &msg_ptr);
+        }
+
+        // ESM Cause
+        if(bearer_res_mod_req->esm_cause_present)
+        {
+            *msg_ptr = LIBLTE_MME_ESM_CAUSE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_esm_cause_ie(bearer_res_mod_req->esm_cause, &msg_ptr);
+        }
+
+        // Protocol Configuration Options
+        if(bearer_res_mod_req->protocol_cnfg_opts_present)
+        {
+            *msg_ptr = LIBLTE_MME_PROTOCOL_CONFIGURATION_OPTIONS_IEI;
+            msg_ptr++;
+            liblte_mme_pack_protocol_config_options_ie(&bearer_res_mod_req->protocol_cnfg_opts, &msg_ptr);
+        }
+
+        // Device Properties
+        if(bearer_res_mod_req->device_properties_present)
+        {
+            *msg_ptr = LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_DEVICE_PROPERTIES_IEI << 4;
+            liblte_mme_pack_device_properties_ie(bearer_res_mod_req->device_properties, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Fill in the number of bytes used
+        msg->N_bytes = msg_ptr - msg->msg;
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
+LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_modification_request_msg(LIBLTE_BYTE_MSG_STRUCT                                     *msg,
+                                                                             LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_MSG_STRUCT *bearer_res_mod_req)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(msg                != NULL &&
+       bearer_res_mod_req != NULL)
+    {
+        // EPS Bearer ID
+        bearer_res_mod_req->eps_bearer_id = (*msg_ptr >> 4);
+        msg_ptr++;
+
+        // Procedure Transaction ID
+        bearer_res_mod_req->proc_transaction_id = *msg_ptr;
+        msg_ptr++;
+
+        // Skip Message Type
+        msg_ptr++;
+
+        // EPS Bearer Identity For Packet Filter & Spare Half Octet
+        liblte_mme_unpack_linked_eps_bearer_identity_ie(&msg_ptr, 0, &bearer_res_mod_req->eps_bearer_id_for_packet_filter);
+
+        // Traffic Flow Aggregate
+        liblte_mme_unpack_traffic_flow_aggregate_description_ie(&msg_ptr, &bearer_res_mod_req->tfa);
+
+        // Required Traffic Flow QoS
+        if(LIBLTE_MME_EPS_QUALITY_OF_SERVICE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_eps_quality_of_service_ie(&msg_ptr, &bearer_res_mod_req->req_tf_qos);
+            bearer_res_mod_req->req_tf_qos_present = true;
+        }else{
+            bearer_res_mod_req->req_tf_qos_present = false;
+        }
+
+        // ESM Cause
+        if(LIBLTE_MME_ESM_CAUSE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_esm_cause_ie(&msg_ptr, &bearer_res_mod_req->esm_cause);
+            bearer_res_mod_req->esm_cause_present = true;
+        }else{
+            bearer_res_mod_req->esm_cause_present = false;
+        }
+
+        // Protocol Configuration Options
+        if(LIBLTE_MME_PROTOCOL_CONFIGURATION_OPTIONS_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_protocol_config_options_ie(&msg_ptr, &bearer_res_mod_req->protocol_cnfg_opts);
+            bearer_res_mod_req->protocol_cnfg_opts_present = true;
+        }else{
+            bearer_res_mod_req->protocol_cnfg_opts_present = false;
+        }
+
+        // Device Properties
+        if((LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_DEVICE_PROPERTIES_IEI << 4) == *msg_ptr)
+        {
+            liblte_mme_unpack_device_properties_ie(&msg_ptr, 0, &bearer_res_mod_req->device_properties);
+            msg_ptr++;
+            bearer_res_mod_req->device_properties_present = true;
+        }else{
+            bearer_res_mod_req->device_properties_present = false;
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
 
 /*********************************************************************
     Message Name: Deactivate EPS Bearer Context Accept
@@ -10287,7 +10541,204 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_modify_eps_bearer_context_reject_msg(LIBLTE_
 
     Document Reference: 24.301 v10.2.0 Section 8.3.18
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_modify_eps_bearer_context_request_msg(LIBLTE_MME_MODIFY_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT *mod_eps_bearer_context_req,
+                                                                        LIBLTE_BYTE_MSG_STRUCT                                  *msg)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(mod_eps_bearer_context_req != NULL &&
+       msg                        != NULL)
+    {
+        // Protocol Discriminator and EPS Bearer ID
+        *msg_ptr = (mod_eps_bearer_context_req->eps_bearer_id << 4) | (LIBLTE_MME_PD_EPS_SESSION_MANAGEMENT);
+        msg_ptr++;
+
+        // Procedure Transaction ID
+        *msg_ptr = mod_eps_bearer_context_req->proc_transaction_id;
+        msg_ptr++;
+
+        // Message Type
+        *msg_ptr = LIBLTE_MME_MSG_TYPE_MODIFY_EPS_BEARER_CONTEXT_REQUEST;
+        msg_ptr++;
+
+        // New EPS QoS
+        if(mod_eps_bearer_context_req->new_eps_qos_present)
+        {
+            *msg_ptr = LIBLTE_MME_EPS_QUALITY_OF_SERVICE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_eps_quality_of_service_ie(&mod_eps_bearer_context_req->new_eps_qos, &msg_ptr);
+        }
+
+        // TFT
+        if(mod_eps_bearer_context_req->tft_present)
+        {
+            *msg_ptr = LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_traffic_flow_template_ie(&mod_eps_bearer_context_req->tft, &msg_ptr);
+        }
+
+        // New QoS
+        if(mod_eps_bearer_context_req->new_qos_present)
+        {
+            *msg_ptr = LIBLTE_MME_QUALITY_OF_SERVICE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_quality_of_service_ie(&mod_eps_bearer_context_req->new_qos, &msg_ptr);
+        }
+
+        // Negotiated LLC SAPI
+        if(mod_eps_bearer_context_req->negotiated_llc_sapi_present)
+        {
+            *msg_ptr = LIBLTE_MME_LLC_SAPI_IEI;
+            msg_ptr++;
+            liblte_mme_pack_llc_service_access_point_identifier_ie(mod_eps_bearer_context_req->negotiated_llc_sapi, &msg_ptr);
+        }
+
+        // Radio Priority
+        if(mod_eps_bearer_context_req->radio_prio_present)
+        {
+            *msg_ptr = LIBLTE_MME_RADIO_PRIORITY_IEI << 4;
+            liblte_mme_pack_radio_priority_ie(mod_eps_bearer_context_req->radio_prio, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Packet Flow Identifier
+        if(mod_eps_bearer_context_req->packet_flow_id_present)
+        {
+            *msg_ptr = LIBLTE_MME_PACKET_FLOW_IDENTIFIER_IEI;
+            msg_ptr++;
+            liblte_mme_pack_packet_flow_identifier_ie(mod_eps_bearer_context_req->packet_flow_id, &msg_ptr);
+        }
+
+        // APN-AMBR
+        if(mod_eps_bearer_context_req->apn_ambr_present)
+        {
+            *msg_ptr = LIBLTE_MME_APN_AMBR_IEI;
+            msg_ptr++;
+            liblte_mme_pack_apn_aggregate_maximum_bit_rate_ie(&mod_eps_bearer_context_req->apn_ambr, &msg_ptr);
+        }
+
+        // Protocol Configuration Options
+        if(mod_eps_bearer_context_req->protocol_cnfg_opts_present)
+        {
+            *msg_ptr = LIBLTE_MME_PROTOCOL_CONFIGURATION_OPTIONS_IEI;
+            msg_ptr++;
+            liblte_mme_pack_protocol_config_options_ie(&mod_eps_bearer_context_req->protocol_cnfg_opts, &msg_ptr);
+        }
+
+        // Fill in the number of bytes used
+        msg->N_bytes = msg_ptr - msg->msg;
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
+LIBLTE_ERROR_ENUM liblte_mme_unpack_modify_eps_bearer_context_request_msg(LIBLTE_BYTE_MSG_STRUCT                                  *msg,
+                                                                          LIBLTE_MME_MODIFY_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT *mod_eps_bearer_context_req)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(msg                        != NULL &&
+       mod_eps_bearer_context_req != NULL)
+    {
+        // EPS Bearer ID
+        mod_eps_bearer_context_req->eps_bearer_id = (*msg_ptr >> 4);
+        msg_ptr++;
+
+        // Procedure Transaction ID
+        mod_eps_bearer_context_req->proc_transaction_id = *msg_ptr;
+        msg_ptr++;
+
+        // Skip Message Type
+        msg_ptr++;
+
+        // New EPS QoS
+        if(LIBLTE_MME_EPS_QUALITY_OF_SERVICE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_eps_quality_of_service_ie(&msg_ptr, &mod_eps_bearer_context_req->new_eps_qos);
+            mod_eps_bearer_context_req->new_eps_qos_present = true;
+        }else{
+            mod_eps_bearer_context_req->new_eps_qos_present = false;
+        }
+
+        // TFT
+        if(LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_traffic_flow_template_ie(&msg_ptr, &mod_eps_bearer_context_req->tft);
+            mod_eps_bearer_context_req->tft_present = true;
+        }else{
+            mod_eps_bearer_context_req->tft_present = false;
+        }
+
+        // New QoS
+        if(LIBLTE_MME_QUALITY_OF_SERVICE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_quality_of_service_ie(&msg_ptr, &mod_eps_bearer_context_req->new_qos);
+            mod_eps_bearer_context_req->new_qos_present = true;
+        }else{
+            mod_eps_bearer_context_req->new_qos_present = false;
+        }
+
+        // Negotiated LLC SAPI
+        if(LIBLTE_MME_LLC_SAPI_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_llc_service_access_point_identifier_ie(&msg_ptr, &mod_eps_bearer_context_req->negotiated_llc_sapi);
+            mod_eps_bearer_context_req->negotiated_llc_sapi_present = true;
+        }else{
+            mod_eps_bearer_context_req->negotiated_llc_sapi_present = false;
+        }
+
+        // Radio Priority
+        if((LIBLTE_MME_RADIO_PRIORITY_IEI << 4) == *msg_ptr)
+        {
+            liblte_mme_unpack_radio_priority_ie(&msg_ptr, 0, &mod_eps_bearer_context_req->radio_prio);
+            msg_ptr++;
+            mod_eps_bearer_context_req->radio_prio_present = true;
+        }else{
+            mod_eps_bearer_context_req->radio_prio_present = false;
+        }
+
+        // Packet Flow Identifier
+        if(LIBLTE_MME_PACKET_FLOW_IDENTIFIER_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_packet_flow_identifier_ie(&msg_ptr, &mod_eps_bearer_context_req->packet_flow_id);
+            mod_eps_bearer_context_req->packet_flow_id_present = true;
+        }else{
+            mod_eps_bearer_context_req->packet_flow_id_present = false;
+        }
+
+        // APN-AMBR
+        if(LIBLTE_MME_APN_AMBR_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_apn_aggregate_maximum_bit_rate_ie(&msg_ptr, &mod_eps_bearer_context_req->apn_ambr);
+            mod_eps_bearer_context_req->apn_ambr_present = true;
+        }else{
+            mod_eps_bearer_context_req->apn_ambr_present = false;
+        }
+
+        // Protocol Configuration Options
+        if(LIBLTE_MME_PROTOCOL_CONFIGURATION_OPTIONS_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_protocol_config_options_ie(&msg_ptr, &mod_eps_bearer_context_req->protocol_cnfg_opts);
+            mod_eps_bearer_context_req->protocol_cnfg_opts_present = true;
+        }else{
+            mod_eps_bearer_context_req->protocol_cnfg_opts_present = false;
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
 
 /*********************************************************************
     Message Name: Notification

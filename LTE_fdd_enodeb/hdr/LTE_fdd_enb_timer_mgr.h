@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,7 @@
     06/15/2014    Ben Wojtowicz    Added millisecond resolution.
     08/03/2014    Ben Wojtowicz    Added an invalid timer id.
     11/29/2014    Ben Wojtowicz    Added timer reset support.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue for timer ticks.
 
 *******************************************************************************/
 
@@ -40,6 +41,7 @@
 
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_timer.h"
+#include "LTE_fdd_enb_msgq.h"
 #include <boost/thread/mutex.hpp>
 
 /*******************************************************************************
@@ -69,17 +71,30 @@ public:
     static LTE_fdd_enb_timer_mgr* get_instance(void);
     static void cleanup(void);
 
+    // Start/Stop
+    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_interface *iface);
+    void stop(void);
+
     // External Interface
     LTE_FDD_ENB_ERROR_ENUM start_timer(uint32 m_seconds, LTE_fdd_enb_timer_cb cb, uint32 *timer_id);
     LTE_FDD_ENB_ERROR_ENUM stop_timer(uint32 timer_id);
     LTE_FDD_ENB_ERROR_ENUM reset_timer(uint32 timer_id);
-    void handle_tick(void);
 
 private:
     // Singleton
     static LTE_fdd_enb_timer_mgr *instance;
     LTE_fdd_enb_timer_mgr();
     ~LTE_fdd_enb_timer_mgr();
+
+    // Start/Stop
+    LTE_fdd_enb_interface *interface;
+    boost::mutex           start_mutex;
+    bool                   started;
+
+    // Communication
+    void handle_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void handle_tick(void);
+    LTE_fdd_enb_msgq *msgq_from_mac;
 
     // Timer Storage
     boost::mutex                         timer_mutex;

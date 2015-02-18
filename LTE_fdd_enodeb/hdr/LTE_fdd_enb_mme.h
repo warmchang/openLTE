@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -37,6 +37,7 @@
                                    request support.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue and
                                    sending of EMM information message.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -79,7 +80,7 @@ public:
     static void cleanup(void);
 
     // Start/Stop
-    void start(void);
+    void start(LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *to_rrc, LTE_fdd_enb_interface *iface);
     void stop(void);
 
     // External interface
@@ -92,13 +93,14 @@ private:
     ~LTE_fdd_enb_mme();
 
     // Start/Stop
-    boost::mutex start_mutex;
-    bool         started;
+    LTE_fdd_enb_interface *interface;
+    boost::mutex           start_mutex;
+    bool                   started;
 
     // Communication
-    void handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    LTE_fdd_enb_msgq                   *rrc_comm_msgq;
-    boost::interprocess::message_queue *mme_rrc_olmq;
+    void handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    LTE_fdd_enb_msgq *msgq_from_rrc;
+    LTE_fdd_enb_msgq *msgq_to_rrc;
 
     // RRC Message Handlers
     void handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *nas_msg);

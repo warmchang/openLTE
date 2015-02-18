@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2014 Ben Wojtowicz
+    Copyright 2012-2015 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (DCI 1C Unpack)
 
     This program is free software: you can redistribute it and/or modify
@@ -103,6 +103,8 @@
                                    liblte_bits_2_value functions.
     12/24/2014    Ben Wojtowicz    Added C-RNTI support to
                                    get_tbs_mcs_and_N_prb_for_dl.
+    02/15/2015    Ben Wojtowicz    Properly handling modulation schemes and
+                                   added 16QAM and 64QAM demapping.
 
 *******************************************************************************/
 
@@ -3201,6 +3203,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_encode(LIBLTE_PHY_STRUCT          *ph
     uint32            M_ap_symb;
     uint32            first_sc;
     uint32            last_sc;
+    uint32            Q_m;
 
     if(phy_struct != NULL &&
        pdcch      != NULL &&
@@ -3245,6 +3248,17 @@ LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_encode(LIBLTE_PHY_STRUCT          *ph
                                                       N_ant,
                                                       pdcch->alloc[alloc_idx].mod_type);
                 }
+                // Determine Q_m
+                if(LIBLTE_PHY_MODULATION_TYPE_BPSK == pdcch->alloc[alloc_idx].mod_type)
+                {
+                    Q_m = 1;
+                }else if(LIBLTE_PHY_MODULATION_TYPE_QPSK == pdcch->alloc[alloc_idx].mod_type){
+                    Q_m = 2;
+                }else if(LIBLTE_PHY_MODULATION_TYPE_16QAM == pdcch->alloc[alloc_idx].mod_type){
+                    Q_m = 4;
+                }else{ // LIBLTE_PHY_MODULATION_TYPE_64QAM == pdcch->alloc[alloc_idx].mod_type
+                    Q_m = 6;
+                }
                 // Encode the PDSCH
                 dlsch_channel_encode(phy_struct,
                                      pdcch->alloc[alloc_idx].msg.msg,
@@ -3254,7 +3268,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_encode(LIBLTE_PHY_STRUCT          *ph
                                      pdcch->alloc[alloc_idx].rv_idx,
                                      N_bits_tot,
                                      2,
-                                     2,
+                                     Q_m,
                                      8,
                                      250368,
                                      phy_struct->pdsch_encode_bits,
@@ -5929,6 +5943,7 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_dl(uint32  N_bits,
     uint32            code_rate;
     uint32            N_prb_tmp;
     uint32            N_bits_per_prb;
+    uint32            I_tbs;
 
     if(tbs   != NULL &&
        mcs   != NULL &&
@@ -5982,13 +5997,21 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_dl(uint32  N_bits,
                     if(N_bits <= TBS_71721[i][j])
                     {
                         *tbs   = TBS_71721[i][j];
-                        *mcs   = i;
+                        I_tbs  = i;
                         *N_prb = j + 1;
                         break;
                     }
                 }
                 if(*N_prb != 0)
                 {
+                    if(9 >= I_tbs)
+                    {
+                        *mcs = I_tbs;
+                    }else if(15 >= I_tbs){
+                        *mcs = I_tbs + 1;
+                    }else{
+                        *mcs = I_tbs + 2;
+                    }
                     break;
                 }
             }
@@ -6106,10 +6129,10 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_ul(uint32  N_bits,
         if(I_tbs != 1000)
         {
             // Determine mcs
-            if(10 >= I_tbs)
+            if(9 >= I_tbs)
             {
                 *mcs = I_tbs;
-            }else if(19 >= I_tbs){
+            }else if(15 >= I_tbs){
                 *mcs = I_tbs + 1;
             }else{
                 *mcs = I_tbs + 2;
@@ -9014,7 +9037,11 @@ void modulation_demapper(float                           *d_re,
     float  sd;
     float  act_d_re;
     float  act_d_im;
-    float  one_over_sqrt_2 = 1/sqrt(2);
+    float  one_over_sqrt_2   = 1/sqrt(2);
+    float  two_over_sqrt_10  = 2/sqrt(10);
+    float  two_over_sqrt_42  = 2/sqrt(42);
+    float  four_over_sqrt_42 = 4/sqrt(42);
+    float  six_over_sqrt_42  = 6/sqrt(42);
     uint32 i;
 
     if(LIBLTE_PHY_MODULATION_TYPE_BPSK == type)
@@ -9037,7 +9064,7 @@ void modulation_demapper(float                           *d_re,
                 bits[i]  = -(int8)(127*sd);
             }
         }
-    }else{ // LIBLTE_PHY_MODULATION_TYPE_QPSK == type
+    }else if(LIBLTE_PHY_MODULATION_TYPE_QPSK == type){
         // 3GPP TS 36.211 v10.1.0 section 7.1.2
         *N_bits = M_symb*2;
         for(i=0; i<M_symb; i++)
@@ -9068,6 +9095,92 @@ void modulation_demapper(float                           *d_re,
                 sd          = get_soft_decision(d_re[i], d_im[i], act_d_re, act_d_im, 1);
                 bits[i*2+0] = -(int8)(127*sd);
                 bits[i*2+1] = -(int8)(127*sd);
+            }
+        }
+    }else if(LIBLTE_PHY_MODULATION_TYPE_16QAM == type){
+        // 3GPP TS 36.211 v10.1.0 section 7.1.3
+        *N_bits = M_symb*4;
+        // FIXME: Need to make soft decisions
+        for(i=0; i<M_symb; i++)
+        {
+            if(d_re[i] > 0)
+            {
+                bits[i*4+0] = +127;
+            }else{
+                bits[i*4+0] = -127;
+            }
+            if(d_im[i] > 0)
+            {
+                bits[i*4+1] = +127;
+            }else{
+                bits[i*4+1] = -127;
+            }
+            if(fabs(d_re[i]) < two_over_sqrt_10)
+            {
+                bits[i*4+2] = +127;
+            }else{
+                bits[i*4+2] = -127;
+            }
+            if(fabs(d_im[i]) < two_over_sqrt_10)
+            {
+                bits[i*4+3] = +127;
+            }else{
+                bits[i*4+3] = -127;
+            }
+        }
+    }else{ // LIBLTE_PHY_MODULATION_TYPE_64QAM == type
+        // 3GPP TS 36.211 v10.1.0 section 7.1.4
+        *N_bits = M_symb*6;
+        // FIXME: Need to make soft decisions
+        for(i=0; i<M_symb; i++)
+        {
+            if(d_re[i] > 0)
+            {
+                bits[i*6+0] = +127;
+            }else{
+                bits[i*6+0] = -127;
+            }
+            if(d_im[i] > 0)
+            {
+                bits[i*6+1] = +127;
+            }else{
+                bits[i*6+1] = -127;
+            }
+            if(fabs(d_re[i]) < four_over_sqrt_42)
+            {
+                bits[i*6+2] = +127;
+                if(fabs(d_re[i]) > two_over_sqrt_42)
+                {
+                    bits[i*6+4] = +127;
+                }else{
+                    bits[i*6+4] = -127;
+                }
+            }else{
+                bits[i*6+2] = -127;
+                if(fabs(d_re[i]) < six_over_sqrt_42)
+                {
+                    bits[i*6+4] = +127;
+                }else{
+                    bits[i*6+4] = -127;
+                }
+            }
+            if(fabs(d_im[i]) < four_over_sqrt_42)
+            {
+                bits[i*6+3] = +127;
+                if(fabs(d_im[i]) > two_over_sqrt_42)
+                {
+                    bits[i*6+5] = +127;
+                }else{
+                    bits[i*6+5] = -127;
+                }
+            }else{
+                bits[i*6+3] = -127;
+                if(fabs(d_im[i]) < six_over_sqrt_42)
+                {
+                    bits[i*6+5] = +127;
+                }else{
+                    bits[i*6+5] = -127;
+                }
             }
         }
     }

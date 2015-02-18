@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@
     05/04/2014    Ben Wojtowicz    Added PHICH support.
     06/15/2014    Ben Wojtowicz    Changed fn_combo to current_tti.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -75,7 +76,7 @@ public:
     static void cleanup(void);
 
     // Start/Stop
-    void start(LTE_fdd_enb_interface *iface);
+    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *to_mac, LTE_fdd_enb_interface *iface);
     void stop(void);
 
     // External interface
@@ -97,9 +98,9 @@ private:
     bool                   started;
 
     // Communication
-    void handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    LTE_fdd_enb_msgq                   *mac_comm_msgq;
-    boost::interprocess::message_queue *phy_mac_olmq;
+    void handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    LTE_fdd_enb_msgq *msgq_from_mac;
+    LTE_fdd_enb_msgq *msgq_to_mac;
 
     // Generic parameters
     LIBLTE_PHY_STRUCT *phy_struct;

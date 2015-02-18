@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@
     08/03/2014    Ben Wojtowicz    Added transmit functionality.
     11/29/2014    Ben Wojtowicz    Using the byte message structure.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -72,7 +73,7 @@ public:
     static void cleanup(void);
 
     // Start/Stop
-    void start(void);
+    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *to_mac, LTE_fdd_enb_msgq *to_pdcp, LTE_fdd_enb_interface *iface);
     void stop(void);
 
     // External interface
@@ -86,16 +87,17 @@ private:
     ~LTE_fdd_enb_rlc();
 
     // Start/Stop
-    boost::mutex start_mutex;
-    bool         started;
+    LTE_fdd_enb_interface *interface;
+    boost::mutex           start_mutex;
+    bool                   started;
 
     // Communication
-    void handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    LTE_fdd_enb_msgq                   *mac_comm_msgq;
-    LTE_fdd_enb_msgq                   *pdcp_comm_msgq;
-    boost::interprocess::message_queue *rlc_mac_olmq;
-    boost::interprocess::message_queue *rlc_pdcp_olmq;
+    void handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    LTE_fdd_enb_msgq *msgq_from_mac;
+    LTE_fdd_enb_msgq *msgq_from_pdcp;
+    LTE_fdd_enb_msgq *msgq_to_mac;
+    LTE_fdd_enb_msgq *msgq_to_pdcp;
 
     // MAC Message Handlers
     void handle_pdu_ready(LTE_FDD_ENB_RLC_PDU_READY_MSG_STRUCT *pdu_ready);

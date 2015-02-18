@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_timer_mgr.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@
     08/03/2014    Ben Wojtowicz    Added an invalid timer id.
     11/29/2014    Ben Wojtowicz    Added timer reset support.
     12/16/2014    Ben Wojtowicz    Passing timer tick to user_mgr.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue for timer ticks.
 
 *******************************************************************************/
 
@@ -92,10 +93,39 @@ void LTE_fdd_enb_timer_mgr::cleanup(void)
 /********************************/
 LTE_fdd_enb_timer_mgr::LTE_fdd_enb_timer_mgr()
 {
-    next_timer_id = 0;
+    interface = NULL;
+    started   = false;
 }
 LTE_fdd_enb_timer_mgr::~LTE_fdd_enb_timer_mgr()
 {
+}
+
+/********************/
+/*    Start/Stop    */
+/********************/
+void LTE_fdd_enb_timer_mgr::start(LTE_fdd_enb_msgq      *from_mac,
+                                  LTE_fdd_enb_interface *iface)
+{
+    boost::mutex::scoped_lock lock(start_mutex);
+    LTE_fdd_enb_msgq_cb       timer_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_timer_mgr, &LTE_fdd_enb_timer_mgr::handle_msg>, this);
+
+    if(!started)
+    {
+        interface     = iface;
+        started       = true;
+        next_timer_id = 0;
+        msgq_from_mac = from_mac;
+        msgq_from_mac->attach_rx(timer_cb);
+    }
+}
+void LTE_fdd_enb_timer_mgr::stop(void)
+{
+    boost::mutex::scoped_lock lock(start_mutex);
+
+    if(started)
+    {
+        started = false;
+    }
 }
 
 /****************************/
@@ -155,6 +185,38 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::reset_timer(uint32 timer_id)
     }
 
     return(err);
+}
+
+/***********************/
+/*    Communication    */
+/***********************/
+void LTE_fdd_enb_timer_mgr::handle_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
+{
+    if(LTE_FDD_ENB_DEST_LAYER_TIMER_MGR == msg.dest_layer ||
+       LTE_FDD_ENB_DEST_LAYER_ANY       == msg.dest_layer)
+    {
+        switch(msg.type)
+        {
+        case LTE_FDD_ENB_MESSAGE_TYPE_TIMER_TICK:
+            handle_tick();
+            break;
+        default:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_WARNING,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_TIMER,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Received invalid TIMER message %s",
+                                      LTE_fdd_enb_message_type_text[msg.type]);
+            break;
+        }
+    }else{
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_WARNING,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_TIMER,
+                                  __FILE__,
+                                  __LINE__,
+                                  "Received message for invalid layer (%s)",
+                                  LTE_fdd_enb_dest_layer_text[msg.dest_layer]);
+    }
 }
 void LTE_fdd_enb_timer_mgr::handle_tick(void)
 {

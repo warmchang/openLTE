@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -31,6 +31,7 @@
     11/29/2014    Ben Wojtowicz    Added more decoding/encoding.
     12/16/2014    Ben Wojtowicz    Added more decoding/encoding.
     12/24/2014    Ben Wojtowicz    Cleaned up the Time Zone and Time IE.
+    02/15/2015    Ben Wojtowicz    Added more decoding/encoding.
 
 *******************************************************************************/
 
@@ -2348,21 +2349,6 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_request_type_ie(uint8 **ie_ptr,
     Document Reference: 24.301 v10.2.0 Section 9.9.4.15
 *********************************************************************/
 // Defines
-// Enums
-// Structs
-// Functions
-// FIXME
-
-/*********************************************************************
-    IE Name: Traffic Flow Template
-
-    Description: Specifies the TFT parameters and operations for a
-                 PDP context.
-
-    Document Reference: 24.301 v10.2.0 Section 9.9.4.16
-                        24.008 v10.2.0 Section 10.5.6.12
-*********************************************************************/
-// Defines
 #define LIBLTE_MME_PACKET_FILTER_LIST_MAX_SIZE                                            15
 #define LIBLTE_MME_PACKET_FILTER_MAX_SIZE                                                 20
 #define LIBLTE_MME_PARAMETER_LIST_MAX_SIZE                                                15
@@ -2428,6 +2414,28 @@ typedef struct{
     uint8                              packet_filter_list_size;
     uint8                              parameter_list_size;
 }LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT;
+typedef LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT LIBLTE_MME_TRAFFIC_FLOW_AGGREGATE_DESCRIPTION_STRUCT;
+// Functions
+LIBLTE_ERROR_ENUM liblte_mme_pack_traffic_flow_aggregate_description_ie(LIBLTE_MME_TRAFFIC_FLOW_AGGREGATE_DESCRIPTION_STRUCT  *tfad,
+                                                                        uint8                                                **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_traffic_flow_aggregate_description_ie(uint8                                                **ie_ptr,
+                                                                          LIBLTE_MME_TRAFFIC_FLOW_AGGREGATE_DESCRIPTION_STRUCT  *tfad);
+
+/*********************************************************************
+    IE Name: Traffic Flow Template
+
+    Description: Specifies the TFT parameters and operations for a
+                 PDP context.
+
+    Document Reference: 24.301 v10.2.0 Section 9.9.4.16
+                        24.008 v10.2.0 Section 10.5.6.12
+*********************************************************************/
+// Defines
+// Traffic Flow Template defines defined above
+// Enums
+// Traffic Flow Template enums defined above
+// Structs
+// Traffic Flow Template structs defined above
 // Functions
 LIBLTE_ERROR_ENUM liblte_mme_pack_traffic_flow_template_ie(LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT  *tft,
                                                            uint8                                   **ie_ptr);
@@ -3584,8 +3592,8 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_activate_default_eps_bearer_context_reject_m
 *********************************************************************/
 // Defines
 #define LIBLTE_MME_TRANSACTION_IDENTIFIER_IEI 0x5D
-#define LIBLTE_MME_NEGOTIATED_QOS_IEI         0x30
-#define LIBLTE_MME_NEGOTIATED_LLC_SAPI_IEI    0x32
+#define LIBLTE_MME_QUALITY_OF_SERVICE_IEI     0x30
+#define LIBLTE_MME_LLC_SAPI_IEI               0x32
 #define LIBLTE_MME_RADIO_PRIORITY_IEI         0x8
 #define LIBLTE_MME_PACKET_FLOW_IDENTIFIER_IEI 0x34
 #define LIBLTE_MME_APN_AMBR_IEI               0x5E
@@ -3660,10 +3668,25 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_allocation_reject_msg(LIBLTE
     Document Reference: 24.301 v10.2.0 Section 8.3.8
 *********************************************************************/
 // Defines
+#define LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_DEVICE_PROPERTIES_IEI 0xC
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_MME_TRAFFIC_FLOW_AGGREGATE_DESCRIPTION_STRUCT tfa;
+    LIBLTE_MME_EPS_QUALITY_OF_SERVICE_STRUCT             req_tf_qos;
+    LIBLTE_MME_PROTOCOL_CONFIG_OPTIONS_STRUCT            protocol_cnfg_opts;
+    LIBLTE_MME_DEVICE_PROPERTIES_ENUM                    device_properties;
+    uint8                                                eps_bearer_id;
+    uint8                                                proc_transaction_id;
+    uint8                                                linked_eps_bearer_id;
+    bool                                                 protocol_cnfg_opts_present;
+    bool                                                 device_properties_present;
+}LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_MSG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_bearer_resource_allocation_request_msg(LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_MSG_STRUCT *bearer_res_alloc_req,
+                                                                         LIBLTE_BYTE_MSG_STRUCT                                   *msg);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_allocation_request_msg(LIBLTE_BYTE_MSG_STRUCT                                   *msg,
+                                                                           LIBLTE_MME_BEARER_RESOURCE_ALLOCATION_REQUEST_MSG_STRUCT *bearer_res_alloc_req);
 
 /*********************************************************************
     Message Name: Bearer Resource Modification Reject
@@ -3700,10 +3723,29 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_modification_reject_msg(LIBL
     Document Reference: 24.301 v10.2.0 Section 8.3.10
 *********************************************************************/
 // Defines
+#define LIBLTE_MME_EPS_QUALITY_OF_SERVICE_IEI                                 0x5B
+#define LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_DEVICE_PROPERTIES_IEI 0xC
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_MME_TRAFFIC_FLOW_AGGREGATE_DESCRIPTION_STRUCT tfa;
+    LIBLTE_MME_EPS_QUALITY_OF_SERVICE_STRUCT             req_tf_qos;
+    LIBLTE_MME_PROTOCOL_CONFIG_OPTIONS_STRUCT            protocol_cnfg_opts;
+    LIBLTE_MME_DEVICE_PROPERTIES_ENUM                    device_properties;
+    uint8                                                eps_bearer_id;
+    uint8                                                proc_transaction_id;
+    uint8                                                eps_bearer_id_for_packet_filter;
+    uint8                                                esm_cause;
+    bool                                                 req_tf_qos_present;
+    bool                                                 esm_cause_present;
+    bool                                                 protocol_cnfg_opts_present;
+    bool                                                 device_properties_present;
+}LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_MSG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_bearer_resource_modification_request_msg(LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_MSG_STRUCT *bearer_res_mod_req,
+                                                                           LIBLTE_BYTE_MSG_STRUCT                                     *msg);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_bearer_resource_modification_request_msg(LIBLTE_BYTE_MSG_STRUCT                                     *msg,
+                                                                             LIBLTE_MME_BEARER_RESOURCE_MODIFICATION_REQUEST_MSG_STRUCT *bearer_res_mod_req);
 
 /*********************************************************************
     Message Name: Deactivate EPS Bearer Context Accept
@@ -3880,10 +3922,35 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_modify_eps_bearer_context_reject_msg(LIBLTE_
     Document Reference: 24.301 v10.2.0 Section 8.3.18
 *********************************************************************/
 // Defines
+#define LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_IEI 0x36
+#define LIBLTE_MME_QUALITY_OF_SERVICE_IEI    0x30
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_MME_EPS_QUALITY_OF_SERVICE_STRUCT         new_eps_qos;
+    LIBLTE_MME_TRAFFIC_FLOW_TEMPLATE_STRUCT          tft;
+    LIBLTE_MME_QUALITY_OF_SERVICE_STRUCT             new_qos;
+    LIBLTE_MME_APN_AGGREGATE_MAXIMUM_BIT_RATE_STRUCT apn_ambr;
+    LIBLTE_MME_PROTOCOL_CONFIG_OPTIONS_STRUCT        protocol_cnfg_opts;
+    uint8                                            eps_bearer_id;
+    uint8                                            proc_transaction_id;
+    uint8                                            negotiated_llc_sapi;
+    uint8                                            radio_prio;
+    uint8                                            packet_flow_id;
+    bool                                             new_eps_qos_present;
+    bool                                             tft_present;
+    bool                                             new_qos_present;
+    bool                                             negotiated_llc_sapi_present;
+    bool                                             radio_prio_present;
+    bool                                             packet_flow_id_present;
+    bool                                             apn_ambr_present;
+    bool                                             protocol_cnfg_opts_present;
+}LIBLTE_MME_MODIFY_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_modify_eps_bearer_context_request_msg(LIBLTE_MME_MODIFY_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT *mod_eps_bearer_context_req,
+                                                                        LIBLTE_BYTE_MSG_STRUCT                                  *msg);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_modify_eps_bearer_context_request_msg(LIBLTE_BYTE_MSG_STRUCT                                  *msg,
+                                                                          LIBLTE_MME_MODIFY_EPS_BEARER_CONTEXT_REQUEST_MSG_STRUCT *mod_eps_bearer_context_req);
 
 /*********************************************************************
     Message Name: Notification

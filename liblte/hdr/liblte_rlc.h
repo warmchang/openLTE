@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,7 @@
     08/03/2014    Ben Wojtowicz    Added NACK support.
     11/29/2014    Ben Wojtowicz    Added UMD support and using the byte message
                                    struct.
+    02/15/2015    Ben Wojtowicz    Added header extension handling to UMD.
 
 *******************************************************************************/
 
@@ -246,6 +247,7 @@ static const char liblte_rlc_e2_field_text[LIBLTE_RLC_E2_FIELD_N_ITEMS][20] = {"
     Document Reference: 36.322 v10.0.0 Section 6.2.1.3
 *********************************************************************/
 // Defines
+#define LIBLTE_RLC_UMD_MAX_N_DATA 5
 // Enums
 typedef enum{
     LIBLTE_RLC_UMD_SN_SIZE_5_BITS = 0,
@@ -261,7 +263,8 @@ typedef struct{
 }LIBLTE_RLC_UMD_PDU_HEADER_STRUCT;
 typedef struct{
     LIBLTE_RLC_UMD_PDU_HEADER_STRUCT hdr;
-    LIBLTE_BYTE_MSG_STRUCT           data;
+    LIBLTE_BYTE_MSG_STRUCT           data[LIBLTE_RLC_UMD_MAX_N_DATA];
+    uint32                           N_data;
 }LIBLTE_RLC_UMD_PDU_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_rlc_pack_umd_pdu(LIBLTE_RLC_UMD_PDU_STRUCT *umd,

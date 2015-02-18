@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_rrc.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -40,6 +40,8 @@
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
     12/24/2014    Ben Wojtowicz    Using default data QoS and copying SRB1
                                    PDCP config to SRB2.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue and using the
+                                   fixed user switch.
 
 *******************************************************************************/
 
@@ -49,7 +51,6 @@
 
 #include "LTE_fdd_enb_rrc.h"
 #include "LTE_fdd_enb_pdcp.h"
-#include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_user_mgr.h"
 
 /*******************************************************************************
@@ -113,7 +114,11 @@ LTE_fdd_enb_rrc::~LTE_fdd_enb_rrc()
 /********************/
 /*    Start/Stop    */
 /********************/
-void LTE_fdd_enb_rrc::start(void)
+void LTE_fdd_enb_rrc::start(LTE_fdd_enb_msgq      *from_pdcp,
+                            LTE_fdd_enb_msgq      *from_mme,
+                            LTE_fdd_enb_msgq      *to_pdcp,
+                            LTE_fdd_enb_msgq      *to_mme,
+                            LTE_fdd_enb_interface *iface)
 {
     boost::mutex::scoped_lock lock(start_mutex);
     LTE_fdd_enb_msgq_cb       pdcp_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_rrc, &LTE_fdd_enb_rrc::handle_pdcp_msg>, this);
@@ -121,15 +126,14 @@ void LTE_fdd_enb_rrc::start(void)
 
     if(!started)
     {
+        interface      = iface;
         started        = true;
-        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_rrc_olmq",
-                                              pdcp_cb);
-        mme_comm_msgq  = new LTE_fdd_enb_msgq("mme_rrc_olmq",
-                                              mme_cb);
-        rrc_pdcp_olmq  = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "rrc_pdcp_olmq");
-        rrc_mme_olmq   = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "rrc_mme_olmq");
+        msgq_from_pdcp = from_pdcp;
+        msgq_from_mme  = from_mme;
+        msgq_to_pdcp   = to_pdcp;
+        msgq_to_mme    = to_mme;
+        msgq_from_pdcp->attach_rx(pdcp_cb);
+        msgq_from_mme->attach_rx(mme_cb);
     }
 }
 void LTE_fdd_enb_rrc::stop(void)
@@ -139,26 +143,21 @@ void LTE_fdd_enb_rrc::stop(void)
     if(started)
     {
         started = false;
-        delete pdcp_comm_msgq;
-        delete mme_comm_msgq;
     }
 }
 
 /***********************/
 /*    Communication    */
 /***********************/
-void LTE_fdd_enb_rrc::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
+void LTE_fdd_enb_rrc::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-
-    if(LTE_FDD_ENB_DEST_LAYER_RRC == msg->dest_layer ||
-       LTE_FDD_ENB_DEST_LAYER_ANY == msg->dest_layer)
+    if(LTE_FDD_ENB_DEST_LAYER_RRC == msg.dest_layer ||
+       LTE_FDD_ENB_DEST_LAYER_ANY == msg.dest_layer)
     {
-        switch(msg->type)
+        switch(msg.type)
         {
         case LTE_FDD_ENB_MESSAGE_TYPE_RRC_PDU_READY:
-            handle_pdu_ready(&msg->msg.rrc_pdu_ready);
-            delete msg;
+            handle_pdu_ready(&msg.msg.rrc_pdu_ready);
             break;
         default:
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -166,31 +165,26 @@ void LTE_fdd_enb_rrc::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
                                       __FILE__,
                                       __LINE__,
                                       "Received invalid PDCP message %s",
-                                      LTE_fdd_enb_message_type_text[msg->type]);
-            delete msg;
+                                      LTE_fdd_enb_message_type_text[msg.type]);
             break;
         }
     }else{
         // Forward message to MME
-        rrc_mme_olmq->send(&msg, sizeof(msg), 0);
+        msgq_to_mme->send(msg);
     }
 }
-void LTE_fdd_enb_rrc::handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
+void LTE_fdd_enb_rrc::handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-
-    if(LTE_FDD_ENB_DEST_LAYER_RRC == msg->dest_layer ||
-       LTE_FDD_ENB_DEST_LAYER_ANY == msg->dest_layer)
+    if(LTE_FDD_ENB_DEST_LAYER_RRC == msg.dest_layer ||
+       LTE_FDD_ENB_DEST_LAYER_ANY == msg.dest_layer)
     {
-        switch(msg->type)
+        switch(msg.type)
         {
         case LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY:
-            handle_nas_msg(&msg->msg.rrc_nas_msg_ready);
-            delete msg;
+            handle_nas_msg(&msg.msg.rrc_nas_msg_ready);
             break;
         case LTE_FDD_ENB_MESSAGE_TYPE_RRC_CMD_READY:
-            handle_cmd(&msg->msg.rrc_cmd_ready);
-            delete msg;
+            handle_cmd(&msg.msg.rrc_cmd_ready);
             break;
         default:
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -198,13 +192,12 @@ void LTE_fdd_enb_rrc::handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
                                       __FILE__,
                                       __LINE__,
                                       "Received invalid MME message %s",
-                                      LTE_fdd_enb_message_type_text[msg->type]);
-            delete msg;
+                                      LTE_fdd_enb_message_type_text[msg.type]);
             break;
         }
     }else{
         // Forward message to PDCP
-        rrc_pdcp_olmq->send(&msg, sizeof(msg), 0);
+        msgq_to_pdcp->send(msg);
     }
 }
 
@@ -225,7 +218,6 @@ void LTE_fdd_enb_rrc::update_sys_info(void)
 /*******************************/
 void LTE_fdd_enb_rrc::handle_pdu_ready(LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT *pdu_ready)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
     LIBLTE_BIT_MSG_STRUCT *pdu;
 
     if(LTE_FDD_ENB_ERROR_NONE == pdu_ready->rb->get_next_rrc_pdu(&pdu))
@@ -277,7 +269,6 @@ void LTE_fdd_enb_rrc::handle_pdu_ready(LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT *pdu
 /******************************/
 void LTE_fdd_enb_rrc::handle_nas_msg(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT *nas_msg)
 {
-    LTE_fdd_enb_interface  *interface = LTE_fdd_enb_interface::get_instance();
     LIBLTE_BYTE_MSG_STRUCT *msg;
 
     if(LTE_FDD_ENB_ERROR_NONE == nas_msg->rb->get_next_rrc_nas_msg(&msg))
@@ -306,7 +297,6 @@ void LTE_fdd_enb_rrc::handle_nas_msg(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT *n
 }
 void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
 {
-    LTE_fdd_enb_interface  *interface = LTE_fdd_enb_interface::get_instance();
     LIBLTE_BYTE_MSG_STRUCT *msg;
     LTE_fdd_enb_rb         *srb2 = NULL;
     LTE_fdd_enb_rb         *drb1 = NULL;
@@ -425,10 +415,9 @@ void LTE_fdd_enb_rrc::ccch_sm(LIBLTE_BIT_MSG_STRUCT *msg,
                               LTE_fdd_enb_user      *user,
                               LTE_fdd_enb_rb        *rb)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_user      *loc_user  = user;
-    LTE_fdd_enb_rb        *loc_rb    = rb;
-    LTE_fdd_enb_rb        *srb1      = NULL;
+    LTE_fdd_enb_user *loc_user = user;
+    LTE_fdd_enb_rb   *loc_rb   = rb;
+    LTE_fdd_enb_rb   *srb1     = NULL;
 
     // Parse the message
     parse_ul_ccch_message(msg, &loc_user, &loc_rb);
@@ -483,8 +472,6 @@ void LTE_fdd_enb_rrc::dcch_sm(LIBLTE_BIT_MSG_STRUCT *msg,
                               LTE_fdd_enb_user      *user,
                               LTE_fdd_enb_rb        *rb)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-
     switch(rb->get_rrc_procedure())
     {
     case LTE_FDD_ENB_RRC_PROC_RRC_CON_REQ:
@@ -526,10 +513,9 @@ void LTE_fdd_enb_rrc::parse_ul_ccch_message(LIBLTE_BIT_MSG_STRUCT  *msg,
                                             LTE_fdd_enb_user      **user,
                                             LTE_fdd_enb_rb        **rb)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_user_mgr  *user_mgr  = LTE_fdd_enb_user_mgr::get_instance();
-    LTE_fdd_enb_user      *act_user  = NULL;
-    LTE_fdd_enb_rb        *tmp_rb;
+    LTE_fdd_enb_user_mgr *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_user     *act_user = NULL;
+    LTE_fdd_enb_rb       *tmp_rb;
 
     // Parse the message
     liblte_rrc_unpack_ul_ccch_msg(msg,
@@ -553,11 +539,10 @@ void LTE_fdd_enb_rrc::parse_ul_ccch_message(LIBLTE_BIT_MSG_STRUCT  *msg,
             {
                 if(act_user != (*user))
                 {
-                    (*user)->get_srb0(&tmp_rb);
-                    act_user->copy_rb(tmp_rb);
+                    act_user->copy_rbs((*user));
+                    (*user)->clear_rbs();
                     user_mgr->transfer_c_rnti(*user, act_user);
                     *user = act_user;
-                    (*user)->get_srb0(rb);
                 }
                 interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                           LTE_FDD_ENB_DEBUG_LEVEL_RRC,
@@ -594,9 +579,8 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
                                             LTE_fdd_enb_user      *user,
                                             LTE_fdd_enb_rb        *rb)
 {
-    LTE_fdd_enb_interface                    *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT  nas_msg_ready;
-    LTE_FDD_ENB_MME_RRC_CMD_RESP_MSG_STRUCT   cmd_resp;
+    LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT nas_msg_ready;
+    LTE_FDD_ENB_MME_RRC_CMD_RESP_MSG_STRUCT  cmd_resp;
 
     // Parse the message
     liblte_rrc_unpack_ul_dcch_msg(msg,
@@ -622,11 +606,10 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
         // Signal MME
         nas_msg_ready.user = user;
         nas_msg_ready.rb   = rb;
-        LTE_fdd_enb_msgq::send(rrc_mme_olmq,
-                               LTE_FDD_ENB_MESSAGE_TYPE_MME_NAS_MSG_READY,
-                               LTE_FDD_ENB_DEST_LAYER_MME,
-                               (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                               sizeof(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT));
+        msgq_to_mme->send(LTE_FDD_ENB_MESSAGE_TYPE_MME_NAS_MSG_READY,
+                          LTE_FDD_ENB_DEST_LAYER_MME,
+                          (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                          sizeof(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT));
         break;
     case LIBLTE_RRC_UL_DCCH_MSG_TYPE_UL_INFO_TRANSFER:
         if(LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_NAS == rb->ul_dcch_msg.msg.ul_info_transfer.dedicated_info_type)
@@ -637,11 +620,10 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
             // Signal MME
             nas_msg_ready.user = user;
             nas_msg_ready.rb   = rb;
-            LTE_fdd_enb_msgq::send(rrc_mme_olmq,
-                                   LTE_FDD_ENB_MESSAGE_TYPE_MME_NAS_MSG_READY,
-                                   LTE_FDD_ENB_DEST_LAYER_MME,
-                                   (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
-                                   sizeof(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT));
+            msgq_to_mme->send(LTE_FDD_ENB_MESSAGE_TYPE_MME_NAS_MSG_READY,
+                              LTE_FDD_ENB_DEST_LAYER_MME,
+                              (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                              sizeof(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT));
         }else{
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                       LTE_FDD_ENB_DEBUG_LEVEL_RRC,
@@ -653,15 +635,14 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
         }
         break;
     case LIBLTE_RRC_UL_DCCH_MSG_TYPE_SECURITY_MODE_COMPLETE:
-        // Signal RRC
+        // Signal MME
         cmd_resp.user     = user;
         cmd_resp.rb       = rb;
         cmd_resp.cmd_resp = LTE_FDD_ENB_MME_RRC_CMD_RESP_SECURITY;
-        LTE_fdd_enb_msgq::send(rrc_mme_olmq,
-                               LTE_FDD_ENB_MESSAGE_TYPE_MME_RRC_CMD_RESP,
-                               LTE_FDD_ENB_DEST_LAYER_MME,
-                               (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_resp,
-                               sizeof(LTE_FDD_ENB_MME_RRC_CMD_RESP_MSG_STRUCT));
+        msgq_to_mme->send(LTE_FDD_ENB_MESSAGE_TYPE_MME_RRC_CMD_RESP,
+                          LTE_FDD_ENB_DEST_LAYER_MME,
+                          (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_resp,
+                          sizeof(LTE_FDD_ENB_MME_RRC_CMD_RESP_MSG_STRUCT));
         break;
     case LIBLTE_RRC_UL_DCCH_MSG_TYPE_RRC_CON_RECONFIG_COMPLETE:
         rb->set_qos(LTE_FDD_ENB_QOS_NONE);
@@ -685,9 +666,8 @@ void LTE_fdd_enb_rrc::send_dl_info_transfer(LTE_fdd_enb_user       *user,
                                             LTE_fdd_enb_rb         *rb,
                                             LIBLTE_BYTE_MSG_STRUCT *msg)
 {
-    LTE_fdd_enb_interface                 *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT  pdcp_sdu_ready;
-    LIBLTE_BIT_MSG_STRUCT                  pdcp_sdu;
+    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT pdcp_sdu_ready;
+    LIBLTE_BIT_MSG_STRUCT                 pdcp_sdu;
 
     rb->dl_dcch_msg.msg_type                                 = LIBLTE_RRC_DL_DCCH_MSG_TYPE_DL_INFO_TRANSFER;
     rb->dl_dcch_msg.msg.dl_info_transfer.rrc_transaction_id  = rb->get_rrc_transaction_id();
@@ -709,19 +689,17 @@ void LTE_fdd_enb_rrc::send_dl_info_transfer(LTE_fdd_enb_user       *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
-                           LTE_FDD_ENB_DEST_LAYER_PDCP,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
-                           sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_rrc::send_rrc_con_reconfig(LTE_fdd_enb_user       *user,
                                             LTE_fdd_enb_rb         *rb,
                                             LIBLTE_BYTE_MSG_STRUCT *msg)
 {
-    LTE_fdd_enb_interface                        *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_rb                               *drb1      = NULL;
-    LTE_fdd_enb_rb                               *drb2      = NULL;
+    LTE_fdd_enb_rb                               *drb1 = NULL;
+    LTE_fdd_enb_rb                               *drb2 = NULL;
     LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT         pdcp_sdu_ready;
     LIBLTE_RRC_CONNECTION_RECONFIGURATION_STRUCT *rrc_con_recnfg;
     LIBLTE_BIT_MSG_STRUCT                         pdcp_sdu;
@@ -831,18 +809,16 @@ void LTE_fdd_enb_rrc::send_rrc_con_reconfig(LTE_fdd_enb_user       *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
-                           LTE_FDD_ENB_DEST_LAYER_PDCP,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
-                           sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_rrc::send_rrc_con_release(LTE_fdd_enb_user *user,
                                            LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                 *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT  pdcp_sdu_ready;
-    LIBLTE_BIT_MSG_STRUCT                  pdcp_sdu;
+    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT pdcp_sdu_ready;
+    LIBLTE_BIT_MSG_STRUCT                 pdcp_sdu;
 
     rb->dl_dcch_msg.msg_type                               = LIBLTE_RRC_DL_DCCH_MSG_TYPE_RRC_CON_RELEASE;
     rb->dl_dcch_msg.msg.rrc_con_release.rrc_transaction_id = rb->get_rrc_transaction_id();
@@ -863,16 +839,14 @@ void LTE_fdd_enb_rrc::send_rrc_con_release(LTE_fdd_enb_user *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
-                           LTE_FDD_ENB_DEST_LAYER_PDCP,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
-                           sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_rrc::send_rrc_con_setup(LTE_fdd_enb_user *user,
                                          LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                 *interface = LTE_fdd_enb_interface::get_instance();
     LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT  pdcp_sdu_ready;
     LIBLTE_RRC_CONNECTION_SETUP_STRUCT    *rrc_con_setup;
     LIBLTE_BIT_MSG_STRUCT                  pdcp_sdu;
@@ -918,18 +892,16 @@ void LTE_fdd_enb_rrc::send_rrc_con_setup(LTE_fdd_enb_user *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
-                           LTE_FDD_ENB_DEST_LAYER_PDCP,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
-                           sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
 }
 void LTE_fdd_enb_rrc::send_security_mode_command(LTE_fdd_enb_user *user,
                                                  LTE_fdd_enb_rb   *rb)
 {
-    LTE_fdd_enb_interface                 *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT  pdcp_sdu_ready;
-    LIBLTE_BIT_MSG_STRUCT                  pdcp_sdu;
+    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT pdcp_sdu_ready;
+    LIBLTE_BIT_MSG_STRUCT                 pdcp_sdu;
 
     rb->dl_dcch_msg.msg_type                                  = LIBLTE_RRC_DL_DCCH_MSG_TYPE_SECURITY_MODE_COMMAND;
     rb->dl_dcch_msg.msg.security_mode_cmd.rrc_transaction_id  = rb->get_rrc_transaction_id();
@@ -954,9 +926,8 @@ void LTE_fdd_enb_rrc::send_security_mode_command(LTE_fdd_enb_user *user,
     // Signal PDCP
     pdcp_sdu_ready.user = user;
     pdcp_sdu_ready.rb   = rb;
-    LTE_fdd_enb_msgq::send(rrc_pdcp_olmq,
-                           LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
-                           LTE_FDD_ENB_DEST_LAYER_PDCP,
-                           (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
-                           sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
 }

@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_user.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -35,6 +35,7 @@
     11/29/2014    Ben Wojtowicz    Added DRB setup/teardown and C-RNTI release
                                    timer support.
     12/16/2014    Ben Wojtowicz    Changed the delayed delete functionality.
+    02/15/2015    Ben Wojtowicz    Added clear_rbs and fixed copy_rbs.
 
 *******************************************************************************/
 
@@ -489,41 +490,45 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user::get_drb(LTE_FDD_ENB_RB_ENUM   drb_id,
 
     return(err);
 }
-void LTE_fdd_enb_user::copy_rb(LTE_fdd_enb_rb *rb)
+void LTE_fdd_enb_user::copy_rbs(LTE_fdd_enb_user *user)
 {
-    LTE_fdd_enb_rb *tmp_rb;
+    uint32 i;
 
-    switch(rb->get_rb_id())
+    delete srb0;
+    user->get_srb0(&srb0);
+    srb0->reset_user(this);
+    delete srb1;
+    user->get_srb1(&srb1);
+    if(NULL != srb1)
     {
-    case LTE_FDD_ENB_RB_SRB0:
-        srb0->set_mme_procedure(rb->get_mme_procedure());
-        srb0->set_mme_state(rb->get_mme_state());
-        srb0->set_rrc_procedure(rb->get_rrc_procedure());
-        srb0->set_rrc_state(rb->get_rrc_state());
-        srb0->set_rrc_transaction_id(rb->get_rrc_transaction_id());
-        srb0->set_pdcp_config(rb->get_pdcp_config());
-        srb0->set_pdcp_rx_count(rb->get_pdcp_rx_count());
-        srb0->set_pdcp_tx_count(rb->get_pdcp_tx_count());
-        srb0->set_rlc_vrr(rb->get_rlc_vrr());
-        srb0->set_rlc_vrh(rb->get_rlc_vrh());
-        srb0->set_rlc_vta(rb->get_rlc_vta());
-        srb0->set_rlc_vts(rb->get_rlc_vts());
-        srb0->set_con_res_id(rb->get_con_res_id());
-        srb0->set_send_con_res_id(rb->get_send_con_res_id());
-        srb0->set_qos(rb->get_qos());
-        break;
-    case LTE_FDD_ENB_RB_SRB1:
-        setup_srb1(&tmp_rb);
-        memcpy(srb1, rb, sizeof(LTE_fdd_enb_rb));
-        break;
-    case LTE_FDD_ENB_RB_SRB2:
-        setup_srb2(&tmp_rb);
-        memcpy(srb2, rb, sizeof(LTE_fdd_enb_rb));
-        break;
-    case LTE_FDD_ENB_RB_DRB1:
-        setup_drb(LTE_FDD_ENB_RB_DRB1, &tmp_rb);
-        memcpy(&drb[0], rb, sizeof(LTE_fdd_enb_rb));
-        break;
+        srb1->reset_user(this);
+    }
+    delete srb2;
+    user->get_srb2(&srb2);
+    if(NULL != srb2)
+    {
+        srb2->reset_user(this);
+    }
+    for(i=0; i<8; i++)
+    {
+        delete drb[i];
+        user->get_drb((LTE_FDD_ENB_RB_ENUM)(LTE_FDD_ENB_RB_DRB1+i), &drb[i]);
+        if(NULL != drb[i])
+        {
+            drb[i]->reset_user(this);
+        }
+    }
+}
+void LTE_fdd_enb_user::clear_rbs(void)
+{
+    uint32 i;
+
+    srb0 = new LTE_fdd_enb_rb(LTE_FDD_ENB_RB_SRB0, this);
+    srb1 = NULL;
+    srb2 = NULL;
+    for(i=0; i<8; i++)
+    {
+        drb[i] = NULL;
     }
 }
 

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,7 @@
     05/04/2014    Ben Wojtowicz    Added communication to RLC and RRC.
     11/29/2014    Ben Wojtowicz    Added communication to IP gateway.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -70,7 +71,7 @@ public:
     static void cleanup(void);
 
     // Start/Stop
-    void start(void);
+    void start(LTE_fdd_enb_msgq *from_rlc, LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *from_gw, LTE_fdd_enb_msgq *to_rlc, LTE_fdd_enb_msgq *to_rrc, LTE_fdd_enb_msgq *to_gw, LTE_fdd_enb_interface *iface);
     void stop(void);
 
     // External interface
@@ -83,19 +84,20 @@ private:
     ~LTE_fdd_enb_pdcp();
 
     // Start/Stop
-    boost::mutex start_mutex;
-    bool         started;
+    LTE_fdd_enb_interface *interface;
+    boost::mutex           start_mutex;
+    bool                   started;
 
     // Communication
-    void handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    void handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    void handle_gw_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    LTE_fdd_enb_msgq                   *rlc_comm_msgq;
-    LTE_fdd_enb_msgq                   *rrc_comm_msgq;
-    LTE_fdd_enb_msgq                   *gw_comm_msgq;
-    boost::interprocess::message_queue *pdcp_rlc_olmq;
-    boost::interprocess::message_queue *pdcp_rrc_olmq;
-    boost::interprocess::message_queue *pdcp_gw_olmq;
+    void handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void handle_gw_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    LTE_fdd_enb_msgq *msgq_from_rlc;
+    LTE_fdd_enb_msgq *msgq_from_rrc;
+    LTE_fdd_enb_msgq *msgq_from_gw;
+    LTE_fdd_enb_msgq *msgq_to_rlc;
+    LTE_fdd_enb_msgq *msgq_to_rrc;
+    LTE_fdd_enb_msgq *msgq_to_gw;
 
     // RLC Message Handlers
     void handle_pdu_ready(LTE_FDD_ENB_PDCP_PDU_READY_MSG_STRUCT *pdu_ready);

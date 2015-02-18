@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -31,6 +31,7 @@
                                    to current_tti.
     11/29/2014    Ben Wojtowicz    Using the byte message struct for SDUs.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -94,7 +95,7 @@ public:
     static void cleanup(void);
 
     // Start/Stop
-    void start(LTE_fdd_enb_interface *iface);
+    void start(LTE_fdd_enb_msgq *from_phy, LTE_fdd_enb_msgq *from_rlc, LTE_fdd_enb_msgq *to_phy, LTE_fdd_enb_msgq *to_rlc, LTE_fdd_enb_msgq *to_timer, LTE_fdd_enb_interface *iface);
     void stop(void);
 
     // External interface
@@ -113,12 +114,13 @@ private:
     bool                   started;
 
     // Communication
-    void handle_phy_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    void handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    LTE_fdd_enb_msgq                   *phy_comm_msgq;
-    LTE_fdd_enb_msgq                   *rlc_comm_msgq;
-    boost::interprocess::message_queue *mac_phy_olmq;
-    boost::interprocess::message_queue *mac_rlc_olmq;
+    void handle_phy_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    LTE_fdd_enb_msgq *msgq_from_phy;
+    LTE_fdd_enb_msgq *msgq_from_rlc;
+    LTE_fdd_enb_msgq *msgq_to_phy;
+    LTE_fdd_enb_msgq *msgq_to_rlc;
+    LTE_fdd_enb_msgq *msgq_to_timer;
 
     // PHY Message Handlers
     void handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT *rts);

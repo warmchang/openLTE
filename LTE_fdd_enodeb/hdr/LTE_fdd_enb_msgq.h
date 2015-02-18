@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -34,6 +34,9 @@
     11/01/2014    Ben Wojtowicz    Added RRC security command, RRC SRB2 setup
                                    command, and RRC command response messages.
     11/29/2014    Ben Wojtowicz    Added IP gateway communication messages.
+    02/15/2015    Ben Wojtowicz    Moving to new message queue with semaphores
+                                   and circular buffers and added a timer tick
+                                   message.
 
 *******************************************************************************/
 
@@ -47,7 +50,8 @@
 #include "LTE_fdd_enb_user.h"
 #include "liblte_rrc.h"
 #include "liblte_phy.h"
-#include <boost/interprocess/ipc/message_queue.hpp>
+#include <boost/interprocess/sync/interprocess_semaphore.hpp>
+#include <boost/circular_buffer.hpp>
 #include <string>
 
 /*******************************************************************************
@@ -84,6 +88,9 @@ typedef enum{
 
     // MAC -> RLC Messages
     LTE_FDD_ENB_MESSAGE_TYPE_RLC_PDU_READY,
+
+    // MAC -> TIMER Messages
+    LTE_FDD_ENB_MESSAGE_TYPE_TIMER_TICK,
 
     // PDCP -> RLC Messages
     LTE_FDD_ENB_MESSAGE_TYPE_RLC_SDU_READY,
@@ -122,6 +129,7 @@ static const char LTE_fdd_enb_message_type_text[LTE_FDD_ENB_MESSAGE_TYPE_N_ITEMS
                                                                                           "PUSCH decode",
                                                                                           "MAC sdu ready",
                                                                                           "RLC pdu ready",
+                                                                                          "Timer tick",
                                                                                           "RLC sdu ready",
                                                                                           "PDCP pdu ready",
                                                                                           "PDCP sdu ready",
@@ -141,6 +149,7 @@ typedef enum{
     LTE_FDD_ENB_DEST_LAYER_RRC,
     LTE_FDD_ENB_DEST_LAYER_MME,
     LTE_FDD_ENB_DEST_LAYER_GW,
+    LTE_FDD_ENB_DEST_LAYER_TIMER_MGR,
     LTE_FDD_ENB_DEST_LAYER_ANY,
     LTE_FDD_ENB_DEST_LAYER_N_ITEMS,
 }LTE_FDD_ENB_DEST_LAYER_ENUM;
@@ -151,6 +160,7 @@ static const char LTE_fdd_enb_dest_layer_text[LTE_FDD_ENB_DEST_LAYER_N_ITEMS][10
                                                                                       "RRC",
                                                                                       "MME",
                                                                                       "GW",
+                                                                                      "TIMER_MGR",
                                                                                       "ANY"};
 
 // Generic Messages
@@ -175,6 +185,7 @@ typedef struct{
 typedef struct{
     uint32 dl_current_tti;
     uint32 ul_current_tti;
+    bool   late;
 }LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT;
 typedef struct{
     uint32 current_tti;
@@ -202,6 +213,11 @@ typedef struct{
     LTE_fdd_enb_user *user;
     LTE_fdd_enb_rb   *rb;
 }LTE_FDD_ENB_RLC_PDU_READY_MSG_STRUCT;
+
+// MAC -> TIMER Messages
+typedef struct{
+    uint32 tick;
+}LTE_FDD_ENB_TIMER_TICK_MSG_STRUCT;
 
 // PDCP -> RLC Messages
 typedef struct{
@@ -296,6 +312,9 @@ typedef union{
     // MAC -> RLC Messages
     LTE_FDD_ENB_RLC_PDU_READY_MSG_STRUCT rlc_pdu_ready;
 
+    // MAC -> TIMER Messages
+    LTE_FDD_ENB_TIMER_TICK_MSG_STRUCT timer_tick;
+
     // PDCP -> RLC Messages
     LTE_FDD_ENB_RLC_SDU_READY_MSG_STRUCT rlc_sdu_ready;
 
@@ -337,16 +356,16 @@ typedef struct{
 class LTE_fdd_enb_msgq_cb
 {
 public:
-    typedef void (*FuncType)(void*, LTE_FDD_ENB_MESSAGE_STRUCT*);
+    typedef void (*FuncType)(void*, LTE_FDD_ENB_MESSAGE_STRUCT&);
     LTE_fdd_enb_msgq_cb();
     LTE_fdd_enb_msgq_cb(FuncType f, void* o);
-    void operator()(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
+    void operator()(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
 private:
     FuncType  func;
     void     *obj;
 };
-template<class class_type, void (class_type::*Func)(LTE_FDD_ENB_MESSAGE_STRUCT*)>
-    void LTE_fdd_enb_msgq_cb_wrapper(void *o, LTE_FDD_ENB_MESSAGE_STRUCT *msg)
+template<class class_type, void (class_type::*Func)(LTE_FDD_ENB_MESSAGE_STRUCT&)>
+    void LTE_fdd_enb_msgq_cb_wrapper(void *o, LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
     return (static_cast<class_type*>(o)->*Func)(msg);
 }
@@ -354,33 +373,32 @@ template<class class_type, void (class_type::*Func)(LTE_FDD_ENB_MESSAGE_STRUCT*)
 class LTE_fdd_enb_msgq
 {
 public:
-    LTE_fdd_enb_msgq(std::string         _msgq_name,
-                     LTE_fdd_enb_msgq_cb cb);
-    LTE_fdd_enb_msgq(std::string         _msgq_name,
-                     LTE_fdd_enb_msgq_cb cb,
-                     uint32              _prio);
+    LTE_fdd_enb_msgq(std::string _msgq_name);
     ~LTE_fdd_enb_msgq();
 
+    // Setup
+    void attach_rx(LTE_fdd_enb_msgq_cb cb);
+    void attach_rx(LTE_fdd_enb_msgq_cb cb, uint32 _prio);
+
     // Send/Receive
-    static void send(const char                    *mq_name,
-                     LTE_FDD_ENB_MESSAGE_TYPE_ENUM  type,
-                     LTE_FDD_ENB_DEST_LAYER_ENUM    dest_layer,
-                     LTE_FDD_ENB_MESSAGE_UNION     *msg_content,
-                     uint32                         msg_content_size);
-    static void send(boost::interprocess::message_queue *mq,
-                     LTE_FDD_ENB_MESSAGE_TYPE_ENUM       type,
-                     LTE_FDD_ENB_DEST_LAYER_ENUM         dest_layer,
-                     LTE_FDD_ENB_MESSAGE_UNION          *msg_content,
-                     uint32                              msg_content_size);
+    void send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM  type,
+              LTE_FDD_ENB_DEST_LAYER_ENUM    dest_layer,
+              LTE_FDD_ENB_MESSAGE_UNION     *msg_content,
+              uint32                         msg_content_size);
+    void send(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+
 private:
     // Send/Receive
     static void* receive_thread(void *inputs);
 
     // Variables
-    LTE_fdd_enb_msgq_cb callback;
-    std::string         msgq_name;
-    pthread_t           rx_thread;
-    uint32              prio;
+    LTE_fdd_enb_msgq_cb                                 callback;
+    boost::interprocess::interprocess_semaphore        *sema;
+    boost::circular_buffer<LTE_FDD_ENB_MESSAGE_STRUCT> *circ_buf;
+    std::string                                         msgq_name;
+    pthread_t                                           rx_thread;
+    uint32                                              prio;
+    bool                                                rx_setup;
 };
 
 #endif /* __LTE_FDD_ENB_MSGQ_H__ */

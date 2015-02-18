@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -34,6 +34,7 @@
     11/29/2014    Ben Wojtowicz    Added DRB setup/teardown and C-RNTI release
                                    timer support.
     12/16/2014    Ben Wojtowicz    Changed the delayed delete functionality.
+    02/15/2015    Ben Wojtowicz    Added clear_rbs and fixed copy_rbs.
 
 *******************************************************************************/
 
@@ -44,7 +45,6 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_rb.h"
 #include "liblte_mac.h"
 #include "liblte_mme.h"
@@ -152,7 +152,8 @@ public:
     LTE_FDD_ENB_ERROR_ENUM setup_drb(LTE_FDD_ENB_RB_ENUM drb_id, LTE_fdd_enb_rb **rb);
     LTE_FDD_ENB_ERROR_ENUM teardown_drb(LTE_FDD_ENB_RB_ENUM drb_id);
     LTE_FDD_ENB_ERROR_ENUM get_drb(LTE_FDD_ENB_RB_ENUM drb_id, LTE_fdd_enb_rb **rb);
-    void copy_rb(LTE_fdd_enb_rb *rb);
+    void copy_rbs(LTE_fdd_enb_user *user);
+    void clear_rbs(void);
 
     // MME
     void set_emm_cause(uint8 cause);

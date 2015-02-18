@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@
     06/15/2014    Ben Wojtowicz    Added support for padding LCIDs and breaking
                                    out max and min buffer sizes for BSRs.
     11/29/2014    Ben Wojtowicz    Using byte message struct for SDUs.
+    02/15/2015    Ben Wojtowicz    Removed FIXME for transparent mode.
 
 *******************************************************************************/
 
@@ -368,7 +369,6 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_mac_pdu(LIBLTE_BIT_MSG_STRUCT *pdu,
 // Enums
 // Structs
 // Functions
-// FIXME
 
 /*********************************************************************
     PDU Name: Random Access Response

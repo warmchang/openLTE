@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -36,6 +36,7 @@
     11/29/2014    Ben Wojtowicz    Added user and rb update to
                                    parse_ul_ccch_message.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -79,7 +80,7 @@ public:
     static void cleanup(void);
 
     // Start/Stop
-    void start(void);
+    void start(LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *from_mme, LTE_fdd_enb_msgq *to_pdcp, LTE_fdd_enb_msgq *to_mme, LTE_fdd_enb_interface *iface);
     void stop(void);
 
     // External interface
@@ -92,16 +93,17 @@ private:
     ~LTE_fdd_enb_rrc();
 
     // Start/Stop
-    boost::mutex start_mutex;
-    bool         started;
+    LTE_fdd_enb_interface *interface;
+    boost::mutex           start_mutex;
+    bool                   started;
 
     // Communication
-    void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    void handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    LTE_fdd_enb_msgq                   *pdcp_comm_msgq;
-    LTE_fdd_enb_msgq                   *mme_comm_msgq;
-    boost::interprocess::message_queue *rrc_pdcp_olmq;
-    boost::interprocess::message_queue *rrc_mme_olmq;
+    void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    LTE_fdd_enb_msgq *msgq_from_pdcp;
+    LTE_fdd_enb_msgq *msgq_from_mme;
+    LTE_fdd_enb_msgq *msgq_to_pdcp;
+    LTE_fdd_enb_msgq *msgq_to_mme;
 
     // PDCP Message Handlers
     void handle_pdu_ready(LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT *pdu_ready);

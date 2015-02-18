@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_rb.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -41,6 +41,9 @@
     12/16/2014    Ben Wojtowicz    Added QoS for default data services.
     12/24/2014    Ben Wojtowicz    Added asymmetric QoS support and fixed a
                                    UMD reassembly bug.
+    02/15/2015    Ben Wojtowicz    Split UL/DL QoS TTI frequency, added reset
+                                   user support, and added multiple UMD RLC data
+                                   support.
 
 *******************************************************************************/
 
@@ -148,11 +151,12 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
 
     // MAC
     mac_con_res_id = 0;
+    mac_last_tti   = 0xFFFFFFFF;
 
     // Setup the QoS
-    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,   0,   0};
-    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20,  22,  22};
-    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 20,  22, 250};
+    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,   0,   0,   0};
+    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20,  20,  22,  22};
+    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 20,   5,  22, 373};
     qos          = LTE_FDD_ENB_QOS_NONE;
 }
 LTE_fdd_enb_rb::~LTE_fdd_enb_rb()
@@ -172,6 +176,10 @@ LTE_fdd_enb_rb::~LTE_fdd_enb_rb()
 LTE_FDD_ENB_RB_ENUM LTE_fdd_enb_rb::get_rb_id(void)
 {
     return(rb);
+}
+void LTE_fdd_enb_rb::reset_user(LTE_fdd_enb_user *_user)
+{
+    user = _user;
 }
 
 /************/
@@ -670,7 +678,8 @@ uint16 LTE_fdd_enb_rb::get_rlc_um_window_size(void)
 {
     return(rlc_um_window_size);
 }
-void LTE_fdd_enb_rb::rlc_add_to_um_reception_buffer(LIBLTE_RLC_UMD_PDU_STRUCT *umd_pdu)
+void LTE_fdd_enb_rb::rlc_add_to_um_reception_buffer(LIBLTE_RLC_UMD_PDU_STRUCT *umd_pdu,
+                                                    uint32                     idx)
 {
     std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>::iterator  iter;
     LIBLTE_BYTE_MSG_STRUCT                               *new_pdu = NULL;
@@ -682,7 +691,7 @@ void LTE_fdd_enb_rb::rlc_add_to_um_reception_buffer(LIBLTE_RLC_UMD_PDU_STRUCT *u
         iter = rlc_um_reception_buffer.find(umd_pdu->hdr.sn);
         if(rlc_um_reception_buffer.end() == iter)
         {
-            memcpy(new_pdu, &umd_pdu->data, sizeof(LIBLTE_BYTE_MSG_STRUCT));
+            memcpy(new_pdu, &umd_pdu->data[idx], sizeof(LIBLTE_BYTE_MSG_STRUCT));
             rlc_um_reception_buffer[umd_pdu->hdr.sn] = new_pdu;
 
             if(LIBLTE_RLC_FI_FIELD_FULL_SDU == umd_pdu->hdr.fi)
@@ -798,6 +807,14 @@ void LTE_fdd_enb_rb::handle_ul_sched_timer_expiry(uint32 timer_id)
     {
         start_ul_sched_timer(ul_sched_timer_m_seconds);
     }
+}
+void LTE_fdd_enb_rb::set_last_tti(uint32 last_tti)
+{
+    mac_last_tti = last_tti;
+}
+uint32 LTE_fdd_enb_rb::get_last_tti(void)
+{
+    return(mac_last_tti);
 }
 void LTE_fdd_enb_rb::set_con_res_id(uint64 con_res_id)
 {
@@ -948,7 +965,7 @@ void LTE_fdd_enb_rb::set_qos(LTE_FDD_ENB_QOS_ENUM _qos)
     qos = _qos;
     if(qos != LTE_FDD_ENB_QOS_NONE)
     {
-        start_ul_sched_timer(avail_qos[qos].tti_frequency-1);
+        start_ul_sched_timer(avail_qos[qos].ul_tti_frequency-1);
     }else{
         stop_ul_sched_timer();
     }
@@ -957,9 +974,13 @@ LTE_FDD_ENB_QOS_ENUM LTE_fdd_enb_rb::get_qos(void)
 {
     return(qos);
 }
-uint32 LTE_fdd_enb_rb::get_qos_tti_freq(void)
+uint32 LTE_fdd_enb_rb::get_qos_ul_tti_freq(void)
 {
-    return(avail_qos[qos].tti_frequency);
+    return(avail_qos[qos].ul_tti_frequency);
+}
+uint32 LTE_fdd_enb_rb::get_qos_dl_tti_freq(void)
+{
+    return(avail_qos[qos].dl_tti_frequency);
 }
 uint32 LTE_fdd_enb_rb::get_qos_ul_bytes_per_subfn(void)
 {

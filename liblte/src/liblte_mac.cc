@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,7 @@
     08/03/2014    Ben Wojtowicz    Using the common value_2_bits and
                                    bits_2_value functions.
     11/29/2014    Ben Wojtowicz    Using byte message struct for SDUs.
+    02/15/2015    Ben Wojtowicz    Removed FIXMEs for transparent mode and mcs.
 
 *******************************************************************************/
 
@@ -839,7 +840,6 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_mac_pdu(LIBLTE_BIT_MSG_STRUCT *msg,
 
     Document Reference: 36.321 v10.2.0 Section 6.1.4
 *********************************************************************/
-// FIXME
 
 /*********************************************************************
     PDU Name: Random Access Response
@@ -880,7 +880,7 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_random_access_response_pdu(LIBLTE_MAC_RAR_STRU
             liblte_value_2_bits(rar->timing_adv_cmd, &pdu_ptr, 11);
             liblte_value_2_bits(rar->hopping_flag,   &pdu_ptr, 1);
             liblte_value_2_bits(rar->rba,            &pdu_ptr, 10); // FIXME
-            liblte_value_2_bits(rar->mcs,            &pdu_ptr, 4); // FIXME
+            liblte_value_2_bits(rar->mcs,            &pdu_ptr, 4);
             liblte_value_2_bits(rar->tpc_command,    &pdu_ptr, 3);
             liblte_value_2_bits(rar->ul_delay,       &pdu_ptr, 1);
             liblte_value_2_bits(rar->csi_req,        &pdu_ptr, 1);
@@ -920,7 +920,7 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_random_access_response_pdu(LIBLTE_BIT_MSG_ST
             rar->timing_adv_cmd = liblte_bits_2_value(&pdu_ptr, 11);
             rar->hopping_flag   = (LIBLTE_MAC_RAR_HOPPING_ENUM)liblte_bits_2_value(&pdu_ptr, 1);
             rar->rba            = liblte_bits_2_value(&pdu_ptr, 10); // FIXME
-            rar->mcs            = liblte_bits_2_value(&pdu_ptr, 4); // FIXME
+            rar->mcs            = liblte_bits_2_value(&pdu_ptr, 4);
             rar->tpc_command    = (LIBLTE_MAC_RAR_TPC_COMMAND_ENUM)liblte_bits_2_value(&pdu_ptr, 3);
             rar->ul_delay       = (LIBLTE_MAC_RAR_UL_DELAY_ENUM)liblte_bits_2_value(&pdu_ptr, 1);
             rar->csi_req        = (LIBLTE_MAC_RAR_CSI_REQ_ENUM)liblte_bits_2_value(&pdu_ptr, 1);

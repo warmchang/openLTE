@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_user_mgr.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -37,6 +37,7 @@
     12/16/2014    Ben Wojtowicz    Added delayed user delete functionality.
     12/24/2014    Ben Wojtowicz    Hack to get around a crash when releasing a
                                    C-RNTI.
+    02/15/2015    Ben Wojtowicz    Fixed C-RNTI assign/release list management.
 
 *******************************************************************************/
 
@@ -116,13 +117,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::assign_c_rnti(LTE_fdd_enb_user *use
     boost::mutex::scoped_lock                      lock(c_rnti_mutex);
     LTE_fdd_enb_interface                         *interface    = LTE_fdd_enb_interface::get_instance();
     std::map<uint16, LTE_fdd_enb_user*>::iterator  iter         = c_rnti_map.find(next_c_rnti);
-    LTE_FDD_ENB_ERROR_ENUM                         err          = LTE_FDD_ENB_ERROR_NO_FREE_C_RNTI;
-    uint16                                         start_c_rnti = next_c_rnti++;
+    LTE_FDD_ENB_ERROR_ENUM                         err          = LTE_FDD_ENB_ERROR_NONE;
+    uint16                                         start_c_rnti = next_c_rnti;
 
-    if(LIBLTE_MAC_C_RNTI_END < next_c_rnti)
-    {
-        next_c_rnti = LIBLTE_MAC_C_RNTI_START;
-    }
     while(c_rnti_map.end() != iter)
     {
         next_c_rnti++;
@@ -132,17 +129,17 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::assign_c_rnti(LTE_fdd_enb_user *use
         }
         if(next_c_rnti == start_c_rnti)
         {
+            err = LTE_FDD_ENB_ERROR_NO_FREE_C_RNTI;
             break;
         }
 
         iter = c_rnti_map.find(next_c_rnti);
     }
 
-    if(next_c_rnti != start_c_rnti)
+    if(LTE_FDD_ENB_ERROR_NONE == err)
     {
         c_rnti_map[next_c_rnti] = user;
         *c_rnti                 = next_c_rnti++;
-        err                     = LTE_FDD_ENB_ERROR_NONE;
 
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                   LTE_FDD_ENB_DEBUG_LEVEL_USER,
@@ -231,6 +228,11 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::transfer_c_rnti(LTE_fdd_enb_user *o
         // Update the C-RNTI map
         c_rnti_map.erase(iter);
         c_rnti_map[c_rnti] = new_user;
+        iter               = c_rnti_map.find(new_user->get_c_rnti());
+        if(c_rnti_map.end() != iter)
+        {
+            c_rnti_map.erase(iter);
+        }
         new_user->set_c_rnti(c_rnti);
 
         err = LTE_FDD_ENB_ERROR_NONE;
@@ -636,7 +638,6 @@ void LTE_fdd_enb_user_mgr::handle_c_rnti_timer_expiry(uint32 timer_id)
         timer_id_map_forward.erase(forward_iter);
 
         timer_id_mutex.unlock();
-        // FIXME: TIMER_ID_MAP IS NOT UPDATED WHEN C-RNTI IS TRANSFERRED
-//        release_c_rnti(c_rnti);
+        release_c_rnti(c_rnti);
     }
 }

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -29,6 +29,7 @@
                                    value_2_bits and bits_2_value functions.
     11/29/2014    Ben Wojtowicz    Added UMD support and using the byte message
                                    struct.
+    02/15/2015    Ben Wojtowicz    Added header extension handling to UMD.
 
 *******************************************************************************/
 
@@ -65,7 +66,74 @@
 LIBLTE_ERROR_ENUM liblte_rlc_pack_umd_pdu(LIBLTE_RLC_UMD_PDU_STRUCT *umd,
                                           LIBLTE_BYTE_MSG_STRUCT    *pdu)
 {
-    return(liblte_rlc_pack_umd_pdu(umd, &umd->data, pdu));
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *pdu_ptr = pdu->msg;
+    uint32             i;
+
+    if(1 == umd->N_data)
+    {
+        err = liblte_rlc_pack_umd_pdu(umd, &umd->data[0], pdu);
+    }else{
+        // Header
+        if(LIBLTE_RLC_UMD_SN_SIZE_5_BITS == umd->hdr.sn_size)
+        {
+            *pdu_ptr  = (umd->hdr.fi & 0x03) << 6;
+            *pdu_ptr |= (LIBLTE_RLC_E_FIELD_HEADER_EXTENDED & 0x01) << 5;
+            *pdu_ptr |= umd->hdr.sn & 0x1F;
+            pdu_ptr++;
+        }else{
+            *pdu_ptr  = (umd->hdr.fi & 0x03) << 3;
+            *pdu_ptr |= (LIBLTE_RLC_E_FIELD_HEADER_EXTENDED & 0x01) << 2;
+            *pdu_ptr |= (umd->hdr.sn & 0x300) >> 8;
+            pdu_ptr++;
+            *pdu_ptr = umd->hdr.sn & 0xFF;
+            pdu_ptr++;
+        }
+        for(i=0; i<umd->N_data-1; i++)
+        {
+            if((i % 2) == 0)
+            {
+                if(i != umd->N_data-1)
+                {
+                    *pdu_ptr = (LIBLTE_RLC_E_FIELD_HEADER_EXTENDED & 0x01) << 7;
+                }else{
+                    *pdu_ptr = (LIBLTE_RLC_E_FIELD_HEADER_NOT_EXTENDED & 0x01) << 7;
+                }
+                *pdu_ptr |= (umd->data[i].N_bytes & 0x7F0) >> 4;
+                pdu_ptr++;
+                *pdu_ptr = (umd->data[i].N_bytes & 0x00F) << 4;
+            }else{
+                if(i != umd->N_data-1)
+                {
+                    *pdu_ptr |= (LIBLTE_RLC_E_FIELD_HEADER_EXTENDED & 0x01) << 3;
+                }else{
+                    *pdu_ptr |= (LIBLTE_RLC_E_FIELD_HEADER_NOT_EXTENDED & 0x01) << 3;
+                }
+                *pdu_ptr |= (umd->data[i].N_bytes & 0x700) >> 8;
+                pdu_ptr++;
+                *pdu_ptr = umd->data[i].N_bytes & 0x0FF;
+                pdu_ptr++;
+            }
+        }
+        if((umd->N_data % 2) == 0)
+        {
+            pdu_ptr++;
+        }
+
+        // Data
+        for(i=0; i<umd->N_data; i++)
+        {
+            memcpy(pdu_ptr, umd->data[i].msg, umd->data[i].N_bytes);
+            pdu_ptr += umd->data[i].N_bytes;
+        }
+
+        // Fill in the number of bytes used
+        pdu->N_bytes = pdu_ptr - pdu->msg;
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
 }
 LIBLTE_ERROR_ENUM liblte_rlc_pack_umd_pdu(LIBLTE_RLC_UMD_PDU_STRUCT *umd,
                                           LIBLTE_BYTE_MSG_STRUCT    *data,
@@ -112,6 +180,8 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_umd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
     LIBLTE_ERROR_ENUM        err     = LIBLTE_ERROR_INVALID_INPUTS;
     uint8                   *pdu_ptr = pdu->msg;
     LIBLTE_RLC_E_FIELD_ENUM  e;
+    uint32                   data_len;
+    uint32                   i;
 
     if(pdu != NULL &&
        umd != NULL)
@@ -132,15 +202,49 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_umd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
             pdu_ptr++;
         }
 
-        if(LIBLTE_RLC_E_FIELD_HEADER_EXTENDED == e)
+        umd->N_data = 0;
+        data_len    = 0;
+        while(LIBLTE_RLC_E_FIELD_HEADER_EXTENDED == e)
         {
-            // FIXME
-            printf("Not handling HEADER EXTENSION\n");
+            if(LIBLTE_RLC_UMD_MAX_N_DATA == umd->N_data)
+            {
+                printf("TOO MANY LI FIELDS\n");
+                return(err);
+            }
+            if((umd->N_data % 2) == 0)
+            {
+                e                              = (LIBLTE_RLC_E_FIELD_ENUM)((*pdu_ptr >> 7) & 0x01);
+                umd->data[umd->N_data].N_bytes = (*pdu_ptr & 0x7F) << 4;
+                pdu_ptr++;
+                umd->data[umd->N_data].N_bytes |= (*pdu_ptr & 0xF0) >> 4;
+            }else{
+                e                              = (LIBLTE_RLC_E_FIELD_ENUM)((*pdu_ptr >> 3) & 0x01);
+                umd->data[umd->N_data].N_bytes = (*pdu_ptr & 0x07) << 8;
+                pdu_ptr++;
+                umd->data[umd->N_data].N_bytes |= *pdu_ptr;
+                pdu_ptr++;
+            }
+            data_len += umd->data[umd->N_data].N_bytes;
+            umd->N_data++;
         }
+        if(LIBLTE_RLC_UMD_MAX_N_DATA == umd->N_data)
+        {
+            printf("TOO MANY LI FIELDS\n");
+            return(err);
+        }
+        umd->N_data++;
+        if((umd->N_data % 2) == 0)
+        {
+            pdu_ptr++;
+        }
+        umd->data[umd->N_data-1].N_bytes = pdu->N_bytes - (pdu_ptr - pdu->msg) - data_len;
 
         // Data
-        umd->data.N_bytes = pdu->N_bytes - (pdu_ptr - pdu->msg);
-        memcpy(umd->data.msg, pdu_ptr, umd->data.N_bytes);
+        for(i=0; i<umd->N_data; i++)
+        {
+            memcpy(umd->data[i].msg, pdu_ptr, umd->data[i].N_bytes);
+            pdu_ptr += umd->data[i].N_bytes;
+        }
 
         err = LIBLTE_SUCCESS;
     }
@@ -221,22 +325,22 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_amd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
             {
                 // FIXME
                 printf("Not handling AMD PDU SEGMENTS\n");
+                return(err);
             }
 
             if(LIBLTE_RLC_E_FIELD_HEADER_EXTENDED == e)
             {
                 // FIXME
                 printf("Not handling HEADER EXTENSION\n");
+                return(err);
             }
 
             // Data
             amd->data.N_bytes = pdu->N_bytes - (pdu_ptr - pdu->msg);
             memcpy(amd->data.msg, pdu_ptr, amd->data.N_bytes);
-
-            err = LIBLTE_SUCCESS;
-        }else{
-            // FIXME: Signal that this is a status PDU
         }
+
+        err = LIBLTE_SUCCESS;
     }
 
     return(err);

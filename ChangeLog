@@ -162,3 +162,13 @@ v00.18.02     Fixed several bugs in LTE_fdd_enodeb.  Specifically, cleaned up th
               message, added more time spec information in radio debug, copying
               SRB1 PDCP config to SRB2, fixed a UMD reassembly bug, and did a hack
               to get around a crash when releasing a C-RNTI in LTE_fdd_enodeb.
+v00.18.03     Added more MME encoding and decoding, RLC UMD header extension
+              support, and higher order modulation scheme support to PHY in the LTE
+              library, split the error enum into common.h, moved to a new message
+              queue using semaphores and circular buffers, added IP PCAP support,
+              split UL/DL QoS TTI frequency, added user reset to RB class, added
+              RLC UMD multiple data support, added UTC timestamps to the debug
+              log port, added higher order modulation scheme support in MAC, fixed
+              C-RNTI assign/release management, changed RTS timing, fixed user
+              switch in MME/RRC, added clear RB support and fixed copy RB in the
+              user class for LTE_fdd_enodeb.

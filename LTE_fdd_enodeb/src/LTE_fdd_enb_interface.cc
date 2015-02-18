@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_interface.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -42,6 +42,8 @@
                                    DNS address, config file, and user file.
     11/29/2014    Ben Wojtowicz    Added support for the IP gateway.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
+    02/15/2015    Ben Wojtowicz    Moved to new messageq queue, added IP pcap
+                                   support, and added UTC time to the log port.
 
 *******************************************************************************/
 
@@ -51,6 +53,7 @@
 
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_cnfg_db.h"
+#include "LTE_fdd_enb_user_mgr.h"
 #include "LTE_fdd_enb_hss.h"
 #include "LTE_fdd_enb_gw.h"
 #include "LTE_fdd_enb_mme.h"
@@ -60,9 +63,9 @@
 #include "LTE_fdd_enb_mac.h"
 #include "LTE_fdd_enb_phy.h"
 #include "LTE_fdd_enb_radio.h"
+#include "LTE_fdd_enb_timer_mgr.h"
 #include "liblte_interface.h"
 #include <boost/lexical_cast.hpp>
-#include <boost/interprocess/ipc/message_queue.hpp>
 #include <iomanip>
 #include <arpa/inet.h>
 
@@ -173,7 +176,8 @@ LTE_fdd_enb_interface::LTE_fdd_enb_interface()
     {
         debug_level_mask |= 1 << i;
     }
-    open_pcap_fd();
+    open_lte_pcap_fd();
+    open_ip_pcap_fd();
     shutdown = false;
     started  = false;
 }
@@ -181,7 +185,8 @@ LTE_fdd_enb_interface::~LTE_fdd_enb_interface()
 {
     stop_ports();
 
-    fclose(pcap_fd);
+    fclose(lte_pcap_fd);
+    fclose(ip_pcap_fd);
 }
 
 /***********************/
@@ -330,8 +335,11 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM  type,
     std::string                tmp_msg;
     std::stringstream          tmp_ss;
     va_list                    args;
-    struct timeval             time;
+    struct timeval             tv;
     struct timezone            time_zone;
+    struct tm                 *broken_down_time;
+    time_t                     tmp_time;
+    uint32                     hour;
     char                      *args_msg;
 
     if(debug_connected                 &&
@@ -339,9 +347,29 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM  type,
        (debug_level_mask & (1 << level)))
     {
         // Format the output string
-        gettimeofday(&time, &time_zone);
-        tmp_msg  = boost::lexical_cast<std::string>(time.tv_sec) + ".";
-        tmp_ss  << std::setw(6) << std::setfill('0') << time.tv_usec;
+        tmp_time         = time(NULL);
+        broken_down_time = localtime(&tmp_time);
+        gettimeofday(&tv, &time_zone);
+        hour = (tv.tv_sec / 3600) % 24;
+        if(hour < (time_zone.tz_minuteswest / 60))
+        {
+            hour = (hour + 24) - (time_zone.tz_minuteswest / 60);
+        }else{
+            hour -= time_zone.tz_minuteswest / 60;
+        }
+        tmp_msg  = boost::lexical_cast<std::string>(broken_down_time->tm_mon + 1) + "/";
+        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_mday) + "/";
+        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_year + 1900) + " ";
+        tmp_ss  << std::setw(2) << std::setfill('0') << hour;
+        tmp_msg += tmp_ss.str() + ":";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
+        tmp_msg += tmp_ss.str() + ":";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
+        tmp_msg += tmp_ss.str() + ".";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(6) << std::setfill('0') << tv.tv_usec;
         tmp_msg += tmp_ss.str() + " ";
         tmp_msg += LTE_fdd_enb_debug_type_text[type];
         tmp_msg += " ";
@@ -376,10 +404,13 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
     std::string                tmp_msg;
     std::stringstream          tmp_ss;
     va_list                    args;
-    struct timeval             time;
+    struct timeval             tv;
     struct timezone            time_zone;
+    struct tm                 *broken_down_time;
+    time_t                     tmp_time;
     uint32                     i;
     uint32                     hex_val;
+    uint32                     hour;
     char                      *args_msg;
 
     if(debug_connected                 &&
@@ -387,9 +418,29 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
        (debug_level_mask & (1 << level)))
     {
         // Format the output string
-        gettimeofday(&time, &time_zone);
-        tmp_msg  = boost::lexical_cast<std::string>(time.tv_sec) + ".";
-        tmp_ss  << std::setw(6) << std::setfill('0') << time.tv_usec;
+        tmp_time         = time(NULL);
+        broken_down_time = localtime(&tmp_time);
+        gettimeofday(&tv, &time_zone);
+        hour = (tv.tv_sec / 3600) % 24;
+        if(hour < (time_zone.tz_minuteswest / 60))
+        {
+            hour = (hour + 24) - (time_zone.tz_minuteswest / 60);
+        }else{
+            hour -= time_zone.tz_minuteswest / 60;
+        }
+        tmp_msg  = boost::lexical_cast<std::string>(broken_down_time->tm_mon + 1) + "/";
+        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_mday) + "/";
+        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_year + 1900) + " ";
+        tmp_ss  << std::setw(2) << std::setfill('0') << hour;
+        tmp_msg += tmp_ss.str() + ":";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
+        tmp_msg += tmp_ss.str() + ":";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
+        tmp_msg += tmp_ss.str() + ".";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(6) << std::setfill('0') << tv.tv_usec;
         tmp_msg += tmp_ss.str() + " ";
         tmp_msg += LTE_fdd_enb_debug_type_text[type];
         tmp_msg += " ";
@@ -454,10 +505,13 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
     std::string                tmp_msg;
     std::stringstream          tmp_ss;
     va_list                    args;
-    struct timeval             time;
+    struct timeval             tv;
     struct timezone            time_zone;
+    struct tm                 *broken_down_time;
+    time_t                     tmp_time;
     uint32                     i;
     uint32                     hex_val;
+    uint32                     hour;
     char                      *args_msg;
 
     if(debug_connected                 &&
@@ -465,9 +519,29 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
        (debug_level_mask & (1 << level)))
     {
         // Format the output string
-        gettimeofday(&time, &time_zone);
-        tmp_msg  = boost::lexical_cast<std::string>(time.tv_sec) + ".";
-        tmp_ss  << std::setw(6) << std::setfill('0') << time.tv_usec;
+        tmp_time         = time(NULL);
+        broken_down_time = localtime(&tmp_time);
+        gettimeofday(&tv, &time_zone);
+        hour = (tv.tv_sec / 3600) % 24;
+        if(hour < (time_zone.tz_minuteswest / 60))
+        {
+            hour = (hour + 24) - (time_zone.tz_minuteswest / 60);
+        }else{
+            hour -= time_zone.tz_minuteswest / 60;
+        }
+        tmp_msg  = boost::lexical_cast<std::string>(broken_down_time->tm_mon + 1) + "/";
+        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_mday) + "/";
+        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_year + 1900) + " ";
+        tmp_ss  << std::setw(2) << std::setfill('0') << hour;
+        tmp_msg += tmp_ss.str() + ":";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
+        tmp_msg += tmp_ss.str() + ":";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
+        tmp_msg += tmp_ss.str() + ".";
+        tmp_ss.seekp(0);
+        tmp_ss  << std::setw(6) << std::setfill('0') << tv.tv_usec;
         tmp_msg += tmp_ss.str() + " ";
         tmp_msg += LTE_fdd_enb_debug_type_text[type];
         tmp_msg += " ";
@@ -508,31 +582,69 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
         debug_socket->send(tmp_msg);
     }
 }
-void LTE_fdd_enb_interface::open_pcap_fd(void)
+void LTE_fdd_enb_interface::open_lte_pcap_fd(void)
 {
-    uint32 magic_number  = 0xa1b2c3d4;
-    uint32 timezone      = 0;
-    uint32 sigfigs       = 0;
-    uint32 snap_len      = (LIBLTE_MAX_MSG_SIZE/4);
-    uint32 dlt           = 147;
+    uint32 magic_number = 0xa1b2c3d4;
+    uint32 timezone     = 0;
+    uint32 sigfigs      = 0;
+    uint32 snap_len     = 0xFFFF;
+    uint32 dlt          = 147;
+    uint32 tmp_u32;
     uint16 major_version = 2;
     uint16 minor_version = 4;
+    uint16 tmp_u16;
 
-    pcap_fd = fopen("/tmp/LTE_fdd_enodeb.pcap", "w");
+    lte_pcap_fd = fopen("/tmp/LTE_fdd_enodeb.pcap", "w");
 
-    fwrite(&magic_number,  sizeof(magic_number),  1, pcap_fd);
-    fwrite(&major_version, sizeof(major_version), 1, pcap_fd);
-    fwrite(&minor_version, sizeof(minor_version), 1, pcap_fd);
-    fwrite(&timezone,      sizeof(timezone),      1, pcap_fd);
-    fwrite(&sigfigs,       sizeof(sigfigs),       1, pcap_fd);
-    fwrite(&snap_len,      sizeof(snap_len),      1, pcap_fd);
-    fwrite(&dlt,           sizeof(dlt),           1, pcap_fd);
+    tmp_u32 = htonl(magic_number);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, lte_pcap_fd);
+    tmp_u16 = htons(major_version);
+    fwrite(&tmp_u16, sizeof(tmp_u16), 1, lte_pcap_fd);
+    tmp_u16 = htons(minor_version);
+    fwrite(&tmp_u16, sizeof(tmp_u16), 1, lte_pcap_fd);
+    tmp_u32 = htonl(timezone);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, lte_pcap_fd);
+    tmp_u32 = htonl(sigfigs);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, lte_pcap_fd);
+    tmp_u32 = htonl(snap_len);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, lte_pcap_fd);
+    tmp_u32 = htonl(dlt);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, lte_pcap_fd);
 }
-void LTE_fdd_enb_interface::send_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM  dir,
-                                          uint32                           rnti,
-                                          uint32                           current_tti,
-                                          uint8                           *msg,
-                                          uint32                           N_bits)
+void LTE_fdd_enb_interface::open_ip_pcap_fd(void)
+{
+    uint32 magic_number = 0xa1b2c3d4;
+    uint32 timezone     = 0;
+    uint32 sigfigs      = 0;
+    uint32 snap_len     = 0xFFFF;
+    uint32 dlt          = 228;
+    uint32 tmp_u32;
+    uint16 major_version = 2;
+    uint16 minor_version = 4;
+    uint16 tmp_u16;
+
+    ip_pcap_fd = fopen("/tmp/LTE_fdd_enodeb_ip.pcap", "w");
+
+    tmp_u32 = htonl(magic_number);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, ip_pcap_fd);
+    tmp_u16 = htons(major_version);
+    fwrite(&tmp_u16, sizeof(tmp_u16), 1, ip_pcap_fd);
+    tmp_u16 = htons(minor_version);
+    fwrite(&tmp_u16, sizeof(tmp_u16), 1, ip_pcap_fd);
+    tmp_u32 = htonl(timezone);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, ip_pcap_fd);
+    tmp_u32 = htonl(sigfigs);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, ip_pcap_fd);
+    tmp_u32 = htonl(snap_len);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, ip_pcap_fd);
+    tmp_u32 = htonl(dlt);
+    fwrite(&tmp_u32, sizeof(tmp_u32), 1, ip_pcap_fd);
+}
+void LTE_fdd_enb_interface::send_lte_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM  dir,
+                                              uint32                           rnti,
+                                              uint32                           current_tti,
+                                              uint8                           *msg,
+                                              uint32                           N_bits)
 {
     LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
     struct timeval       time;
@@ -541,7 +653,8 @@ void LTE_fdd_enb_interface::send_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM  dir,
     uint32               i;
     uint32               idx;
     uint32               length;
-    uint16               tmp;
+    uint32               tmp_u32;
+    uint16               tmp_u16;
     uint8                pcap_c_hdr[15];
     uint8                pcap_msg[LIBLTE_MAX_MSG_SIZE/8];
 
@@ -577,18 +690,18 @@ void LTE_fdd_enb_interface::send_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM  dir,
 
         // RNTI Tag and RNTI
         pcap_c_hdr[3] = 2;
-        tmp           = htons((uint16)rnti);
-        memcpy(&pcap_c_hdr[4], &tmp, sizeof(uint16));
+        tmp_u16       = htons((uint16)rnti);
+        memcpy(&pcap_c_hdr[4], &tmp_u16, sizeof(uint16));
 
         // UEID Tag and UEID
         pcap_c_hdr[6] = 3;
-        tmp           = htons((uint16)rnti);
-        memcpy(&pcap_c_hdr[7], &tmp, sizeof(uint16));
+        tmp_u16       = htons((uint16)rnti);
+        memcpy(&pcap_c_hdr[7], &tmp_u16, sizeof(uint16));
 
         // SUBFN Tag and SUBFN
         pcap_c_hdr[9] = 4;
-        tmp           = htons((uint16)(current_tti%10));
-        memcpy(&pcap_c_hdr[10], &tmp, sizeof(uint16));
+        tmp_u16       = htons((uint16)(current_tti%10));
+        memcpy(&pcap_c_hdr[10], &tmp_u16, sizeof(uint16));
 
         // CRC Status Tag and CRC Status
         pcap_c_hdr[12] = 7;
@@ -615,12 +728,42 @@ void LTE_fdd_enb_interface::send_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM  dir,
         length = 15 + idx;
 
         // Write Data
-        fwrite(&time.tv_sec,  sizeof(uint32), 1,   pcap_fd);
-        fwrite(&time.tv_usec, sizeof(uint32), 1,   pcap_fd);
-        fwrite(&length,       sizeof(uint32), 1,   pcap_fd);
-        fwrite(&length,       sizeof(uint32), 1,   pcap_fd);
-        fwrite(pcap_c_hdr,    sizeof(uint8),  15,  pcap_fd);
-        fwrite(pcap_msg,      sizeof(uint8),  idx, pcap_fd);
+        tmp_u32 = htonl(time.tv_sec);
+        fwrite(&tmp_u32, sizeof(uint32), 1, lte_pcap_fd);
+        tmp_u32 = htonl(time.tv_usec);
+        fwrite(&tmp_u32, sizeof(uint32), 1, lte_pcap_fd);
+        tmp_u32 = htonl(length);
+        fwrite(&tmp_u32,   sizeof(uint32), 1,   lte_pcap_fd);
+        fwrite(&tmp_u32,   sizeof(uint32), 1,   lte_pcap_fd);
+        fwrite(pcap_c_hdr, sizeof(uint8),  15,  lte_pcap_fd);
+        fwrite(pcap_msg,   sizeof(uint8),  idx, lte_pcap_fd);
+    }
+}
+void LTE_fdd_enb_interface::send_ip_pcap_msg(uint8  *msg,
+                                             uint32  N_bytes)
+{
+    LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    struct timeval       time;
+    struct timezone      time_zone;
+    int64                enable_pcap;
+    uint32               tmp;
+
+    cnfg_db->get_param(LTE_FDD_ENB_PARAM_ENABLE_PCAP, enable_pcap);
+
+    if(enable_pcap)
+    {
+        // Get approximate time stamp
+        gettimeofday(&time, &time_zone);
+
+        // Write Data
+        tmp = htonl(time.tv_sec);
+        fwrite(&tmp, sizeof(uint32), 1, ip_pcap_fd);
+        tmp = htonl(time.tv_usec);
+        fwrite(&tmp, sizeof(uint32), 1, ip_pcap_fd);
+        tmp = htonl(N_bytes);
+        fwrite(&tmp, sizeof(uint32), 1,       ip_pcap_fd);
+        fwrite(&tmp, sizeof(uint32), 1,       ip_pcap_fd);
+        fwrite(msg,  sizeof(uint8),  N_bytes, ip_pcap_fd);
     }
 }
 void LTE_fdd_enb_interface::handle_ctrl_msg(std::string msg)
@@ -915,15 +1058,16 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_interface::handle_write(std::string msg)
 void LTE_fdd_enb_interface::handle_start(void)
 {
     boost::mutex::scoped_lock  lock(start_mutex);
-    LTE_fdd_enb_cnfg_db       *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-    LTE_fdd_enb_mac           *mac     = LTE_fdd_enb_mac::get_instance();
-    LTE_fdd_enb_rlc           *rlc     = LTE_fdd_enb_rlc::get_instance();
-    LTE_fdd_enb_pdcp          *pdcp    = LTE_fdd_enb_pdcp::get_instance();
-    LTE_fdd_enb_rrc           *rrc     = LTE_fdd_enb_rrc::get_instance();
-    LTE_fdd_enb_mme           *mme     = LTE_fdd_enb_mme::get_instance();
-    LTE_fdd_enb_gw            *gw      = LTE_fdd_enb_gw::get_instance();
-    LTE_fdd_enb_phy           *phy     = LTE_fdd_enb_phy::get_instance();
-    LTE_fdd_enb_radio         *radio   = LTE_fdd_enb_radio::get_instance();
+    LTE_fdd_enb_cnfg_db       *cnfg_db   = LTE_fdd_enb_cnfg_db::get_instance();
+    LTE_fdd_enb_mac           *mac       = LTE_fdd_enb_mac::get_instance();
+    LTE_fdd_enb_rlc           *rlc       = LTE_fdd_enb_rlc::get_instance();
+    LTE_fdd_enb_pdcp          *pdcp      = LTE_fdd_enb_pdcp::get_instance();
+    LTE_fdd_enb_rrc           *rrc       = LTE_fdd_enb_rrc::get_instance();
+    LTE_fdd_enb_mme           *mme       = LTE_fdd_enb_mme::get_instance();
+    LTE_fdd_enb_gw            *gw        = LTE_fdd_enb_gw::get_instance();
+    LTE_fdd_enb_phy           *phy       = LTE_fdd_enb_phy::get_instance();
+    LTE_fdd_enb_radio         *radio     = LTE_fdd_enb_radio::get_instance();
+    LTE_fdd_enb_timer_mgr     *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
     LTE_FDD_ENB_ERROR_ENUM     err;
     char                       err_str[LTE_FDD_ENB_MAX_LINE_SIZE];
 
@@ -935,78 +1079,32 @@ void LTE_fdd_enb_interface::handle_start(void)
         // Construct the system information
         cnfg_db->construct_sys_info();
 
-        // Initialize message queues for inter-layer communication
-        boost::interprocess::message_queue::remove("phy_mac_olmq");
-        boost::interprocess::message_queue::remove("mac_phy_olmq");
-        boost::interprocess::message_queue::remove("mac_rlc_olmq");
-        boost::interprocess::message_queue::remove("rlc_mac_olmq");
-        boost::interprocess::message_queue::remove("rlc_pdcp_olmq");
-        boost::interprocess::message_queue::remove("pdcp_rlc_olmq");
-        boost::interprocess::message_queue::remove("pdcp_rrc_olmq");
-        boost::interprocess::message_queue::remove("rrc_pdcp_olmq");
-        boost::interprocess::message_queue::remove("rrc_mme_olmq");
-        boost::interprocess::message_queue::remove("mme_rrc_olmq");
-        boost::interprocess::message_queue::remove("pdcp_gw_olmq");
-        boost::interprocess::message_queue::remove("gw_pdcp_olmq");
-        boost::interprocess::message_queue phy_mac_olmq(boost::interprocess::create_only,
-                                                        "phy_mac_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue mac_phy_olmq(boost::interprocess::create_only,
-                                                        "mac_phy_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue mac_rlc_olmq(boost::interprocess::create_only,
-                                                        "mac_rlc_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rlc_mac_olmq(boost::interprocess::create_only,
-                                                        "rlc_mac_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rlc_pdcp_olmq(boost::interprocess::create_only,
-                                                         "rlc_pdcp_olmq",
-                                                         100,
-                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue pdcp_rlc_olmq(boost::interprocess::create_only,
-                                                         "pdcp_rlc_olmq",
-                                                         100,
-                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue pdcp_rrc_olmq(boost::interprocess::create_only,
-                                                         "pdcp_rrc_olmq",
-                                                         100,
-                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rrc_pdcp_olmq(boost::interprocess::create_only,
-                                                         "rrc_pdcp_olmq",
-                                                         100,
-                                                         sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue rrc_mme_olmq(boost::interprocess::create_only,
-                                                        "rrc_mme_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue mme_rrc_olmq(boost::interprocess::create_only,
-                                                        "mme_rrc_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue pdcp_gw_olmq(boost::interprocess::create_only,
-                                                        "pdcp_gw_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
-        boost::interprocess::message_queue gw_pdcp_olmq(boost::interprocess::create_only,
-                                                        "gw_pdcp_olmq",
-                                                        100,
-                                                        sizeof(LTE_FDD_ENB_MESSAGE_STRUCT *));
+        // Initialize inter-stack communication
+        phy_to_mac_comm   = new LTE_fdd_enb_msgq("phy_to_mac");
+        mac_to_phy_comm   = new LTE_fdd_enb_msgq("mac_to_phy");
+        mac_to_rlc_comm   = new LTE_fdd_enb_msgq("mac_to_rlc");
+        mac_to_timer_comm = new LTE_fdd_enb_msgq("mac_to_timer");
+        rlc_to_mac_comm   = new LTE_fdd_enb_msgq("rlc_to_mac");
+        rlc_to_pdcp_comm  = new LTE_fdd_enb_msgq("rlc_to_pdcp");
+        pdcp_to_rlc_comm  = new LTE_fdd_enb_msgq("pdcp_to_rlc");
+        pdcp_to_rrc_comm  = new LTE_fdd_enb_msgq("pdcp_to_rrc");
+        rrc_to_pdcp_comm  = new LTE_fdd_enb_msgq("rrc_to_pdcp");
+        rrc_to_mme_comm   = new LTE_fdd_enb_msgq("rrc_to_mme");
+        mme_to_rrc_comm   = new LTE_fdd_enb_msgq("mme_to_rrc");
+        pdcp_to_gw_comm   = new LTE_fdd_enb_msgq("pdcp_to_gw");
+        gw_to_pdcp_comm   = new LTE_fdd_enb_msgq("gw_to_pdcp");
 
         // Start layers
-        err = gw->start(err_str);
+        err = gw->start(pdcp_to_gw_comm, gw_to_pdcp_comm, err_str, this);
         if(LTE_FDD_ENB_ERROR_NONE == err)
         {
-            phy->start(this);
-            mac->start(this);
-            rlc->start();
-            pdcp->start();
-            rrc->start();
-            mme->start();
+            phy->start(mac_to_phy_comm, phy_to_mac_comm, this);
+            mac->start(phy_to_mac_comm, rlc_to_mac_comm, mac_to_phy_comm, mac_to_rlc_comm, mac_to_timer_comm, this);
+            timer_mgr->start(mac_to_timer_comm, this);
+            rlc->start(mac_to_rlc_comm, pdcp_to_rlc_comm, rlc_to_mac_comm, rlc_to_pdcp_comm, this);
+            pdcp->start(rlc_to_pdcp_comm, rrc_to_pdcp_comm, gw_to_pdcp_comm, pdcp_to_rlc_comm, pdcp_to_rrc_comm, pdcp_to_gw_comm, this);
+            rrc->start(pdcp_to_rrc_comm, mme_to_rrc_comm, rrc_to_pdcp_comm, rrc_to_mme_comm, this);
+            mme->start(rrc_to_mme_comm, mme_to_rrc_comm, this);
             err = radio->start();
             if(LTE_FDD_ENB_ERROR_NONE == err)
             {
@@ -1062,81 +1160,72 @@ void LTE_fdd_enb_interface::handle_stop(void)
             mme->stop();
             gw->stop();
 
-            // Send a message to all inter-layer message_queues to unblock receive
-            LTE_fdd_enb_msgq::send("phy_mac_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+            // Send a message to all inter-stack communication message queues and cleanup
+            phy_to_mac_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            mac_to_phy_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            mac_to_rlc_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            mac_to_timer_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                    LTE_FDD_ENB_DEST_LAYER_ANY,
+                                    NULL,
+                                    0);
+            rlc_to_mac_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            rlc_to_pdcp_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("mac_phy_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+            pdcp_to_rlc_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("mac_rlc_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+            pdcp_to_rrc_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("rlc_mac_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+            rrc_to_pdcp_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
                                    LTE_FDD_ENB_DEST_LAYER_ANY,
                                    NULL,
                                    0);
-            LTE_fdd_enb_msgq::send("rlc_pdcp_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            LTE_fdd_enb_msgq::send("pdcp_rlc_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            LTE_fdd_enb_msgq::send("pdcp_rrc_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            LTE_fdd_enb_msgq::send("rrc_pdcp_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            LTE_fdd_enb_msgq::send("rrc_mme_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            LTE_fdd_enb_msgq::send("mme_rrc_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            LTE_fdd_enb_msgq::send("pdcp_gw_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            LTE_fdd_enb_msgq::send("gw_pdcp_olmq",
-                                   LTE_FDD_ENB_MESSAGE_TYPE_KILL,
-                                   LTE_FDD_ENB_DEST_LAYER_ANY,
-                                   NULL,
-                                   0);
-            sleep(1);
-
-            boost::interprocess::message_queue::remove("phy_mac_olmq");
-            boost::interprocess::message_queue::remove("mac_phy_olmq");
-            boost::interprocess::message_queue::remove("mac_rlc_olmq");
-            boost::interprocess::message_queue::remove("rlc_mac_olmq");
-            boost::interprocess::message_queue::remove("rlc_pdcp_olmq");
-            boost::interprocess::message_queue::remove("pdcp_rlc_olmq");
-            boost::interprocess::message_queue::remove("pdcp_rrc_olmq");
-            boost::interprocess::message_queue::remove("rrc_pdcp_olmq");
-            boost::interprocess::message_queue::remove("rrc_mme_olmq");
-            boost::interprocess::message_queue::remove("mme_rrc_olmq");
-            boost::interprocess::message_queue::remove("pdcp_gw_olmq");
-            boost::interprocess::message_queue::remove("gw_pdcp_olmq");
+            rrc_to_mme_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            mme_to_rrc_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            pdcp_to_gw_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            gw_to_pdcp_comm->send(LTE_FDD_ENB_MESSAGE_TYPE_KILL,
+                                  LTE_FDD_ENB_DEST_LAYER_ANY,
+                                  NULL,
+                                  0);
+            delete phy_to_mac_comm;
+            delete mac_to_phy_comm;
+            delete mac_to_rlc_comm;
+            delete mac_to_timer_comm;
+            delete rlc_to_mac_comm;
+            delete rlc_to_pdcp_comm;
+            delete pdcp_to_rlc_comm;
+            delete pdcp_to_rrc_comm;
+            delete rrc_to_pdcp_comm;
+            delete rrc_to_mme_comm;
+            delete mme_to_rrc_comm;
+            delete pdcp_to_gw_comm;
+            delete gw_to_pdcp_comm;
 
             // Cleanup all layers
             LTE_fdd_enb_radio::cleanup();

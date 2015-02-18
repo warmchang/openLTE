@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -39,6 +39,9 @@
                                    IP gateway and RLC UMD support.
     12/16/2014    Ben Wojtowicz    Added QoS for default data services.
     12/24/2014    Ben Wojtowicz    Added asymmetric QoS support.
+    02/15/2015    Ben Wojtowicz    Split UL/DL QoS TTI frequency, added reset
+                                   user support, and added multiple UMD RLC data
+                                   support.
 
 *******************************************************************************/
 
@@ -49,10 +52,11 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_enb_interface.h"
+#include "LTE_fdd_enb_common.h"
 #include "liblte_rlc.h"
 #include "liblte_rrc.h"
 #include <list>
+#include <boost/thread/mutex.hpp>
 
 /*******************************************************************************
                               DEFINES
@@ -181,7 +185,8 @@ static const char LTE_fdd_enb_qos_text[LTE_FDD_ENB_QOS_N_ITEMS][20] = {"None",
 
 typedef struct{
     LTE_FDD_ENB_QOS_ENUM qos;
-    uint32               tti_frequency;
+    uint32               ul_tti_frequency;
+    uint32               dl_tti_frequency;
     uint32               ul_bytes_per_subfn;
     uint32               dl_bytes_per_subfn;
 }LTE_FDD_ENB_QOS_STRUCT;
@@ -199,6 +204,8 @@ public:
 
     // Identity
     LTE_FDD_ENB_RB_ENUM get_rb_id(void);
+    LTE_fdd_enb_user* get_user(void);
+    void reset_user(LTE_fdd_enb_user *_user);
 
     // GW
     void queue_gw_data_msg(LIBLTE_BYTE_MSG_STRUCT *gw_data);
@@ -281,7 +288,7 @@ public:
     void set_rlc_vrur(uint16 vrur);
     uint16 get_rlc_vrur(void);
     uint16 get_rlc_um_window_size(void);
-    void rlc_add_to_um_reception_buffer(LIBLTE_RLC_UMD_PDU_STRUCT *umd_pdu);
+    void rlc_add_to_um_reception_buffer(LIBLTE_RLC_UMD_PDU_STRUCT *umd_pdu, uint32 idx);
     LTE_FDD_ENB_ERROR_ENUM rlc_um_reassemble(LIBLTE_BYTE_MSG_STRUCT *sdu);
     void set_rlc_vtus(uint16 vtus);
     uint16 get_rlc_vtus(void);
@@ -294,6 +301,8 @@ public:
     void start_ul_sched_timer(uint32 m_seconds);
     void stop_ul_sched_timer(void);
     void handle_ul_sched_timer_expiry(uint32 timer_id);
+    void set_last_tti(uint32 last_tti);
+    uint32 get_last_tti(void);
     void set_con_res_id(uint64 con_res_id);
     uint64 get_con_res_id(void);
     void set_send_con_res_id(bool send_con_res_id);
@@ -312,7 +321,8 @@ public:
     // Generic
     void set_qos(LTE_FDD_ENB_QOS_ENUM _qos);
     LTE_FDD_ENB_QOS_ENUM get_qos(void);
-    uint32 get_qos_tti_freq(void);
+    uint32 get_qos_ul_tti_freq(void);
+    uint32 get_qos_dl_tti_freq(void);
     uint32 get_qos_ul_bytes_per_subfn(void);
     uint32 get_qos_dl_bytes_per_subfn(void);
 
@@ -382,6 +392,7 @@ private:
     uint64                              mac_con_res_id;
     uint32                              ul_sched_timer_m_seconds;
     uint32                              ul_sched_timer_id;
+    uint32                              mac_last_tti;
     uint32                              t_poll_retransmit_timer_id;
     bool                                mac_send_con_res_id;
 

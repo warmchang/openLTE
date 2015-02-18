@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -26,6 +26,7 @@
     ----------    -------------    --------------------------------------------
     11/29/2014    Ben Wojtowicz    Created file
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -67,7 +68,7 @@ public:
 
     // Start/Stop
     bool is_started(void);
-    LTE_FDD_ENB_ERROR_ENUM start(char *err_str);
+    LTE_FDD_ENB_ERROR_ENUM start(LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *to_pdcp, char *err_str, LTE_fdd_enb_interface *iface);
     void stop(void);
 
 private:
@@ -77,13 +78,14 @@ private:
     ~LTE_fdd_enb_gw();
 
     // Start/Stop
-    boost::mutex start_mutex;
-    bool         started;
+    LTE_fdd_enb_interface *interface;
+    boost::mutex           start_mutex;
+    bool                   started;
 
     // Communication
-    void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg);
-    LTE_fdd_enb_msgq                   *pdcp_comm_msgq;
-    boost::interprocess::message_queue *gw_pdcp_olmq;
+    void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    LTE_fdd_enb_msgq *msgq_from_pdcp;
+    LTE_fdd_enb_msgq *msgq_to_pdcp;
 
     // PDCP Message Handlers
     void handle_gw_data(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT *gw_data);

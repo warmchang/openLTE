@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_gw.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -27,6 +27,7 @@
     ----------    -------------    --------------------------------------------
     11/29/2014    Ben Wojtowicz    Created file
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
+    02/15/2015    Ben Wojtowicz    Moved to new message queue.
 
 *******************************************************************************/
 
@@ -112,7 +113,10 @@ bool LTE_fdd_enb_gw::is_started(void)
 
     return(started);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_gw::start(char *err_str)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_gw::start(LTE_fdd_enb_msgq      *from_pdcp,
+                                             LTE_fdd_enb_msgq      *to_pdcp,
+                                             char                  *err_str,
+                                             LTE_fdd_enb_interface *iface)
 {
     boost::mutex::scoped_lock  lock(start_mutex);
     LTE_fdd_enb_cnfg_db       *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
@@ -124,7 +128,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_gw::start(char *err_str)
 
     if(!started)
     {
-        started = true;
+        interface = iface;
+        started   = true;
 
         cnfg_db->get_param(LTE_FDD_ENB_PARAM_IP_ADDR_START, ip_addr);
 
@@ -186,10 +191,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_gw::start(char *err_str)
         }
 
         // Setup PDCP communication
-        pdcp_comm_msgq = new LTE_fdd_enb_msgq("pdcp_gw_olmq",
-                                              pdcp_cb);
-        gw_pdcp_olmq   = new boost::interprocess::message_queue(boost::interprocess::open_only,
-                                                                "gw_pdcp_olmq");
+        msgq_from_pdcp = from_pdcp;
+        msgq_to_pdcp   = to_pdcp;
+        msgq_from_pdcp->attach_rx(pdcp_cb);
 
         // Setup a thread to receive packets from the TUN device
         pthread_create(&rx_thread, NULL, &receive_thread, this);
@@ -209,23 +213,18 @@ void LTE_fdd_enb_gw::stop(void)
         pthread_join(rx_thread, NULL);
 
         // FIXME: TEAR DOWN TUN DEVICE
-
-        delete pdcp_comm_msgq;
     }
 }
 
 /***********************/
 /*    Communication    */
 /***********************/
-void LTE_fdd_enb_gw::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
+void LTE_fdd_enb_gw::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-
-    switch(msg->type)
+    switch(msg.type)
     {
     case LTE_FDD_ENB_MESSAGE_TYPE_GW_DATA_READY:
-        handle_gw_data(&msg->msg.gw_data_ready);
-        delete msg;
+        handle_gw_data(&msg.msg.gw_data_ready);
         break;
     default:
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -233,8 +232,7 @@ void LTE_fdd_enb_gw::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
                                   __FILE__,
                                   __LINE__,
                                   "Received invalid PDCP message %s",
-                                  LTE_fdd_enb_message_type_text[msg->type]);
-        delete msg;
+                                  LTE_fdd_enb_message_type_text[msg.type]);
         break;
     }
 }
@@ -244,7 +242,6 @@ void LTE_fdd_enb_gw::handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT *msg)
 /*******************************/
 void LTE_fdd_enb_gw::handle_gw_data(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT *gw_data)
 {
-    LTE_fdd_enb_interface  *interface = LTE_fdd_enb_interface::get_instance();
     LIBLTE_BYTE_MSG_STRUCT *msg;
 
     if(LTE_FDD_ENB_ERROR_NONE == gw_data->rb->get_next_gw_data_msg(&msg))
@@ -257,6 +254,7 @@ void LTE_fdd_enb_gw::handle_gw_data(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT *gw_dat
                                   "Received GW data message for RNTI=%u and RB=%s",
                                   gw_data->user->get_c_rnti(),
                                   LTE_fdd_enb_rb_text[gw_data->rb->get_rb_id()]);
+        interface->send_ip_pcap_msg(msg->msg, msg->N_bytes);
 
         if(msg->N_bytes != write(tun_fd, msg->msg, msg->N_bytes))
         {
@@ -277,7 +275,6 @@ void LTE_fdd_enb_gw::handle_gw_data(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT *gw_dat
 /********************/
 void* LTE_fdd_enb_gw::receive_thread(void *inputs)
 {
-    LTE_fdd_enb_interface                      *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_gw                             *gw        = (LTE_fdd_enb_gw *)inputs;
     LTE_fdd_enb_user_mgr                       *user_mgr  = LTE_fdd_enb_user_mgr::get_instance();
     LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG_STRUCT  pdcp_data_sdu;
@@ -302,19 +299,19 @@ void* LTE_fdd_enb_gw::receive_thread(void *inputs)
                 if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(ntohl(ip_pkt->daddr), &pdcp_data_sdu.user) &&
                    LTE_FDD_ENB_ERROR_NONE == pdcp_data_sdu.user->get_drb(LTE_FDD_ENB_RB_DRB1, &pdcp_data_sdu.rb))
                 {
-                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                              LTE_FDD_ENB_DEBUG_LEVEL_GW,
-                                              __FILE__,
-                                              __LINE__,
-                                              &msg,
-                                              "Received IP packet for RNTI=%u and RB=%s",
-                                              pdcp_data_sdu.user->get_c_rnti(),
-                                              LTE_fdd_enb_rb_text[pdcp_data_sdu.rb->get_rb_id()]);
+                    gw->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                                  LTE_FDD_ENB_DEBUG_LEVEL_GW,
+                                                  __FILE__,
+                                                  __LINE__,
+                                                  &msg,
+                                                  "Received IP packet for RNTI=%u and RB=%s",
+                                                  pdcp_data_sdu.user->get_c_rnti(),
+                                                  LTE_fdd_enb_rb_text[pdcp_data_sdu.rb->get_rb_id()]);
+                    gw->interface->send_ip_pcap_msg(msg.msg, msg.N_bytes);
 
                     // Send message to PDCP
                     pdcp_data_sdu.rb->queue_pdcp_data_sdu(&msg);
-                    LTE_fdd_enb_msgq::send(gw->gw_pdcp_olmq,
-                                           LTE_FDD_ENB_MESSAGE_TYPE_PDCP_DATA_SDU_READY,
+                    gw->msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_DATA_SDU_READY,
                                            LTE_FDD_ENB_DEST_LAYER_PDCP,
                                            (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_data_sdu,
                                            sizeof(LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG_STRUCT));

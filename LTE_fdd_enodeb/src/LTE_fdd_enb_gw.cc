@@ -28,6 +28,7 @@
     11/29/2014    Ben Wojtowicz    Created file
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
+    03/11/2015    Ben Wojtowicz    Closing TUN device on stop.
 
 *******************************************************************************/
 
@@ -212,7 +213,7 @@ void LTE_fdd_enb_gw::stop(void)
         pthread_cancel(rx_thread);
         pthread_join(rx_thread, NULL);
 
-        // FIXME: TEAR DOWN TUN DEVICE
+        close(tun_fd);
     }
 }
 

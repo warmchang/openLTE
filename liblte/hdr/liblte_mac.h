@@ -31,6 +31,8 @@
                                    out max and min buffer sizes for BSRs.
     11/29/2014    Ben Wojtowicz    Using byte message struct for SDUs.
     02/15/2015    Ben Wojtowicz    Removed FIXME for transparent mode.
+    03/11/2015    Ben Wojtowicz    Fixed long BSR CE and added extended power
+                                   headroom CE support.
 
 *******************************************************************************/
 
@@ -120,10 +122,14 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_short_bsr_ce(uint8                          
 // Enums
 // Structs
 typedef struct{
-    uint8 buffer_size_0;
-    uint8 buffer_size_1;
-    uint8 buffer_size_2;
-    uint8 buffer_size_3;
+    uint8 max_buffer_size_0;
+    uint8 min_buffer_size_0;
+    uint8 max_buffer_size_1;
+    uint8 min_buffer_size_1;
+    uint8 max_buffer_size_2;
+    uint8 min_buffer_size_2;
+    uint8 max_buffer_size_3;
+    uint8 min_buffer_size_3;
 }LIBLTE_MAC_LONG_BSR_CE_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mac_pack_long_bsr_ce(LIBLTE_MAC_LONG_BSR_CE_STRUCT  *long_bsr,
@@ -231,7 +237,15 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_power_headroom_ce(uint8                     
 // Enums
 // Structs
 typedef struct{
-    // FIXME
+    uint8 ph;
+    uint8 p_cmax;
+    bool  p;
+    bool  v;
+}LIBLTE_MAC_EPH_CELL_STRUCT;
+typedef struct{
+    LIBLTE_MAC_EPH_CELL_STRUCT pcell;
+    LIBLTE_MAC_EPH_CELL_STRUCT scell[7];
+    bool                       scell_present[7];
 }LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mac_pack_ext_power_headroom_ce(LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT  *ext_power_headroom,
@@ -425,10 +439,10 @@ typedef struct{
     LIBLTE_MAC_RAR_TPC_COMMAND_ENUM tpc_command;
     LIBLTE_MAC_RAR_UL_DELAY_ENUM    ul_delay;
     LIBLTE_MAC_RAR_CSI_REQ_ENUM     csi_req;
-    uint16                          rba; // FIXME
+    uint16                          rba;
     uint16                          timing_adv_cmd;
     uint16                          temp_c_rnti;
-    uint8                           mcs; // FIXME
+    uint8                           mcs;
     uint8                           RAPID;
     uint8                           BI;
 }LIBLTE_MAC_RAR_STRUCT;

@@ -38,6 +38,8 @@
     12/24/2014    Ben Wojtowicz    Using asymmetric QoS.
     02/15/2015    Ben Wojtowicz    Moved to new message queue and added header
                                    extension/multiple data support to UMD.
+    03/11/2015    Ben Wojtowicz    Added header extension/multiple data support
+                                   to AMD.
 
 *******************************************************************************/
 
@@ -461,7 +463,7 @@ void LTE_fdd_enb_rlc::handle_am_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
                                           LTE_FDD_ENB_DEBUG_LEVEL_RLC,
                                           __FILE__,
                                           __LINE__,
-                                          &amd.data,
+                                          &amd.data[0],
                                           "Received AMD PDU for RNTI=%u, RB=%s, VR(R)=%u, SN=%u, VR(MR)=%u, VR(H)=%u, RF=%s, P=%s, FI=%s",
                                           user->get_c_rnti(),
                                           LTE_fdd_enb_rb_text[rb->get_rb_id()],
@@ -517,7 +519,7 @@ void LTE_fdd_enb_rlc::handle_am_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
                                           LTE_FDD_ENB_DEBUG_LEVEL_RLC,
                                           __FILE__,
                                           __LINE__,
-                                          &amd.data,
+                                          &amd.data[0],
                                           "Received AMD PDU for RNTI=%u, RB=%s, that is outside of the receiving window (%u <= %u < %u), P=%s",
                                           user->get_c_rnti(),
                                           LTE_fdd_enb_rb_text[rb->get_rb_id()],
@@ -751,6 +753,7 @@ void LTE_fdd_enb_rlc::handle_am_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
         amd.hdr.sn = vts;
         amd.hdr.p  = LIBLTE_RLC_P_FIELD_STATUS_REPORT_REQUESTED;
         amd.hdr.fi = LIBLTE_RLC_FI_FIELD_FULL_SDU;
+        amd.N_data = 1;
         memcpy(&amd.data, sdu, sizeof(LIBLTE_BYTE_MSG_STRUCT));
         rb->set_rlc_vts(vts+1);
 
@@ -770,14 +773,15 @@ void LTE_fdd_enb_rlc::handle_am_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
             }
             if((sdu->N_bytes - byte_idx) >= bytes_per_subfn)
             {
-                memcpy(&amd.data.msg[0], &sdu->msg[byte_idx], bytes_per_subfn);
-                amd.data.N_bytes  = bytes_per_subfn;
-                byte_idx         += bytes_per_subfn;
+                memcpy(&amd.data[0].msg[0], &sdu->msg[byte_idx], bytes_per_subfn);
+                amd.data[0].N_bytes  = bytes_per_subfn;
+                byte_idx            += bytes_per_subfn;
             }else{
-                memcpy(&amd.data.msg[0], &sdu->msg[byte_idx], sdu->N_bytes - byte_idx);
-                amd.data.N_bytes = sdu->N_bytes - byte_idx;
-                byte_idx         = sdu->N_bytes;
+                memcpy(&amd.data[0].msg[0], &sdu->msg[byte_idx], sdu->N_bytes - byte_idx);
+                amd.data[0].N_bytes = sdu->N_bytes - byte_idx;
+                byte_idx            = sdu->N_bytes;
             }
+            amd.N_data = 1;
             if(byte_idx == sdu->N_bytes)
             {
                 amd.hdr.fi = LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT;

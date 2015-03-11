@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -33,6 +33,7 @@
                                    supporting non-B2X0 USRPs.
     12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
                                    USRP X300 support.
+    03/11/2015    Ben Wojtowicz    Added UmTRX support.
 
 *******************************************************************************/
 
@@ -70,6 +71,7 @@ typedef enum{
     LTE_FDD_DL_SCAN_HW_TYPE_HACKRF,
     LTE_FDD_DL_SCAN_HW_TYPE_USRP_B,
     LTE_FDD_DL_SCAN_HW_TYPE_USRP_N,
+    LTE_FDD_DL_SCAN_HW_TYPE_UMTRX,
     LTE_FDD_DL_SCAN_HW_TYPE_USRP_X,
     LTE_FDD_DL_SCAN_HW_TYPE_BLADERF,
     LTE_FDD_DL_SCAN_HW_TYPE_UNKNOWN,

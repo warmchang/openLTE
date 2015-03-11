@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -29,6 +29,7 @@
     11/29/2014    Ben Wojtowicz    Using the byte message struct for everything
                                    except RRC SDUs and added user plane data
                                    processing.
+    03/11/2015    Ben Wojtowicz    Added data PDU with short SN support.
 
 *******************************************************************************/
 
@@ -223,23 +224,28 @@ LIBLTE_ERROR_ENUM liblte_pdcp_pack_data_pdu_with_long_sn(LIBLTE_PDCP_DATA_PDU_WI
 LIBLTE_ERROR_ENUM liblte_pdcp_unpack_data_pdu_with_long_sn(LIBLTE_BYTE_MSG_STRUCT                   *pdu,
                                                            LIBLTE_PDCP_DATA_PDU_WITH_LONG_SN_STRUCT *contents)
 {
-    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
-    uint8             *pdu_ptr = pdu->msg;
+    LIBLTE_PDCP_D_C_ENUM  d_c;
+    LIBLTE_ERROR_ENUM     err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8                *pdu_ptr = pdu->msg;
 
     if(pdu      != NULL &&
        contents != NULL)
     {
         // Header
-        contents->count = (*pdu_ptr & 0x0F) << 8;
-        pdu_ptr++;
-        contents->count |= *pdu_ptr;
-        pdu_ptr++;
+        d_c = (LIBLTE_PDCP_D_C_ENUM)((*pdu_ptr >> 7) & 0x01);
+        if(LIBLTE_PDCP_D_C_DATA_PDU == d_c)
+        {
+            contents->count = (*pdu_ptr & 0x0F) << 8;
+            pdu_ptr++;
+            contents->count |= *pdu_ptr;
+            pdu_ptr++;
 
-        // Data
-        memcpy(contents->data.msg, pdu_ptr, pdu->N_bytes-2);
-        contents->data.N_bytes = pdu->N_bytes-2;
+            // Data
+            memcpy(contents->data.msg, pdu_ptr, pdu->N_bytes-2);
+            contents->data.N_bytes = pdu->N_bytes-2;
 
-        err = LIBLTE_SUCCESS;
+            err = LIBLTE_SUCCESS;
+        }
     }
 
     return(err);
@@ -250,7 +256,65 @@ LIBLTE_ERROR_ENUM liblte_pdcp_unpack_data_pdu_with_long_sn(LIBLTE_BYTE_MSG_STRUC
 
     Document Reference: 36.323 v10.1.0 Section 6.2.4
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_data_pdu_with_short_sn(LIBLTE_PDCP_DATA_PDU_WITH_SHORT_SN_STRUCT *contents,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu)
+{
+    return(liblte_pdcp_pack_data_pdu_with_short_sn(contents, &contents->data, pdu));
+}
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_data_pdu_with_short_sn(LIBLTE_PDCP_DATA_PDU_WITH_SHORT_SN_STRUCT *contents,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *data,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *pdu_ptr = pdu->msg;
+
+    if(contents != NULL &&
+       data     != NULL &&
+       pdu      != NULL)
+    {
+        // Header
+        *pdu_ptr = (LIBLTE_PDCP_D_C_DATA_PDU << 7) | (contents->count & 0x7F);
+        pdu_ptr++;
+
+        // Data
+        memcpy(pdu_ptr, data->msg, data->N_bytes);
+        pdu_ptr += data->N_bytes;
+
+        // Fill in the number of bytes used
+        pdu->N_bytes = pdu_ptr - pdu->msg;
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
+LIBLTE_ERROR_ENUM liblte_pdcp_unpack_data_pdu_with_short_sn(LIBLTE_BYTE_MSG_STRUCT                    *pdu,
+                                                            LIBLTE_PDCP_DATA_PDU_WITH_SHORT_SN_STRUCT *contents)
+{
+    LIBLTE_PDCP_D_C_ENUM  d_c;
+    LIBLTE_ERROR_ENUM     err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8                *pdu_ptr = pdu->msg;
+
+    if(pdu      != NULL &&
+       contents != NULL)
+    {
+        // Header
+        d_c = (LIBLTE_PDCP_D_C_ENUM)((*pdu_ptr >> 7) & 0x01);
+        if(LIBLTE_PDCP_D_C_DATA_PDU == d_c)
+        {
+            contents->count = *pdu_ptr & 0x7F;
+            pdu_ptr++;
+
+            // Data
+            memcpy(contents->data.msg, pdu_ptr, pdu->N_bytes-2);
+            contents->data.N_bytes = pdu->N_bytes-2;
+
+            err = LIBLTE_SUCCESS;
+        }
+    }
+
+    return(err);
+}
 
 /*********************************************************************
     PDU Type: PDCP Control PDU for interspersed ROHC feedback packet

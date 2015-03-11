@@ -172,3 +172,13 @@ v00.18.03     Added more MME encoding and decoding, RLC UMD header extension
               C-RNTI assign/release management, changed RTS timing, fixed user
               switch in MME/RRC, added clear RB support and fixed copy RB in the
               user class for LTE_fdd_enodeb.
+v00.18.04     Fixed long BSR CE and added extended power headroom CE support, added
+              PDCP data PDU with short SN support, and added header extension
+              handling to RLC AMD to LTE library, added UmTRX support to
+              LTE_fdd_dl_scan, fixed the start/stop/start issues by closing the TUN
+              device on stop, fixed the RTS issues, added a mutex to the message
+              queue circular buffer, fixed uninitialized variables in the configuration
+              database, added header extension/multiple data support for RLC AMD,
+              added detach handling, and added a common routine for formatting time to
+              LTE_fdd_enodeb.
+

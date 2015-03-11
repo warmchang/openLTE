@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_cnfg_db.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -36,6 +36,7 @@
     09/03/2014    Ben Wojtowicz    Added better MCC/MNC support and UL EARFCN,
                                    and DL and UL center frequencies.
     11/01/2014    Ben Wojtowicz    Added config file support.
+    03/15/2015    Ben Wojtowicz    Fixed uninitialized variables.
 
 *******************************************************************************/
 
@@ -894,8 +895,16 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
     {
         sys_info.N_sc_rb_ul = (*int64_iter).second;
     }
-    sys_info.si_periodicity_T = liblte_rrc_si_periodicity_num[sys_info.sib1.sched_info[0].si_periodicity];
-    sys_info.si_win_len       = liblte_rrc_si_window_length_num[sys_info.sib1.si_window_length];
+    int64_iter = var_map_int64.find(LTE_FDD_ENB_PARAM_SYSTEM_INFO_PERIODICITY);
+    if(var_map_int64.end() != int64_iter)
+    {
+        sys_info.si_periodicity_T = liblte_rrc_si_periodicity_num[(*int64_iter).second];
+    }
+    int64_iter = var_map_int64.find(LTE_FDD_ENB_PARAM_SYSTEM_INFO_WINDOW_LENGTH);
+    if(var_map_int64.end() != int64_iter)
+    {
+        sys_info.si_win_len = liblte_rrc_si_window_length_num[(*int64_iter).second];
+    }
 
     // PCAP variables
     sys_info.mib_pcap_sent       = false;

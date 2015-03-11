@@ -105,6 +105,7 @@
                                    get_tbs_mcs_and_N_prb_for_dl.
     02/15/2015    Ben Wojtowicz    Properly handling modulation schemes and
                                    added 16QAM and 64QAM demapping.
+    03/11/2015    Ben Wojtowicz    Fixed I_tbs to mcs conversion for PUSCH.
 
 *******************************************************************************/
 
@@ -6129,10 +6130,10 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_ul(uint32  N_bits,
         if(I_tbs != 1000)
         {
             // Determine mcs
-            if(9 >= I_tbs)
+            if(10 >= I_tbs)
             {
                 *mcs = I_tbs;
-            }else if(15 >= I_tbs){
+            }else if(19 >= I_tbs){
                 *mcs = I_tbs + 1;
             }else{
                 *mcs = I_tbs + 2;

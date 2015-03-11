@@ -42,8 +42,9 @@
                                    DNS address, config file, and user file.
     11/29/2014    Ben Wojtowicz    Added support for the IP gateway.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
-    02/15/2015    Ben Wojtowicz    Moved to new messageq queue, added IP pcap
+    02/15/2015    Ben Wojtowicz    Moved to new message queue, added IP pcap
                                    support, and added UTC time to the log port.
+    03/11/2015    Ben Wojtowicz    Made a common routine for formatting time.
 
 *******************************************************************************/
 
@@ -333,13 +334,7 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM  type,
 {
     boost::mutex::scoped_lock  lock(debug_connect_mutex);
     std::string                tmp_msg;
-    std::stringstream          tmp_ss;
     va_list                    args;
-    struct timeval             tv;
-    struct timezone            time_zone;
-    struct tm                 *broken_down_time;
-    time_t                     tmp_time;
-    uint32                     hour;
     char                      *args_msg;
 
     if(debug_connected                 &&
@@ -347,30 +342,8 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM  type,
        (debug_level_mask & (1 << level)))
     {
         // Format the output string
-        tmp_time         = time(NULL);
-        broken_down_time = localtime(&tmp_time);
-        gettimeofday(&tv, &time_zone);
-        hour = (tv.tv_sec / 3600) % 24;
-        if(hour < (time_zone.tz_minuteswest / 60))
-        {
-            hour = (hour + 24) - (time_zone.tz_minuteswest / 60);
-        }else{
-            hour -= time_zone.tz_minuteswest / 60;
-        }
-        tmp_msg  = boost::lexical_cast<std::string>(broken_down_time->tm_mon + 1) + "/";
-        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_mday) + "/";
-        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_year + 1900) + " ";
-        tmp_ss  << std::setw(2) << std::setfill('0') << hour;
-        tmp_msg += tmp_ss.str() + ":";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
-        tmp_msg += tmp_ss.str() + ":";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
-        tmp_msg += tmp_ss.str() + ".";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(6) << std::setfill('0') << tv.tv_usec;
-        tmp_msg += tmp_ss.str() + " ";
+        get_formatted_time(tmp_msg);
+        tmp_msg += " ";
         tmp_msg += LTE_fdd_enb_debug_type_text[type];
         tmp_msg += " ";
         tmp_msg += LTE_fdd_enb_debug_level_text[level];
@@ -402,15 +375,9 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
 {
     boost::mutex::scoped_lock  lock(debug_connect_mutex);
     std::string                tmp_msg;
-    std::stringstream          tmp_ss;
     va_list                    args;
-    struct timeval             tv;
-    struct timezone            time_zone;
-    struct tm                 *broken_down_time;
-    time_t                     tmp_time;
     uint32                     i;
     uint32                     hex_val;
-    uint32                     hour;
     char                      *args_msg;
 
     if(debug_connected                 &&
@@ -418,30 +385,8 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
        (debug_level_mask & (1 << level)))
     {
         // Format the output string
-        tmp_time         = time(NULL);
-        broken_down_time = localtime(&tmp_time);
-        gettimeofday(&tv, &time_zone);
-        hour = (tv.tv_sec / 3600) % 24;
-        if(hour < (time_zone.tz_minuteswest / 60))
-        {
-            hour = (hour + 24) - (time_zone.tz_minuteswest / 60);
-        }else{
-            hour -= time_zone.tz_minuteswest / 60;
-        }
-        tmp_msg  = boost::lexical_cast<std::string>(broken_down_time->tm_mon + 1) + "/";
-        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_mday) + "/";
-        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_year + 1900) + " ";
-        tmp_ss  << std::setw(2) << std::setfill('0') << hour;
-        tmp_msg += tmp_ss.str() + ":";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
-        tmp_msg += tmp_ss.str() + ":";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
-        tmp_msg += tmp_ss.str() + ".";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(6) << std::setfill('0') << tv.tv_usec;
-        tmp_msg += tmp_ss.str() + " ";
+        get_formatted_time(tmp_msg);
+        tmp_msg += " ";
         tmp_msg += LTE_fdd_enb_debug_type_text[type];
         tmp_msg += " ";
         tmp_msg += LTE_fdd_enb_debug_level_text[level];
@@ -503,15 +448,9 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
 {
     boost::mutex::scoped_lock  lock(debug_connect_mutex);
     std::string                tmp_msg;
-    std::stringstream          tmp_ss;
     va_list                    args;
-    struct timeval             tv;
-    struct timezone            time_zone;
-    struct tm                 *broken_down_time;
-    time_t                     tmp_time;
     uint32                     i;
     uint32                     hex_val;
-    uint32                     hour;
     char                      *args_msg;
 
     if(debug_connected                 &&
@@ -519,30 +458,8 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
        (debug_level_mask & (1 << level)))
     {
         // Format the output string
-        tmp_time         = time(NULL);
-        broken_down_time = localtime(&tmp_time);
-        gettimeofday(&tv, &time_zone);
-        hour = (tv.tv_sec / 3600) % 24;
-        if(hour < (time_zone.tz_minuteswest / 60))
-        {
-            hour = (hour + 24) - (time_zone.tz_minuteswest / 60);
-        }else{
-            hour -= time_zone.tz_minuteswest / 60;
-        }
-        tmp_msg  = boost::lexical_cast<std::string>(broken_down_time->tm_mon + 1) + "/";
-        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_mday) + "/";
-        tmp_msg += boost::lexical_cast<std::string>(broken_down_time->tm_year + 1900) + " ";
-        tmp_ss  << std::setw(2) << std::setfill('0') << hour;
-        tmp_msg += tmp_ss.str() + ":";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
-        tmp_msg += tmp_ss.str() + ":";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
-        tmp_msg += tmp_ss.str() + ".";
-        tmp_ss.seekp(0);
-        tmp_ss  << std::setw(6) << std::setfill('0') << tv.tv_usec;
-        tmp_msg += tmp_ss.str() + " ";
+        get_formatted_time(tmp_msg);
+        tmp_msg += " ";
         tmp_msg += LTE_fdd_enb_debug_type_text[type];
         tmp_msg += " ";
         tmp_msg += LTE_fdd_enb_debug_level_text[level];
@@ -1660,4 +1577,35 @@ bool LTE_fdd_enb_interface::is_string_valid_as_number(std::string str,
     }
 
     return(ret);
+}
+void LTE_fdd_enb_interface::get_formatted_time(std::string &time_string)
+{
+    std::stringstream  tmp_ss1;
+    std::stringstream  tmp_ss2;
+    struct timeval     tv;
+    struct tm         *local_time;
+    time_t             tmp_time;
+
+    tmp_time   = time(NULL);
+    local_time = localtime(&tmp_time);
+    gettimeofday(&tv, NULL);
+    tmp_ss1     << std::setw(2) << std::setfill('0') << (local_time->tm_mon + 1);
+    time_string  = tmp_ss1.str() + "/";
+    tmp_ss1.seekp(0);
+    tmp_ss1     << std::setw(2) << std::setfill('0') << local_time->tm_mday;
+    time_string += tmp_ss1.str() + "/";
+    tmp_ss1.seekp(0);
+    tmp_ss1     << std::setw(4) << std::setfill('0') << (local_time->tm_year + 1900);
+    time_string += tmp_ss1.str() + " ";
+    tmp_ss2     << std::setw(2) << std::setfill('0') << local_time->tm_hour;
+    time_string += tmp_ss2.str() + ":";
+    tmp_ss2.seekp(0);
+    tmp_ss2     << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
+    time_string += tmp_ss2.str() + ":";
+    tmp_ss2.seekp(0);
+    tmp_ss2     << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
+    time_string += tmp_ss2.str() + ".";
+    tmp_ss2.seekp(0);
+    tmp_ss2     << std::setw(6) << std::setfill('0') << tv.tv_usec;
+    time_string += tmp_ss2.str();
 }

@@ -40,8 +40,9 @@
     11/01/2014    Ben Wojtowicz    Added parameters for IP address assignment,
                                    DNS address, config file, and user file.
     11/29/2014    Ben Wojtowicz    Added support for the IP gateway.
-    02/15/2015    Ben Wojtowicz    Moved to new messageq queue, added IP pcap
+    02/15/2015    Ben Wojtowicz    Moved to new message queue, added IP pcap
                                    support, and put error enum into common hdr.
+    03/11/2015    Ben Wojtowicz    Made a common routine for formatting time.
 
 *******************************************************************************/
 
@@ -328,6 +329,7 @@ private:
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, std::string value);
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, uint32 value);
     bool is_string_valid_as_number(std::string str, uint32 length, uint8 max_value);
+    void get_formatted_time(std::string &time_string);
 
     // Inter-stack communication
     LTE_fdd_enb_msgq *phy_to_mac_comm;

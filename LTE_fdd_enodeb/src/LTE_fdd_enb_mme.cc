@@ -41,6 +41,7 @@
     12/24/2014    Ben Wojtowicz    Actually sending EMM information message.
     02/15/2015    Ben Wojtowicz    Moved to new message queue, added more debug
                                    log points, and using the fixed user switch.
+    03/11/2015    Ben Wojtowicz    Added detach handling.
 
 *******************************************************************************/
 
@@ -220,11 +221,7 @@ void LTE_fdd_enb_mme::handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *n
             parse_authentication_response(msg, nas_msg->user, nas_msg->rb);
             break;
         case LIBLTE_MME_MSG_TYPE_DETACH_REQUEST:
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_MME,
-                                      __FILE__,
-                                      __LINE__,
-                                      "Not handling Detach Request");
+            parse_detach_request(msg, nas_msg->user, nas_msg->rb);
             break;
         case LIBLTE_MME_MSG_TYPE_EMM_STATUS:
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -391,6 +388,9 @@ void LTE_fdd_enb_mme::handle_nas_msg(LTE_FDD_ENB_MME_NAS_MSG_READY_MSG_STRUCT *n
             break;
         case LTE_FDD_ENB_MME_PROC_SERVICE_REQUEST:
             service_req_sm(nas_msg->user, nas_msg->rb);
+            break;
+        case LTE_FDD_ENB_MME_PROC_DETACH:
+            detach_sm(nas_msg->user, nas_msg->rb);
             break;
         default:
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -776,6 +776,31 @@ void LTE_fdd_enb_mme::parse_authentication_response(LIBLTE_BYTE_MSG_STRUCT *msg,
                                   LTE_fdd_enb_rb_text[rb->get_rb_id()]);
         rb->set_mme_state(LTE_FDD_ENB_MME_STATE_AUTH_REJECTED);
     }
+}
+void LTE_fdd_enb_mme::parse_detach_request(LIBLTE_BYTE_MSG_STRUCT *msg,
+                                           LTE_fdd_enb_user       *user,
+                                           LTE_fdd_enb_rb         *rb)
+{
+    LTE_fdd_enb_user_mgr                 *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    LIBLTE_MME_DETACH_REQUEST_MSG_STRUCT  detach_req;
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                              __FILE__,
+                              __LINE__,
+                              "Received Detach Request for RNTI=%u and RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    // Unpack the message
+    liblte_mme_unpack_detach_request_msg(msg, &detach_req);
+
+    // Set the procedure
+    rb->set_mme_procedure(LTE_FDD_ENB_MME_PROC_DETACH);
+    rb->set_mme_state(LTE_FDD_ENB_MME_STATE_SEND_DETACH_ACCEPT);
+
+    // Delete the user
+    user_mgr->del_user(user, true);
 }
 void LTE_fdd_enb_mme::parse_identity_response(LIBLTE_BYTE_MSG_STRUCT *msg,
                                               LTE_fdd_enb_user       *user,
@@ -1193,7 +1218,7 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
         send_attach_accept(user, rb);
         break;
     case LTE_FDD_ENB_MME_STATE_ATTACHED:
-//        send_emm_information(user, rb);
+        send_emm_information(user, rb);
 //        send_rrc_command(user, rb, LTE_FDD_ENB_RRC_CMD_RELEASE);
         break;
     default:
@@ -1228,6 +1253,26 @@ void LTE_fdd_enb_mme::service_req_sm(LTE_fdd_enb_user *user,
                                   __FILE__,
                                   __LINE__,
                                   "SERVICE REQUEST state machine invalid state %s, RNTI=%u and RB=%s",
+                                  LTE_fdd_enb_mme_state_text[rb->get_mme_state()],
+                                  user->get_c_rnti(),
+                                  LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+        break;
+    }
+}
+void LTE_fdd_enb_mme::detach_sm(LTE_fdd_enb_user *user,
+                                LTE_fdd_enb_rb   *rb)
+{
+    switch(rb->get_mme_state())
+    {
+    case LTE_FDD_ENB_MME_STATE_SEND_DETACH_ACCEPT:
+        send_detach_accept(user, rb);
+        break;
+    default:
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                                  __FILE__,
+                                  __LINE__,
+                                  "DETACH state machine invalid state %s, RNTI=%u and RB=%s",
                                   LTE_fdd_enb_mme_state_text[rb->get_mme_state()],
                                   user->get_c_rnti(),
                                   LTE_fdd_enb_rb_text[rb->get_rb_id()]);
@@ -1472,17 +1517,63 @@ void LTE_fdd_enb_mme::send_authentication_request(LTE_fdd_enb_user *user,
                           sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
     }
 }
+void LTE_fdd_enb_mme::send_detach_accept(LTE_fdd_enb_user *user,
+                                         LTE_fdd_enb_rb   *rb)
+{
+    LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT nas_msg_ready;
+    LIBLTE_MME_DETACH_ACCEPT_MSG_STRUCT      detach_accept;
+    LIBLTE_BYTE_MSG_STRUCT                   msg;
+
+    if(user->is_auth_vec_set())
+    {
+        liblte_mme_pack_detach_accept_msg(&detach_accept,
+                                          LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY_AND_CIPHERED,
+                                          user->get_auth_vec()->k_nas_int,
+                                          user->get_auth_vec()->nas_count_dl,
+                                          LIBLTE_SECURITY_DIRECTION_DOWNLINK,
+                                          rb->get_rb_id()-1,
+                                          &msg);
+        user->increment_nas_count_dl();
+    }else{
+        liblte_mme_pack_detach_accept_msg(&detach_accept,
+                                          LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS,
+                                          NULL,
+                                          0,
+                                          0,
+                                          0,
+                                          &msg);
+    }
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_MME,
+                              __FILE__,
+                              __LINE__,
+                              &msg,
+                              "Sending Detach Accept for RNTI=%u, RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    // Queue the NAS message for RRC
+    rb->queue_rrc_nas_msg(&msg);
+
+    // Signal RRC
+    nas_msg_ready.user = user;
+    nas_msg_ready.rb   = rb;
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_NAS_MSG_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&nas_msg_ready,
+                      sizeof(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT));
+}
 void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
                                            LTE_fdd_enb_rb   *rb)
 {
     LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT  nas_msg_ready;
     LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT     emm_info;
     LIBLTE_BYTE_MSG_STRUCT                    msg;
-    struct tm                                *broken_down_time;
+    struct tm                                *local_time;
     time_t                                    tmp_time;
 
-    tmp_time         = time(NULL);
-    broken_down_time = localtime(&tmp_time);
+    tmp_time   = time(NULL);
+    local_time = localtime(&tmp_time);
 
     emm_info.full_net_name_present           = true;
     emm_info.full_net_name.name              = "openLTE";
@@ -1492,12 +1583,12 @@ void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
     emm_info.short_net_name.add_ci           = LIBLTE_MME_ADD_CI_DONT_ADD;
     emm_info.local_time_zone_present         = false;
     emm_info.utc_and_local_time_zone_present = true;
-    emm_info.utc_and_local_time_zone.year    = broken_down_time->tm_year;
-    emm_info.utc_and_local_time_zone.month   = broken_down_time->tm_mon + 1;
-    emm_info.utc_and_local_time_zone.day     = broken_down_time->tm_mday;
-    emm_info.utc_and_local_time_zone.hour    = broken_down_time->tm_hour;
-    emm_info.utc_and_local_time_zone.minute  = broken_down_time->tm_min;
-    emm_info.utc_and_local_time_zone.second  = broken_down_time->tm_sec;
+    emm_info.utc_and_local_time_zone.year    = local_time->tm_year;
+    emm_info.utc_and_local_time_zone.month   = local_time->tm_mon + 1;
+    emm_info.utc_and_local_time_zone.day     = local_time->tm_mday;
+    emm_info.utc_and_local_time_zone.hour    = local_time->tm_hour;
+    emm_info.utc_and_local_time_zone.minute  = local_time->tm_min;
+    emm_info.utc_and_local_time_zone.second  = local_time->tm_sec;
     emm_info.utc_and_local_time_zone.tz      = 0; // FIXME
     emm_info.net_dst_present                 = false;
     liblte_mme_pack_emm_information_msg(&emm_info,

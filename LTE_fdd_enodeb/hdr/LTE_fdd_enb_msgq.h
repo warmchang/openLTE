@@ -37,6 +37,7 @@
     02/15/2015    Ben Wojtowicz    Moving to new message queue with semaphores
                                    and circular buffers and added a timer tick
                                    message.
+    03/15/2015    Ben Wojtowicz    Added a mutex to the circular buffer.
 
 *******************************************************************************/
 
@@ -393,6 +394,7 @@ private:
 
     // Variables
     LTE_fdd_enb_msgq_cb                                 callback;
+    boost::mutex                                        mutex;
     boost::interprocess::interprocess_semaphore        *sema;
     boost::circular_buffer<LTE_FDD_ENB_MESSAGE_STRUCT> *circ_buf;
     std::string                                         msgq_name;

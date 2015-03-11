@@ -31,6 +31,7 @@
     06/15/2014    Ben Wojtowicz    Omitting path from __FILE__.
     02/15/2015    Ben Wojtowicz    Moving to new message queue with semaphores
                                    and circular buffers.
+    03/15/2015    Ben Wojtowicz    Added a mutex to the circular buffer.
 
 *******************************************************************************/
 
@@ -138,12 +139,16 @@ void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM  type,
         memcpy(&msg.msg, msg_content, msg_content_size);
     }
 
+    mutex.lock();
     circ_buf->push_back(msg);
+    mutex.unlock();
     sema->post();
 }
 void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
+    mutex.lock();
     circ_buf->push_back(msg);
+    mutex.unlock();
     sema->post();
 }
 void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
@@ -168,20 +173,27 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
     {
         // Wait for a message
         msgq->sema->wait();
+        msgq->mutex.lock();
         if(msgq->circ_buf->size() != 0)
         {
-            msg = msgq->circ_buf->front();
-            msgq->circ_buf->pop_front();
-
-            // Process message
-            switch(msg.type)
+            while(msgq->circ_buf->size() != 0)
             {
-            case LTE_FDD_ENB_MESSAGE_TYPE_KILL:
-                not_done = false;
-                break;
-            default:
-                msgq->callback(msg);
-                break;
+                msg = msgq->circ_buf->front();
+                msgq->circ_buf->pop_front();
+                msgq->mutex.unlock();
+
+                // Process message
+                switch(msg.type)
+                {
+                case LTE_FDD_ENB_MESSAGE_TYPE_KILL:
+                    not_done = false;
+                    break;
+                default:
+                    msgq->callback(msg);
+                    break;
+                }
+
+                msgq->mutex.lock();
             }
         }else{
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -191,6 +203,7 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
                                       "%s circular buffer empty on receive",
                                       msgq->msgq_name.c_str());
         }
+        msgq->mutex.unlock();
     }
 
     return(NULL);

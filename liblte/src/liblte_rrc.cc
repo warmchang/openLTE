@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2014 Ben Wojtowicz
+    Copyright 2012-2015 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (SIB13 unpack)
 
     This program is free software: you can redistribute it and/or modify
@@ -52,6 +52,7 @@
     11/09/2014    Ben Wojtowicz    Added SIB13 pack.
     11/29/2014    Ben Wojtowicz    Fixed a bug in RRC connection reestablishment
                                    UE identity.
+    03/11/2015    Ben Wojtowicz    Converting to/from actual hysteresis value.
 
 *******************************************************************************/
 
@@ -914,15 +915,14 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_allowed_meas_bandwidth_ie(uint8             
 
     Document Reference: 36.331 v10.0.0 Section 6.3.5
 *********************************************************************/
-LIBLTE_ERROR_ENUM liblte_rrc_pack_hysteresis_ie(uint8   hysteresis,
+LIBLTE_ERROR_ENUM liblte_rrc_pack_hysteresis_ie(float   hysteresis,
                                                 uint8 **ie_ptr)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
 
     if(ie_ptr != NULL)
     {
-        // FIXME: Convert from actual value
-        liblte_value_2_bits(hysteresis, ie_ptr, 5);
+        liblte_value_2_bits(hysteresis*2, ie_ptr, 5);
 
         err = LIBLTE_SUCCESS;
     }
@@ -930,15 +930,14 @@ LIBLTE_ERROR_ENUM liblte_rrc_pack_hysteresis_ie(uint8   hysteresis,
     return(err);
 }
 LIBLTE_ERROR_ENUM liblte_rrc_unpack_hysteresis_ie(uint8 **ie_ptr,
-                                                  uint8  *hysteresis)
+                                                  float  *hysteresis)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
 
     if(ie_ptr     != NULL &&
        hysteresis != NULL)
     {
-        // FIXME: Convert to actual value
-        *hysteresis = liblte_bits_2_value(ie_ptr, 5);
+        *hysteresis = liblte_bits_2_value(ie_ptr, 5) / 2;
 
         err = LIBLTE_SUCCESS;
     }

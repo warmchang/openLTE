@@ -41,6 +41,7 @@
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
     02/15/2015    Ben Wojtowicz    Moved to new message queue and changed the
                                    RTS timing.
+    03/11/2015    Ben Wojtowicz    Changed the RTS timing.
 
 *******************************************************************************/
 
@@ -707,8 +708,8 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
     dl_current_tti = (dl_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
 
     // Send READY TO SEND message to MAC
-    rts.dl_current_tti   = (dl_current_tti + 3) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-    rts.ul_current_tti   = (ul_current_tti + 3) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+    rts.dl_current_tti   = (dl_current_tti + 2) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+    rts.ul_current_tti   = (ul_current_tti + 2) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
     rts.late             = late_subfr;
     last_rts_current_tti = rts.dl_current_tti;
     msgq_to_mac->send(LTE_FDD_ENB_MESSAGE_TYPE_READY_TO_SEND,

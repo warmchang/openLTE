@@ -30,6 +30,7 @@
     11/29/2014    Ben Wojtowicz    Added UMD support and using the byte message
                                    struct.
     02/15/2015    Ben Wojtowicz    Added header extension handling to UMD.
+    03/11/2015    Ben Wojtowicz    Added header extension handling to AMD.
 
 *******************************************************************************/
 
@@ -260,7 +261,69 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_umd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
 LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd,
                                           LIBLTE_BYTE_MSG_STRUCT    *pdu)
 {
-    return(liblte_rlc_pack_amd_pdu(amd, &amd->data, pdu));
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *pdu_ptr = pdu->msg;
+    uint32             i;
+
+    if(1 == amd->N_data)
+    {
+        err = liblte_rlc_pack_amd_pdu(amd, &amd->data[0], pdu);
+    }else{
+        // Header
+        *pdu_ptr  = (amd->hdr.dc & 0x01) << 7;
+        *pdu_ptr |= (amd->hdr.rf & 0x01) << 6;
+        *pdu_ptr |= (amd->hdr.p & 0x01) << 5;
+        *pdu_ptr |= (amd->hdr.fi & 0x03) << 3;
+        *pdu_ptr |= (LIBLTE_RLC_E_FIELD_HEADER_EXTENDED & 0x01) << 2;
+        *pdu_ptr |= (amd->hdr.sn & 0x300) >> 8;
+        pdu_ptr++;
+        *pdu_ptr = amd->hdr.sn & 0xFF;
+        pdu_ptr++;
+        for(i=0; i<amd->N_data-1; i++)
+        {
+            if((i % 2) == 0)
+            {
+                if(i != amd->N_data-1)
+                {
+                    *pdu_ptr = (LIBLTE_RLC_E_FIELD_HEADER_EXTENDED & 0x01) << 7;
+                }else{
+                    *pdu_ptr = (LIBLTE_RLC_E_FIELD_HEADER_NOT_EXTENDED & 0x01) << 7;
+                }
+                *pdu_ptr |= (amd->data[i].N_bytes & 0x7F0) >> 4;
+                pdu_ptr++;
+                *pdu_ptr = (amd->data[i].N_bytes & 0x00F) << 4;
+            }else{
+                if(i != amd->N_data-1)
+                {
+                    *pdu_ptr |= (LIBLTE_RLC_E_FIELD_HEADER_EXTENDED & 0x01) << 3;
+                }else{
+                    *pdu_ptr |= (LIBLTE_RLC_E_FIELD_HEADER_NOT_EXTENDED & 0x01) << 3;
+                }
+                *pdu_ptr |= (amd->data[i].N_bytes & 0x700) >> 8;
+                pdu_ptr++;
+                *pdu_ptr = amd->data[i].N_bytes & 0x0FF;
+                pdu_ptr++;
+            }
+        }
+        if((amd->N_data % 2) == 0)
+        {
+            pdu_ptr++;
+        }
+
+        // Data
+        for(i=0; i<amd->N_data; i++)
+        {
+            memcpy(pdu_ptr, amd->data[i].msg, amd->data[i].N_bytes);
+            pdu_ptr += amd->data[i].N_bytes;
+        }
+
+        // Fill in the number of bytes used
+        pdu->N_bytes = pdu_ptr - pdu->msg;
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
 }
 LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd,
                                           LIBLTE_BYTE_MSG_STRUCT    *data,
@@ -302,6 +365,8 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_amd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
     LIBLTE_ERROR_ENUM        err     = LIBLTE_ERROR_INVALID_INPUTS;
     uint8                   *pdu_ptr = pdu->msg;
     LIBLTE_RLC_E_FIELD_ENUM  e;
+    uint32                   data_len;
+    uint32                   i;
 
     if(pdu != NULL &&
        amd != NULL)
@@ -328,16 +393,49 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_amd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
                 return(err);
             }
 
-            if(LIBLTE_RLC_E_FIELD_HEADER_EXTENDED == e)
+            amd->N_data = 0;
+            data_len    = 0;
+            while(LIBLTE_RLC_E_FIELD_HEADER_EXTENDED == e)
             {
-                // FIXME
-                printf("Not handling HEADER EXTENSION\n");
+                if(LIBLTE_RLC_AMD_MAX_N_DATA == amd->N_data)
+                {
+                    printf("TOO MANY LI FIELDS\n");
+                    return(err);
+                }
+                if((amd->N_data % 2) == 0)
+                {
+                    e                              = (LIBLTE_RLC_E_FIELD_ENUM)((*pdu_ptr >> 7) & 0x01);
+                    amd->data[amd->N_data].N_bytes = (*pdu_ptr & 0x7F) << 4;
+                    pdu_ptr++;
+                    amd->data[amd->N_data].N_bytes |= (*pdu_ptr & 0xF0) >> 4;
+                }else{
+                    e                              = (LIBLTE_RLC_E_FIELD_ENUM)((*pdu_ptr >> 3) & 0x01);
+                    amd->data[amd->N_data].N_bytes = (*pdu_ptr & 0x07) << 8;
+                    pdu_ptr++;
+                    amd->data[amd->N_data].N_bytes |= *pdu_ptr;
+                    pdu_ptr++;
+                }
+                data_len += amd->data[amd->N_data].N_bytes;
+                amd->N_data++;
+            }
+            if(LIBLTE_RLC_AMD_MAX_N_DATA == amd->N_data)
+            {
+                printf("TOO MANY LI FIELDS\n");
                 return(err);
             }
+            amd->N_data++;
+            if((amd->N_data % 2) == 0)
+            {
+                pdu_ptr++;
+            }
+            amd->data[amd->N_data-1].N_bytes = pdu->N_bytes - (pdu_ptr - pdu->msg) - data_len;
 
             // Data
-            amd->data.N_bytes = pdu->N_bytes - (pdu_ptr - pdu->msg);
-            memcpy(amd->data.msg, pdu_ptr, amd->data.N_bytes);
+            for(i=0; i<amd->N_data; i++)
+            {
+                memcpy(amd->data[i].msg, pdu_ptr, amd->data[i].N_bytes);
+                pdu_ptr += amd->data[i].N_bytes;
+            }
         }
 
         err = LIBLTE_SUCCESS;

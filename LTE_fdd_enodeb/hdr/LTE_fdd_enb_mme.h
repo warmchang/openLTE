@@ -38,6 +38,7 @@
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue and
                                    sending of EMM information message.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
+    03/11/2015    Ben Wojtowicz    Added detach handling.
 
 *******************************************************************************/
 
@@ -111,6 +112,7 @@ private:
     void parse_attach_request(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user **user, LTE_fdd_enb_rb **rb);
     void parse_authentication_failure(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_authentication_response(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void parse_detach_request(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_identity_response(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_security_mode_complete(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_security_mode_reject(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
@@ -122,12 +124,14 @@ private:
     // State Machines
     void attach_sm(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void service_req_sm(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void detach_sm(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Message Senders
     void send_attach_accept(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_attach_reject(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_authentication_reject(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_authentication_request(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void send_detach_accept(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_emm_information(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_identity_request(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, uint8 id_type);
     void send_security_mode_command(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);

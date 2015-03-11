@@ -33,6 +33,8 @@
                                    bits_2_value functions.
     11/29/2014    Ben Wojtowicz    Using byte message struct for SDUs.
     02/15/2015    Ben Wojtowicz    Removed FIXMEs for transparent mode and mcs.
+    03/11/2015    Ben Wojtowicz    Fixed long BSR CE and added extended power
+                                   headroom CE support.
 
 *******************************************************************************/
 
@@ -56,22 +58,22 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-uint32 truncated_short_bsr_max_buffer_size[64] = {     0,     10,     12,     14,     17,     19,     22,     26,
-                                                      31,     36,     42,     49,     57,     67,     78,     91,
-                                                     107,    125,    146,    171,    200,    234,    274,    321,
-                                                     376,    440,    515,    603,    706,    826,    967,   1132,
-                                                    1326,   1552,   1817,   2127,   2490,   2915,   3413,   3995,
-                                                    4677,   5476,   6411,   7505,   8787,  10287,  12043,  14099,
-                                                   16507,  19325,  22624,  26487,  31009,  36304,  42502,  49759,
-                                                   58255,  68201,  79864,  93479, 109439, 128125, 150000, 150000};
-uint32 truncated_short_bsr_min_buffer_size[64] = {     0,      0,     10,     12,     14,     17,     19,     22,
-                                                      26,     31,     36,     42,     49,     57,     67,     78,
-                                                      91,    107,    125,    146,    171,    200,    234,    274,
-                                                     321,    376,    440,    515,    603,    706,    826,    967,
-                                                    1132,   1326,   1552,   1817,   2127,   2490,   2915,   3413,
-                                                    3995,   4677,   5476,   6411,   7505,   8787,  10287,  12043,
-                                                   14099,  16507,  19325,  22624,  26487,  31009,  36304,  42502,
-                                                   49759,  58255,  68201,  79864,  93479, 109439, 128125, 150000};
+uint32 bsr_max_buffer_size[64] = {     0,     10,     12,     14,     17,     19,     22,     26,
+                                      31,     36,     42,     49,     57,     67,     78,     91,
+                                     107,    125,    146,    171,    200,    234,    274,    321,
+                                     376,    440,    515,    603,    706,    826,    967,   1132,
+                                    1326,   1552,   1817,   2127,   2490,   2915,   3413,   3995,
+                                    4677,   5476,   6411,   7505,   8787,  10287,  12043,  14099,
+                                   16507,  19325,  22624,  26487,  31009,  36304,  42502,  49759,
+                                   58255,  68201,  79864,  93479, 109439, 128125, 150000, 150000};
+uint32 bsr_min_buffer_size[64] = {     0,      0,     10,     12,     14,     17,     19,     22,
+                                      26,     31,     36,     42,     49,     57,     67,     78,
+                                      91,    107,    125,    146,    171,    200,    234,    274,
+                                     321,    376,    440,    515,    603,    706,    826,    967,
+                                    1132,   1326,   1552,   1817,   2127,   2490,   2915,   3413,
+                                    3995,   4677,   5476,   6411,   7505,   8787,  10287,  12043,
+                                   14099,  16507,  19325,  22624,  26487,  31009,  36304,  42502,
+                                   49759,  58255,  68201,  79864,  93479, 109439, 128125, 150000};
 
 /*******************************************************************************
                               CONTROL ELEMENT FUNCTIONS
@@ -97,8 +99,8 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_truncated_bsr_ce(LIBLTE_MAC_TRUNCATED_BSR_CE_S
         liblte_value_2_bits(truncated_bsr->lcg_id, ce_ptr, 2);
         for(i=0; i<64; i++)
         {
-            if(truncated_bsr->max_buffer_size  > truncated_short_bsr_min_buffer_size[i] &&
-               truncated_bsr->max_buffer_size <= truncated_short_bsr_max_buffer_size[i])
+            if(truncated_bsr->min_buffer_size  > bsr_min_buffer_size[i] &&
+               truncated_bsr->max_buffer_size <= bsr_max_buffer_size[i])
             {
                 liblte_value_2_bits(i, ce_ptr, 6);
                 break;
@@ -125,8 +127,8 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_truncated_bsr_ce(uint8                      
     {
         truncated_bsr->lcg_id          = liblte_bits_2_value(ce_ptr, 2);
         buffer_size_idx                = liblte_bits_2_value(ce_ptr, 6);
-        truncated_bsr->max_buffer_size = truncated_short_bsr_max_buffer_size[buffer_size_idx];
-        truncated_bsr->min_buffer_size = truncated_short_bsr_min_buffer_size[buffer_size_idx];
+        truncated_bsr->max_buffer_size = bsr_max_buffer_size[buffer_size_idx];
+        truncated_bsr->min_buffer_size = bsr_min_buffer_size[buffer_size_idx];
 
         err = LIBLTE_SUCCESS;
     }
@@ -165,14 +167,42 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_long_bsr_ce(LIBLTE_MAC_LONG_BSR_CE_STRUCT  *lo
                                               uint8                         **ce_ptr)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    uint32            i;
+    uint32            buffer_size_0;
+    uint32            buffer_size_1;
+    uint32            buffer_size_2;
+    uint32            buffer_size_3;
 
     if(long_bsr != NULL &&
        ce_ptr   != NULL)
     {
-        liblte_value_2_bits(long_bsr->buffer_size_0, ce_ptr, 6);
-        liblte_value_2_bits(long_bsr->buffer_size_1, ce_ptr, 6);
-        liblte_value_2_bits(long_bsr->buffer_size_2, ce_ptr, 6);
-        liblte_value_2_bits(long_bsr->buffer_size_3, ce_ptr, 6);
+        for(i=0; i<64; i++)
+        {
+            if(long_bsr->min_buffer_size_0  > bsr_min_buffer_size[i] &&
+               long_bsr->max_buffer_size_0 <= bsr_max_buffer_size[i])
+            {
+                buffer_size_0 = i;
+            }
+            if(long_bsr->min_buffer_size_1  > bsr_min_buffer_size[i] &&
+               long_bsr->max_buffer_size_1 <= bsr_max_buffer_size[i])
+            {
+                buffer_size_1 = i;
+            }
+            if(long_bsr->min_buffer_size_2  > bsr_min_buffer_size[i] &&
+               long_bsr->max_buffer_size_2 <= bsr_max_buffer_size[i])
+            {
+                buffer_size_2 = i;
+            }
+            if(long_bsr->min_buffer_size_3  > bsr_min_buffer_size[i] &&
+               long_bsr->max_buffer_size_3 <= bsr_max_buffer_size[i])
+            {
+                buffer_size_3 = i;
+            }
+        }
+        liblte_value_2_bits(buffer_size_0, ce_ptr, 6);
+        liblte_value_2_bits(buffer_size_1, ce_ptr, 6);
+        liblte_value_2_bits(buffer_size_2, ce_ptr, 6);
+        liblte_value_2_bits(buffer_size_3, ce_ptr, 6);
 
         err = LIBLTE_SUCCESS;
     }
@@ -183,14 +213,26 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_long_bsr_ce(uint8                         **
                                                 LIBLTE_MAC_LONG_BSR_CE_STRUCT  *long_bsr)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    uint32            buffer_size_0;
+    uint32            buffer_size_1;
+    uint32            buffer_size_2;
+    uint32            buffer_size_3;
 
     if(ce_ptr   != NULL &&
        long_bsr != NULL)
     {
-        long_bsr->buffer_size_0 = liblte_bits_2_value(ce_ptr, 6);
-        long_bsr->buffer_size_1 = liblte_bits_2_value(ce_ptr, 6);
-        long_bsr->buffer_size_2 = liblte_bits_2_value(ce_ptr, 6);
-        long_bsr->buffer_size_3 = liblte_bits_2_value(ce_ptr, 6);
+        buffer_size_0               = liblte_bits_2_value(ce_ptr, 6);
+        buffer_size_1               = liblte_bits_2_value(ce_ptr, 6);
+        buffer_size_2               = liblte_bits_2_value(ce_ptr, 6);
+        buffer_size_3               = liblte_bits_2_value(ce_ptr, 6);
+        long_bsr->max_buffer_size_0 = bsr_max_buffer_size[buffer_size_0];
+        long_bsr->min_buffer_size_0 = bsr_min_buffer_size[buffer_size_0];
+        long_bsr->max_buffer_size_1 = bsr_max_buffer_size[buffer_size_1];
+        long_bsr->min_buffer_size_1 = bsr_min_buffer_size[buffer_size_1];
+        long_bsr->max_buffer_size_2 = bsr_max_buffer_size[buffer_size_2];
+        long_bsr->min_buffer_size_2 = bsr_min_buffer_size[buffer_size_2];
+        long_bsr->max_buffer_size_3 = bsr_max_buffer_size[buffer_size_3];
+        long_bsr->min_buffer_size_3 = bsr_min_buffer_size[buffer_size_3];
 
         err = LIBLTE_SUCCESS;
     }
@@ -379,14 +421,100 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_power_headroom_ce(uint8                     
 LIBLTE_ERROR_ENUM liblte_mac_pack_ext_power_headroom_ce(LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT  *ext_power_headroom,
                                                         uint8                                   **ce_ptr)
 {
-    // FIXME
-    return(LIBLTE_ERROR_INVALID_INPUTS);
+    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    uint32            i;
+
+    if(ext_power_headroom != NULL &&
+       ce_ptr             != NULL)
+    {
+        // SCell Presence Indicators
+        for(i=0; i<7; i++)
+        {
+            liblte_value_2_bits(ext_power_headroom->scell_present[6-i], ce_ptr, 1);
+        }
+        liblte_value_2_bits(0, ce_ptr, 1); // R
+
+        // PCell
+        liblte_value_2_bits(ext_power_headroom->pcell.p,  ce_ptr, 1);
+        liblte_value_2_bits(ext_power_headroom->pcell.v,  ce_ptr, 1);
+        liblte_value_2_bits(ext_power_headroom->pcell.ph, ce_ptr, 6);
+        if(!ext_power_headroom->pcell.v)
+        {
+            liblte_value_2_bits(0,                                ce_ptr, 1); // R
+            liblte_value_2_bits(0,                                ce_ptr, 1); // R
+            liblte_value_2_bits(ext_power_headroom->pcell.p_cmax, ce_ptr, 6);
+        }
+
+        // SCell
+        for(i=0; i<7; i++)
+        {
+            if(ext_power_headroom->scell_present[i])
+            {
+                liblte_value_2_bits(ext_power_headroom->scell[i].p,  ce_ptr, 1);
+                liblte_value_2_bits(ext_power_headroom->scell[i].v,  ce_ptr, 1);
+                liblte_value_2_bits(ext_power_headroom->scell[i].ph, ce_ptr, 6);
+                if(!ext_power_headroom->scell[i].v)
+                {
+                    liblte_value_2_bits(0,                                   ce_ptr, 1); // R
+                    liblte_value_2_bits(0,                                   ce_ptr, 1); // R
+                    liblte_value_2_bits(ext_power_headroom->scell[i].p_cmax, ce_ptr, 6);
+                }
+            }
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
 }
 LIBLTE_ERROR_ENUM liblte_mac_unpack_ext_power_headroom_ce(uint8                                   **ce_ptr,
                                                           LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT  *ext_power_headroom)
 {
-    // FIXME
-    return(LIBLTE_ERROR_INVALID_INPUTS);
+    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    uint32            i;
+
+    if(ce_ptr             != NULL &&
+       ext_power_headroom != NULL)
+    {
+        // SCell Presence Indicators
+        for(i=0; i<7; i++)
+        {
+            ext_power_headroom->scell_present[6-i] = liblte_bits_2_value(ce_ptr, 1);
+        }
+        liblte_bits_2_value(ce_ptr, 1); // R
+
+        // PCell
+        ext_power_headroom->pcell.p  = liblte_bits_2_value(ce_ptr, 1);
+        ext_power_headroom->pcell.v  = liblte_bits_2_value(ce_ptr, 1);
+        ext_power_headroom->pcell.ph = liblte_bits_2_value(ce_ptr, 6);
+        if(!ext_power_headroom->pcell.v)
+        {
+            liblte_bits_2_value(ce_ptr, 1); // R
+            liblte_bits_2_value(ce_ptr, 1); // R
+            ext_power_headroom->pcell.p_cmax = liblte_bits_2_value(ce_ptr, 6);
+        }
+
+        // SCell
+        for(i=0; i<7; i++)
+        {
+            if(ext_power_headroom->scell_present[i])
+            {
+                ext_power_headroom->scell[i].p  = liblte_bits_2_value(ce_ptr, 1);
+                ext_power_headroom->scell[i].v  = liblte_bits_2_value(ce_ptr, 1);
+                ext_power_headroom->scell[i].ph = liblte_bits_2_value(ce_ptr, 6);
+                if(!ext_power_headroom->scell[i].v)
+                {
+                    liblte_bits_2_value(ce_ptr, 1); // R
+                    liblte_bits_2_value(ce_ptr, 1); // R
+                    ext_power_headroom->scell[i].p_cmax = liblte_bits_2_value(ce_ptr, 6);
+                }
+            }
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
 }
 
 /*********************************************************************
@@ -879,7 +1007,7 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_random_access_response_pdu(LIBLTE_MAC_RAR_STRU
             liblte_value_2_bits(0,                   &pdu_ptr, 1); // R
             liblte_value_2_bits(rar->timing_adv_cmd, &pdu_ptr, 11);
             liblte_value_2_bits(rar->hopping_flag,   &pdu_ptr, 1);
-            liblte_value_2_bits(rar->rba,            &pdu_ptr, 10); // FIXME
+            liblte_value_2_bits(rar->rba,            &pdu_ptr, 10);
             liblte_value_2_bits(rar->mcs,            &pdu_ptr, 4);
             liblte_value_2_bits(rar->tpc_command,    &pdu_ptr, 3);
             liblte_value_2_bits(rar->ul_delay,       &pdu_ptr, 1);
@@ -919,7 +1047,7 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_random_access_response_pdu(LIBLTE_BIT_MSG_ST
             liblte_bits_2_value(&pdu_ptr, 1); // R
             rar->timing_adv_cmd = liblte_bits_2_value(&pdu_ptr, 11);
             rar->hopping_flag   = (LIBLTE_MAC_RAR_HOPPING_ENUM)liblte_bits_2_value(&pdu_ptr, 1);
-            rar->rba            = liblte_bits_2_value(&pdu_ptr, 10); // FIXME
+            rar->rba            = liblte_bits_2_value(&pdu_ptr, 10);
             rar->mcs            = liblte_bits_2_value(&pdu_ptr, 4);
             rar->tpc_command    = (LIBLTE_MAC_RAR_TPC_COMMAND_ENUM)liblte_bits_2_value(&pdu_ptr, 3);
             rar->ul_delay       = (LIBLTE_MAC_RAR_UL_DELAY_ENUM)liblte_bits_2_value(&pdu_ptr, 1);

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2014 Ben Wojtowicz
+    Copyright 2012-2015 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (SIB13 unpack)
 
     This program is free software: you can redistribute it and/or modify
@@ -48,6 +48,7 @@
     11/09/2014    Ben Wojtowicz    Added SIB13 pack.
     11/29/2014    Ben Wojtowicz    Fixed a bug in RRC connection reestablishment
                                    UE identity.
+    03/11/2015    Ben Wojtowicz    Converting to/from actual hysteresis value.
 
 *******************************************************************************/
 
@@ -645,10 +646,10 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_allowed_meas_bandwidth_ie(uint8             
 // Enums
 // Structs
 // Functions
-LIBLTE_ERROR_ENUM liblte_rrc_pack_hysteresis_ie(uint8   hysteresis,
+LIBLTE_ERROR_ENUM liblte_rrc_pack_hysteresis_ie(float   hysteresis,
                                                 uint8 **ie_ptr);
 LIBLTE_ERROR_ENUM liblte_rrc_unpack_hysteresis_ie(uint8 **ie_ptr,
-                                                  uint8  *hysteresis);
+                                                  float  *hysteresis);
 
 /*********************************************************************
     IE Name: Location Info
@@ -1276,7 +1277,7 @@ typedef struct{
     LIBLTE_RRC_EVENT_A6_STRUCT      event_a6;
     LIBLTE_RRC_EVENT_ID_EUTRA_ENUM  event_id;
     LIBLTE_RRC_TIME_TO_TRIGGER_ENUM time_to_trigger;
-    uint8                           hysteresis;
+    float                           hysteresis;
 }LIBLTE_RRC_EVENT_EUTRA_STRUCT;
 typedef struct{
     LIBLTE_RRC_PURPOSE_EUTRA_ENUM purpose;
@@ -1313,7 +1314,7 @@ typedef struct{
     LIBLTE_RRC_EVENT_B2_STRUCT         event_b2;
     LIBLTE_RRC_EVENT_ID_INTER_RAT_ENUM event_id;
     LIBLTE_RRC_TIME_TO_TRIGGER_ENUM    time_to_trigger;
-    uint8                              hysteresis;
+    float                              hysteresis;
 }LIBLTE_RRC_EVENT_INTER_RAT_STRUCT;
 typedef struct{
     LIBLTE_RRC_PURPOSE_INTER_RAT_ENUM purpose;

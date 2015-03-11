@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -29,6 +29,7 @@
     11/29/2014    Ben Wojtowicz    Using the byte message struct for everything
                                    except RRC SDUs and added user plan data
                                    processing.
+    03/11/2015    Ben Wojtowicz    Added data PDU with short SN support.
 
 *******************************************************************************/
 
@@ -179,8 +180,15 @@ LIBLTE_ERROR_ENUM liblte_pdcp_unpack_data_pdu_with_long_sn(LIBLTE_BYTE_MSG_STRUC
 // Defines
 // Enums
 // Structs
+typedef LIBLTE_PDCP_DATA_PDU_WITH_LONG_SN_STRUCT LIBLTE_PDCP_DATA_PDU_WITH_SHORT_SN_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_data_pdu_with_short_sn(LIBLTE_PDCP_DATA_PDU_WITH_SHORT_SN_STRUCT *contents,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_data_pdu_with_short_sn(LIBLTE_PDCP_DATA_PDU_WITH_SHORT_SN_STRUCT *contents,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *data,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_unpack_data_pdu_with_short_sn(LIBLTE_BYTE_MSG_STRUCT                    *pdu,
+                                                            LIBLTE_PDCP_DATA_PDU_WITH_SHORT_SN_STRUCT *contents);
 
 /*********************************************************************
     PDU Type: PDCP Control PDU for interspersed ROHC feedback packet

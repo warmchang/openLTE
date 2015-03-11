@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -36,6 +36,7 @@
                                    set the master clock rate for USRP B2X0.
     12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
                                    USRP X300 support.
+    03/11/2015    Ben Wojtowicz    Added UmTRX support.
 
 *******************************************************************************/
 
@@ -153,38 +154,50 @@ LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::start(uint16 dl_earfcn)
                     hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_USRP_N;
                     samp_src      = tmp_src0;
                 }else{
-                    tmp_src0.reset();
-                    tmp_src0 = osmosdr::source::make("uhd,master_clock_rate=184320000");
                     BOOST_FOREACH(const uhd::device_addr_t &dev, uhd::device::find(hint))
                     {
-                        if(dev["type"] == "x300")
+                        if(dev["type"] == "umtrx")
                         {
-                            hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_USRP_X;
+                            hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_UMTRX;
                             samp_src      = tmp_src0;
                             break;
                         }
                     }
                     if(hardware_type == LTE_FDD_DL_SCAN_HW_TYPE_UNKNOWN)
                     {
-                        osmosdr::source::sptr tmp_src1 = osmosdr::source::make("hackrf");
-                        if(0 != tmp_src1->get_sample_rates().size())
+                        tmp_src0.reset();
+                        tmp_src0 = osmosdr::source::make("uhd,master_clock_rate=184320000");
+                        BOOST_FOREACH(const uhd::device_addr_t &dev, uhd::device::find(hint))
                         {
-                            hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_HACKRF;
-                            samp_src      = tmp_src1;
-                        }else{
-                            osmosdr::source::sptr tmp_src2 = osmosdr::source::make("bladerf");
-                            if(0 != tmp_src2->get_sample_rates().size())
+                            if(dev["type"] == "x300")
                             {
-                                hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_BLADERF;
-                                samp_src      = tmp_src2;
+                                hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_USRP_X;
+                                samp_src      = tmp_src0;
+                                break;
+                            }
+                        }
+                        if(hardware_type == LTE_FDD_DL_SCAN_HW_TYPE_UNKNOWN)
+                        {
+                            osmosdr::source::sptr tmp_src1 = osmosdr::source::make("hackrf");
+                            if(0 != tmp_src1->get_sample_rates().size())
+                            {
+                                hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_HACKRF;
+                                samp_src      = tmp_src1;
                             }else{
-                                osmosdr::source::sptr tmp_src3 = osmosdr::source::make("rtl=0");
-                                if(0 != tmp_src3->get_sample_rates().size())
+                                osmosdr::source::sptr tmp_src2 = osmosdr::source::make("bladerf");
+                                if(0 != tmp_src2->get_sample_rates().size())
                                 {
-                                    hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_RTL_SDR;
-                                    samp_src      = tmp_src3;
+                                    hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_BLADERF;
+                                    samp_src      = tmp_src2;
                                 }else{
-                                    samp_src = osmosdr::source::make();
+                                    osmosdr::source::sptr tmp_src3 = osmosdr::source::make("rtl=0");
+                                    if(0 != tmp_src3->get_sample_rates().size())
+                                    {
+                                        hardware_type = LTE_FDD_DL_SCAN_HW_TYPE_RTL_SDR;
+                                        samp_src      = tmp_src3;
+                                    }else{
+                                        samp_src = osmosdr::source::make();
+                                    }
                                 }
                             }
                         }
@@ -201,6 +214,9 @@ LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::start(uint16 dl_earfcn)
                 break;
             case LTE_FDD_DL_SCAN_HW_TYPE_USRP_N:
                 state_machine = LTE_fdd_dl_scan_make_state_machine(15360000);
+                break;
+            case LTE_FDD_DL_SCAN_HW_TYPE_UMTRX:
+                state_machine = LTE_fdd_dl_scan_make_state_machine(7680000);
                 break;
             case LTE_FDD_DL_SCAN_HW_TYPE_USRP_X:
                 state_machine = LTE_fdd_dl_scan_make_state_machine(15360000);
@@ -240,6 +256,12 @@ LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::start(uint16 dl_earfcn)
                     samp_src->set_gain(35);
                     samp_src->set_bandwidth(10000000);
                     break;
+                case LTE_FDD_DL_SCAN_HW_TYPE_UMTRX:
+                    samp_src->set_sample_rate(13000000);
+                    samp_src->set_gain_mode(false);
+                    samp_src->set_gain(35);
+                    samp_src->set_bandwidth(5000000);
+                    break;
                 case LTE_FDD_DL_SCAN_HW_TYPE_USRP_X:
                     samp_src->set_sample_rate(15360000);
                     samp_src->set_gain_mode(false);
@@ -274,6 +296,11 @@ LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::start(uint16 dl_earfcn)
                 {
                     resample_taps    = gr::filter::firdes::low_pass(384, 1, 0.00065, 0.0013, gr::filter::firdes::WIN_KAISER, 5);
                     resampler_filter = gr::filter::rational_resampler_base_ccf::make(384, 625, resample_taps);
+                    top_block->connect(samp_src, 0, resampler_filter, 0);
+                    top_block->connect(resampler_filter, 0, state_machine, 0);
+                }else if(LTE_FDD_DL_SCAN_HW_TYPE_UMTRX == hardware_type){
+                    resample_taps    = gr::filter::firdes::low_pass(192, 1, 0.00065, 0.0013, gr::filter::firdes::WIN_KAISER, 5);
+                    resampler_filter = gr::filter::rational_resampler_base_ccf::make(192, 325, resample_taps);
                     top_block->connect(samp_src, 0, resampler_filter, 0);
                     top_block->connect(resampler_filter, 0, state_machine, 0);
                 }else{

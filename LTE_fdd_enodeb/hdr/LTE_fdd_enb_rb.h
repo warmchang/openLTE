@@ -42,6 +42,7 @@
     02/15/2015    Ben Wojtowicz    Split UL/DL QoS TTI frequency, added reset
                                    user support, and added multiple UMD RLC data
                                    support.
+    03/11/2015    Ben Wojtowicz    Added detach handling.
 
 *******************************************************************************/
 
@@ -91,11 +92,13 @@ typedef enum{
     LTE_FDD_ENB_MME_PROC_IDLE = 0,
     LTE_FDD_ENB_MME_PROC_ATTACH,
     LTE_FDD_ENB_MME_PROC_SERVICE_REQUEST,
+    LTE_FDD_ENB_MME_PROC_DETACH,
     LTE_FDD_ENB_MME_PROC_N_ITEMS,
 }LTE_FDD_ENB_MME_PROC_ENUM;
 static const char LTE_fdd_enb_mme_proc_text[LTE_FDD_ENB_MME_PROC_N_ITEMS][100] = {"IDLE",
                                                                                   "ATTACH",
-                                                                                  "SERVICE REQUEST"};
+                                                                                  "SERVICE REQUEST",
+                                                                                  "DETACH"};
 
 typedef enum{
     LTE_FDD_ENB_MME_STATE_IDLE = 0,
@@ -110,6 +113,7 @@ typedef enum{
     LTE_FDD_ENB_MME_STATE_ATTACH_ACCEPT,
     LTE_FDD_ENB_MME_STATE_ATTACHED,
     LTE_FDD_ENB_MME_STATE_SETUP_DRB,
+    LTE_FDD_ENB_MME_STATE_SEND_DETACH_ACCEPT,
     LTE_FDD_ENB_MME_STATE_N_ITEMS,
 }LTE_FDD_ENB_MME_STATE_ENUM;
 static const char LTE_fdd_enb_mme_state_text[LTE_FDD_ENB_MME_STATE_N_ITEMS][100] = {"IDLE",
@@ -123,7 +127,8 @@ static const char LTE_fdd_enb_mme_state_text[LTE_FDD_ENB_MME_STATE_N_ITEMS][100]
                                                                                     "ESM INFO TRANSFER",
                                                                                     "ATTACH ACCEPT",
                                                                                     "ATTACHED",
-                                                                                    "SETUP DRB"};
+                                                                                    "SETUP DRB",
+                                                                                    "SEND DETACH ACCEPT"};
 
 typedef enum{
     LTE_FDD_ENB_RRC_PROC_IDLE = 0,

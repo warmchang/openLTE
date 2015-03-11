@@ -29,6 +29,7 @@
     11/29/2014    Ben Wojtowicz    Added UMD support and using the byte message
                                    struct.
     02/15/2015    Ben Wojtowicz    Added header extension handling to UMD.
+    03/11/2015    Ben Wojtowicz    Added header extension handling to AMD.
 
 *******************************************************************************/
 
@@ -281,6 +282,7 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_umd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
     Document Reference: 36.322 v10.0.0 Sections 6.2.1.4 & 6.2.1.5
 *********************************************************************/
 // Defines
+#define LIBLTE_RLC_AMD_MAX_N_DATA 5
 // Enums
 // Structs
 typedef struct{
@@ -292,7 +294,8 @@ typedef struct{
 }LIBLTE_RLC_AMD_PDU_HEADER_STRUCT;
 typedef struct{
     LIBLTE_RLC_AMD_PDU_HEADER_STRUCT hdr;
-    LIBLTE_BYTE_MSG_STRUCT           data;
+    LIBLTE_BYTE_MSG_STRUCT           data[LIBLTE_RLC_AMD_MAX_N_DATA];
+    uint32                           N_data;
 }LIBLTE_RLC_AMD_PDU_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd,

@@ -43,6 +43,8 @@
                                    user support, and added multiple UMD RLC data
                                    support.
     03/11/2015    Ben Wojtowicz    Added detach handling.
+    07/25/2015    Ben Wojtowicz    Moved QoS structure to the user class and
+                                   fixed RLC AM TX and RX buffers.
 
 *******************************************************************************/
 
@@ -178,24 +180,6 @@ typedef enum{
 }LTE_FDD_ENB_MAC_CONFIG_ENUM;
 static const char LTE_fdd_enb_mac_config_text[LTE_FDD_ENB_MAC_CONFIG_N_ITEMS][20] = {"TM"};
 
-typedef enum{
-    LTE_FDD_ENB_QOS_NONE = 0,
-    LTE_FDD_ENB_QOS_SIGNALLING,
-    LTE_FDD_ENB_QOS_DEFAULT_DATA,
-    LTE_FDD_ENB_QOS_N_ITEMS,
-}LTE_FDD_ENB_QOS_ENUM;
-static const char LTE_fdd_enb_qos_text[LTE_FDD_ENB_QOS_N_ITEMS][20] = {"None",
-                                                                       "Signalling",
-                                                                       "Default Data"};
-
-typedef struct{
-    LTE_FDD_ENB_QOS_ENUM qos;
-    uint32               ul_tti_frequency;
-    uint32               dl_tti_frequency;
-    uint32               ul_bytes_per_subfn;
-    uint32               dl_bytes_per_subfn;
-}LTE_FDD_ENB_QOS_STRUCT;
-
 /*******************************************************************************
                               CLASS DECLARATIONS
 *******************************************************************************/
@@ -284,7 +268,7 @@ public:
     uint16 get_rlc_vts(void);
     void set_rlc_vts(uint16 vts);
     void rlc_add_to_transmission_buffer(LIBLTE_RLC_AMD_PDU_STRUCT *amd_pdu);
-    void rlc_update_transmission_buffer(uint32 ack_sn);
+    void rlc_update_transmission_buffer(LIBLTE_RLC_STATUS_PDU_STRUCT *status);
     void rlc_start_t_poll_retransmit(void);
     void rlc_stop_t_poll_retransmit(void);
     void handle_t_poll_retransmit_timer_expiry(uint32 timer_id);
@@ -303,9 +287,6 @@ public:
     LTE_FDD_ENB_ERROR_ENUM get_next_mac_sdu(LIBLTE_BYTE_MSG_STRUCT **sdu);
     LTE_FDD_ENB_ERROR_ENUM delete_next_mac_sdu(void);
     LTE_FDD_ENB_MAC_CONFIG_ENUM get_mac_config(void);
-    void start_ul_sched_timer(uint32 m_seconds);
-    void stop_ul_sched_timer(void);
-    void handle_ul_sched_timer_expiry(uint32 timer_id);
     void set_last_tti(uint32 last_tti);
     uint32 get_last_tti(void);
     void set_con_res_id(uint64 con_res_id);
@@ -322,14 +303,6 @@ public:
     uint8 get_drb_id(void);
     void set_log_chan_group(uint8 lcg);
     uint8 get_log_chan_group(void);
-
-    // Generic
-    void set_qos(LTE_FDD_ENB_QOS_ENUM _qos);
-    LTE_FDD_ENB_QOS_ENUM get_qos(void);
-    uint32 get_qos_ul_tti_freq(void);
-    uint32 get_qos_dl_tti_freq(void);
-    uint32 get_qos_ul_bytes_per_subfn(void);
-    uint32 get_qos_dl_bytes_per_subfn(void);
 
 private:
     // Identity
@@ -371,15 +344,13 @@ private:
     boost::mutex                                  rlc_sdu_queue_mutex;
     std::list<LIBLTE_BYTE_MSG_STRUCT *>           rlc_pdu_queue;
     std::list<LIBLTE_BYTE_MSG_STRUCT *>           rlc_sdu_queue;
-    std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>    rlc_am_reception_buffer;
+    std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *> rlc_am_reception_buffer;
     std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *> rlc_am_transmission_buffer;
     std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>    rlc_um_reception_buffer;
     LTE_FDD_ENB_RLC_CONFIG_ENUM                   rlc_config;
     uint16                                        rlc_vrr;
     uint16                                        rlc_vrmr;
     uint16                                        rlc_vrh;
-    uint16                                        rlc_first_am_segment_sn;
-    uint16                                        rlc_last_am_segment_sn;
     uint16                                        rlc_vta;
     uint16                                        rlc_vtms;
     uint16                                        rlc_vts;
@@ -395,8 +366,6 @@ private:
     std::list<LIBLTE_BYTE_MSG_STRUCT *> mac_sdu_queue;
     LTE_FDD_ENB_MAC_CONFIG_ENUM         mac_config;
     uint64                              mac_con_res_id;
-    uint32                              ul_sched_timer_m_seconds;
-    uint32                              ul_sched_timer_id;
     uint32                              mac_last_tti;
     uint32                              t_poll_retransmit_timer_id;
     bool                                mac_send_con_res_id;
@@ -414,8 +383,6 @@ private:
     LTE_FDD_ENB_ERROR_ENUM get_next_msg(boost::mutex *mutex, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue, LIBLTE_BYTE_MSG_STRUCT **msg);
     LTE_FDD_ENB_ERROR_ENUM delete_next_msg(boost::mutex *mutex, std::list<LIBLTE_BIT_MSG_STRUCT *> *queue);
     LTE_FDD_ENB_ERROR_ENUM delete_next_msg(boost::mutex *mutex, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue);
-    LTE_FDD_ENB_QOS_STRUCT avail_qos[LTE_FDD_ENB_QOS_N_ITEMS];
-    LTE_FDD_ENB_QOS_ENUM   qos;
 };
 
 #endif /* __LTE_FDD_ENB_RB_H__ */

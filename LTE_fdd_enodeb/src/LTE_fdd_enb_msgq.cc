@@ -32,6 +32,8 @@
     02/15/2015    Ben Wojtowicz    Moving to new message queue with semaphores
                                    and circular buffers.
     03/15/2015    Ben Wojtowicz    Added a mutex to the circular buffer.
+    07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
+                                   a single PHY schedule message.
 
 *******************************************************************************/
 
@@ -138,6 +140,22 @@ void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM  type,
     {
         memcpy(&msg.msg, msg_content, msg_content_size);
     }
+
+    mutex.lock();
+    circ_buf->push_back(msg);
+    mutex.unlock();
+    sema->post();
+}
+void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM       type,
+                            LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT *dl_sched,
+                            LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT *ul_sched)
+{
+    LTE_FDD_ENB_MESSAGE_STRUCT msg;
+
+    msg.type       = type;
+    msg.dest_layer = LTE_FDD_ENB_DEST_LAYER_PHY;
+    memcpy(&msg.msg.phy_schedule.dl_sched, dl_sched, sizeof(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT));
+    memcpy(&msg.msg.phy_schedule.ul_sched, ul_sched, sizeof(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT));
 
     mutex.lock();
     circ_buf->push_back(msg);

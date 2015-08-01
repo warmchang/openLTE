@@ -43,6 +43,8 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue, added IP pcap
                                    support, and put error enum into common hdr.
     03/11/2015    Ben Wojtowicz    Made a common routine for formatting time.
+    07/25/2015    Ben Wojtowicz    Made tx_gain and rx_gain into config file
+                                   tracked parameters.
 
 *******************************************************************************/
 
@@ -177,13 +179,13 @@ typedef enum{
     LTE_FDD_ENB_PARAM_DNS_ADDR,
     LTE_FDD_ENB_PARAM_USE_CNFG_FILE,
     LTE_FDD_ENB_PARAM_USE_USER_FILE,
+    LTE_FDD_ENB_PARAM_TX_GAIN,
+    LTE_FDD_ENB_PARAM_RX_GAIN,
 
     // Radio parameters managed by LTE_fdd_enb_radio
     LTE_FDD_ENB_PARAM_AVAILABLE_RADIOS,
     LTE_FDD_ENB_PARAM_SELECTED_RADIO_NAME,
     LTE_FDD_ENB_PARAM_SELECTED_RADIO_IDX,
-    LTE_FDD_ENB_PARAM_TX_GAIN,
-    LTE_FDD_ENB_PARAM_RX_GAIN,
     LTE_FDD_ENB_PARAM_CLOCK_SOURCE,
 
     LTE_FDD_ENB_PARAM_N_ITEMS,
@@ -230,11 +232,11 @@ static const char LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_N_ITEMS][100] = {"ban
                                                                             "dns_addr",
                                                                             "use_cnfg_file",
                                                                             "use_user_file",
+                                                                            "tx_gain",
+                                                                            "rx_gain",
                                                                             "available_radios",
                                                                             "selected_radio_name",
                                                                             "selected_radio_idx",
-                                                                            "tx_gain",
-                                                                            "rx_gain",
                                                                             "clock_source"};
 
 typedef struct{

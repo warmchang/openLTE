@@ -32,6 +32,10 @@
     12/16/2014    Ben Wojtowicz    Added more decoding/encoding.
     12/24/2014    Ben Wojtowicz    Cleaned up the Time Zone and Time IE.
     02/15/2015    Ben Wojtowicz    Added more decoding/encoding.
+    07/25/2015    Ben Wojtowicz    Removed rb_id from pack routines as
+                                   33.401 section 8.1.1 specifies 0 as the
+                                   input to the security routines (credit goes
+                                   to Przemek for finding this).
 
 *******************************************************************************/
 
@@ -2553,7 +2557,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_security_protected_nas_msg(LIBLTE_BYTE_MSG_STR
                                                              uint8                  *key_256,
                                                              uint32                  count,
                                                              uint8                   direction,
-                                                             uint8                   rb_id,
                                                              LIBLTE_BYTE_MSG_STRUCT *sec_msg);
 
 /*********************************************************************
@@ -2612,7 +2615,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_attach_accept_msg(LIBLTE_MME_ATTACH_ACCEPT_MSG
                                                     uint8                               *key_256,
                                                     uint32                               count,
                                                     uint8                                direction,
-                                                    uint8                                rb_id,
                                                     LIBLTE_BYTE_MSG_STRUCT              *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_attach_accept_msg(LIBLTE_BYTE_MSG_STRUCT              *msg,
                                                       LIBLTE_MME_ATTACH_ACCEPT_MSG_STRUCT *attach_accept);
@@ -2637,7 +2639,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_attach_complete_msg(LIBLTE_MME_ATTACH_COMPLETE
                                                       uint8                                 *key_256,
                                                       uint32                                 count,
                                                       uint8                                  direction,
-                                                      uint8                                  rb_id,
                                                       LIBLTE_BYTE_MSG_STRUCT                *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_attach_complete_msg(LIBLTE_BYTE_MSG_STRUCT                *msg,
                                                         LIBLTE_MME_ATTACH_COMPLETE_MSG_STRUCT *attach_comp);
@@ -2853,7 +2854,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_detach_accept_msg(LIBLTE_MME_DETACH_ACCEPT_MSG
                                                     uint8                               *key_256,
                                                     uint32                               count,
                                                     uint8                                direction,
-                                                    uint8                                rb_id,
                                                     LIBLTE_BYTE_MSG_STRUCT              *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_detach_accept_msg(LIBLTE_BYTE_MSG_STRUCT              *msg,
                                                       LIBLTE_MME_DETACH_ACCEPT_MSG_STRUCT *detach_accept);
@@ -2880,7 +2880,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_detach_request_msg(LIBLTE_MME_DETACH_REQUEST_M
                                                      uint8                                *key_256,
                                                      uint32                                count,
                                                      uint8                                 direction,
-                                                     uint8                                 rb_id,
                                                      LIBLTE_BYTE_MSG_STRUCT               *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_detach_request_msg(LIBLTE_BYTE_MSG_STRUCT               *msg,
                                                        LIBLTE_MME_DETACH_REQUEST_MSG_STRUCT *detach_req);
@@ -2905,7 +2904,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_downlink_nas_transport_msg(LIBLTE_MME_DOWNLINK
                                                              uint8                                        *key_256,
                                                              uint32                                        count,
                                                              uint8                                         direction,
-                                                             uint8                                         rb_id,
                                                              LIBLTE_BYTE_MSG_STRUCT                       *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_downlink_nas_transport_msg(LIBLTE_BYTE_MSG_STRUCT                       *msg,
                                                                LIBLTE_MME_DOWNLINK_NAS_TRANSPORT_MSG_STRUCT *dl_nas_transport);
@@ -2944,7 +2942,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_emm_information_msg(LIBLTE_MME_EMM_INFORMATION
                                                       uint8                                 *key_256,
                                                       uint32                                 count,
                                                       uint8                                  direction,
-                                                      uint8                                  rb_id,
                                                       LIBLTE_BYTE_MSG_STRUCT                *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_emm_information_msg(LIBLTE_BYTE_MSG_STRUCT                *msg,
                                                         LIBLTE_MME_EMM_INFORMATION_MSG_STRUCT *emm_info);
@@ -2969,7 +2966,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_emm_status_msg(LIBLTE_MME_EMM_STATUS_MSG_STRUC
                                                  uint8                            *key_256,
                                                  uint32                            count,
                                                  uint8                             direction,
-                                                 uint8                             rb_id,
                                                  LIBLTE_BYTE_MSG_STRUCT           *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_emm_status_msg(LIBLTE_BYTE_MSG_STRUCT           *msg,
                                                    LIBLTE_MME_EMM_STATUS_MSG_STRUCT *emm_status);
@@ -3011,7 +3007,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_extended_service_request_msg(LIBLTE_MME_EXTEND
                                                                uint8                                          *key_256,
                                                                uint32                                          count,
                                                                uint8                                           direction,
-                                                               uint8                                           rb_id,
                                                                LIBLTE_BYTE_MSG_STRUCT                         *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_extended_service_request_msg(LIBLTE_BYTE_MSG_STRUCT                         *msg,
                                                                  LIBLTE_MME_EXTENDED_SERVICE_REQUEST_MSG_STRUCT *ext_service_req);
@@ -3039,7 +3034,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_guti_reallocation_command_msg(LIBLTE_MME_GUTI_
                                                                 uint8                                           *key_256,
                                                                 uint32                                           count,
                                                                 uint8                                            direction,
-                                                                uint8                                            rb_id,
                                                                 LIBLTE_BYTE_MSG_STRUCT                          *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_guti_reallocation_command_msg(LIBLTE_BYTE_MSG_STRUCT                          *msg,
                                                                   LIBLTE_MME_GUTI_REALLOCATION_COMMAND_MSG_STRUCT *guti_realloc_cmd);
@@ -3063,7 +3057,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_guti_reallocation_complete_msg(LIBLTE_MME_GUTI
                                                                  uint8                                            *key_256,
                                                                  uint32                                            count,
                                                                  uint8                                             direction,
-                                                                 uint8                                             rb_id,
                                                                  LIBLTE_BYTE_MSG_STRUCT                           *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_guti_reallocation_complete_msg(LIBLTE_BYTE_MSG_STRUCT                           *msg,
                                                                    LIBLTE_MME_GUTI_REALLOCATION_COMPLETE_MSG_STRUCT *guti_realloc_complete);
@@ -3140,7 +3133,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_security_mode_command_msg(LIBLTE_MME_SECURITY_
                                                             uint8                                       *key_256,
                                                             uint32                                       count,
                                                             uint8                                        direction,
-                                                            uint8                                        rb_id,
                                                             LIBLTE_BYTE_MSG_STRUCT                      *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_security_mode_command_msg(LIBLTE_BYTE_MSG_STRUCT                      *msg,
                                                               LIBLTE_MME_SECURITY_MODE_COMMAND_MSG_STRUCT *sec_mode_cmd);
@@ -3167,7 +3159,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_security_mode_complete_msg(LIBLTE_MME_SECURITY
                                                              uint8                                        *key_256,
                                                              uint32                                        count,
                                                              uint8                                         direction,
-                                                             uint8                                         rb_id,
                                                              LIBLTE_BYTE_MSG_STRUCT                       *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_security_mode_complete_msg(LIBLTE_BYTE_MSG_STRUCT                       *msg,
                                                                LIBLTE_MME_SECURITY_MODE_COMPLETE_MSG_STRUCT *sec_mode_comp);
@@ -3218,7 +3209,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_service_reject_msg(LIBLTE_MME_SERVICE_REJECT_M
                                                      uint8                                *key_256,
                                                      uint32                                count,
                                                      uint8                                 direction,
-                                                     uint8                                 rb_id,
                                                      LIBLTE_BYTE_MSG_STRUCT               *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_service_reject_msg(LIBLTE_BYTE_MSG_STRUCT               *msg,
                                                        LIBLTE_MME_SERVICE_REJECT_MSG_STRUCT *service_rej);
@@ -3295,7 +3285,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_tracking_area_update_accept_msg(LIBLTE_MME_TRA
                                                                   uint8                                             *key_256,
                                                                   uint32                                             count,
                                                                   uint8                                              direction,
-                                                                  uint8                                              rb_id,
                                                                   LIBLTE_BYTE_MSG_STRUCT                            *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_tracking_area_update_accept_msg(LIBLTE_BYTE_MSG_STRUCT                            *msg,
                                                                     LIBLTE_MME_TRACKING_AREA_UPDATE_ACCEPT_MSG_STRUCT *ta_update_accept);
@@ -3320,7 +3309,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_tracking_area_update_complete_msg(LIBLTE_MME_T
                                                                     uint8                                               *key_256,
                                                                     uint32                                               count,
                                                                     uint8                                                direction,
-                                                                    uint8                                                rb_id,
                                                                     LIBLTE_BYTE_MSG_STRUCT                              *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_tracking_area_update_complete_msg(LIBLTE_BYTE_MSG_STRUCT                              *msg,
                                                                       LIBLTE_MME_TRACKING_AREA_UPDATE_COMPLETE_MSG_STRUCT *ta_update_complete);
@@ -3347,7 +3335,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_tracking_area_update_reject_msg(LIBLTE_MME_TRA
                                                                   uint8                                             *key_256,
                                                                   uint32                                             count,
                                                                   uint8                                              direction,
-                                                                  uint8                                              rb_id,
                                                                   LIBLTE_BYTE_MSG_STRUCT                            *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_tracking_area_update_reject_msg(LIBLTE_BYTE_MSG_STRUCT                            *msg,
                                                                     LIBLTE_MME_TRACKING_AREA_UPDATE_REJECT_MSG_STRUCT *ta_update_rej);
@@ -3386,7 +3373,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_uplink_nas_transport_msg(LIBLTE_MME_UPLINK_NAS
                                                            uint8                                      *key_256,
                                                            uint32                                      count,
                                                            uint8                                       direction,
-                                                           uint8                                       rb_id,
                                                            LIBLTE_BYTE_MSG_STRUCT                     *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_uplink_nas_transport_msg(LIBLTE_BYTE_MSG_STRUCT                     *msg,
                                                              LIBLTE_MME_UPLINK_NAS_TRANSPORT_MSG_STRUCT *ul_nas_transport);
@@ -3414,7 +3400,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_downlink_generic_nas_transport_msg(LIBLTE_MME_
                                                                      uint8                                                *key_256,
                                                                      uint32                                                count,
                                                                      uint8                                                 direction,
-                                                                     uint8                                                 rb_id,
                                                                      LIBLTE_BYTE_MSG_STRUCT                               *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_downlink_generic_nas_transport_msg(LIBLTE_BYTE_MSG_STRUCT                               *msg,
                                                                        LIBLTE_MME_DOWNLINK_GENERIC_NAS_TRANSPORT_MSG_STRUCT *dl_generic_nas_transport);
@@ -3442,7 +3427,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_uplink_generic_nas_transport_msg(LIBLTE_MME_UP
                                                                    uint8                                              *key_256,
                                                                    uint32                                              count,
                                                                    uint8                                               direction,
-                                                                   uint8                                               rb_id,
                                                                    LIBLTE_BYTE_MSG_STRUCT                             *msg);
 LIBLTE_ERROR_ENUM liblte_mme_unpack_uplink_generic_nas_transport_msg(LIBLTE_BYTE_MSG_STRUCT                             *msg,
                                                                      LIBLTE_MME_UPLINK_GENERIC_NAS_TRANSPORT_MSG_STRUCT *ul_generic_nas_transport);

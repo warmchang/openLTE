@@ -40,6 +40,7 @@
                                    extension/multiple data support to UMD.
     03/11/2015    Ben Wojtowicz    Added header extension/multiple data support
                                    to AMD.
+    07/25/2015    Ben Wojtowicz    Using the new user QoS structure.
 
 *******************************************************************************/
 
@@ -552,9 +553,7 @@ void LTE_fdd_enb_rlc::handle_status_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
 
     liblte_rlc_unpack_status_pdu(pdu, &status);
 
-    rb->rlc_update_transmission_buffer(status.ack_sn);
-
-    // FIXME: Handle NACK_SNs
+    rb->rlc_update_transmission_buffer(&status);
 
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_RLC,
@@ -649,7 +648,7 @@ void LTE_fdd_enb_rlc::handle_um_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
     LIBLTE_RLC_UMD_PDU_STRUCT            umd;
     LIBLTE_BYTE_MSG_STRUCT               pdu;
     uint32                               byte_idx        = 0;
-    uint32                               bytes_per_subfn = rb->get_qos_dl_bytes_per_subfn();
+    uint32                               bytes_per_subfn = user->get_qos_dl_bytes_per_subfn();
     uint16                               vtus            = rb->get_rlc_vtus();
 
     if(sdu->N_bytes <= bytes_per_subfn)
@@ -743,7 +742,7 @@ void LTE_fdd_enb_rlc::handle_am_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
 {
     LIBLTE_RLC_AMD_PDU_STRUCT amd;
     uint32                    byte_idx        = 0;
-    uint32                    bytes_per_subfn = rb->get_qos_dl_bytes_per_subfn();
+    uint32                    bytes_per_subfn = user->get_qos_dl_bytes_per_subfn();
     uint16                    vts             = rb->get_rlc_vts();
 
     if(sdu->N_bytes <= bytes_per_subfn)

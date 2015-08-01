@@ -37,6 +37,9 @@
                                    and DL and UL center frequencies.
     11/01/2014    Ben Wojtowicz    Added config file support.
     03/15/2015    Ben Wojtowicz    Fixed uninitialized variables.
+    07/25/2015    Ben Wojtowicz    Added config file support for TX/RX gains
+                                   and changed the default time alignment timer
+                                   to 10240 subframes.
 
 *******************************************************************************/
 
@@ -152,6 +155,8 @@ LTE_fdd_enb_cnfg_db::LTE_fdd_enb_cnfg_db()
     var_map_uint32[LTE_FDD_ENB_PARAM_DNS_ADDR]                 = 0xC0A80101;
     var_map_int64[LTE_FDD_ENB_PARAM_USE_CNFG_FILE]             = 0;
     var_map_int64[LTE_FDD_ENB_PARAM_USE_USER_FILE]             = 0;
+    var_map_int64[LTE_FDD_ENB_PARAM_TX_GAIN]                   = 0;
+    var_map_int64[LTE_FDD_ENB_PARAM_RX_GAIN]                   = 0;
     use_cnfg_file                                              = false;
 }
 LTE_fdd_enb_cnfg_db::~LTE_fdd_enb_cnfg_db()
@@ -199,6 +204,10 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_cnfg_db::set_param(LTE_FDD_ENB_PARAM_ENUM par
             }else{
                 hss->set_use_user_file(false);
             }
+        }else if(LTE_FDD_ENB_PARAM_TX_GAIN == param){
+            radio->set_tx_gain(value);
+        }else if(LTE_FDD_ENB_PARAM_RX_GAIN == param){
+            radio->set_rx_gain(value);
         }
 
         if(use_cnfg_file)
@@ -652,7 +661,7 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
     sys_info.sib2.ul_bw.present                                                = false;
     sys_info.sib2.additional_spectrum_emission                                 = 1;
     sys_info.sib2.mbsfn_subfr_cnfg_list_size                                   = 0;
-    sys_info.sib2.time_alignment_timer                                         = LIBLTE_RRC_TIME_ALIGNMENT_TIMER_SF500;
+    sys_info.sib2.time_alignment_timer                                         = LIBLTE_RRC_TIME_ALIGNMENT_TIMER_SF10240;
 
     // SIB3
     sys_info.sib3_present = false;
@@ -1043,6 +1052,10 @@ void LTE_fdd_enb_cnfg_db::write_cnfg_file(void)
         fprintf(cnfg_file, "%s %08X\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_DNS_ADDR], (*iter_u32).second);
         iter_i64 = var_map_int64.find(LTE_FDD_ENB_PARAM_USE_USER_FILE);
         fprintf(cnfg_file, "%s %lld\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_USE_USER_FILE], (*iter_i64).second);
+        iter_i64 = var_map_int64.find(LTE_FDD_ENB_PARAM_TX_GAIN);
+        fprintf(cnfg_file, "%s %lld\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_TX_GAIN], (*iter_i64).second);
+        iter_i64 = var_map_int64.find(LTE_FDD_ENB_PARAM_RX_GAIN);
+        fprintf(cnfg_file, "%s %lld\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_RX_GAIN], (*iter_i64).second);
 
         fclose(cnfg_file);
     }

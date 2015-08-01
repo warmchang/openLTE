@@ -106,6 +106,12 @@
     02/15/2015    Ben Wojtowicz    Properly handling modulation schemes and
                                    added 16QAM and 64QAM demapping.
     03/11/2015    Ben Wojtowicz    Fixed I_tbs to mcs conversion for PUSCH.
+    07/25/2015    Ben Wojtowicz    Added an error return for dci_1a_unpack
+                                   (thanks to Joel Carlson for the suggestion),
+                                   properly initializing vd_w_metric (thanks
+                                   ziminghe for finding this), an changed the
+                                   upper limit of PUSCH allocations to 10 PRBs
+                                   for performance reasons.
 
 *******************************************************************************/
 
@@ -2043,13 +2049,13 @@ void dci_1a_pack(LIBLTE_PHY_ALLOCATION_STRUCT    *alloc,
 // Enums
 // Structs
 // Functions
-void dci_1a_unpack(uint8                           *in_bits,
-                   uint32                           N_in_bits,
-                   LIBLTE_PHY_DCI_CA_PRESENCE_ENUM  ca_presence,
-                   uint16                           rnti,
-                   uint32                           N_rb_dl,
-                   uint8                            N_ant,
-                   LIBLTE_PHY_ALLOCATION_STRUCT    *alloc);
+LIBLTE_ERROR_ENUM dci_1a_unpack(uint8                           *in_bits,
+                                uint32                           N_in_bits,
+                                LIBLTE_PHY_DCI_CA_PRESENCE_ENUM  ca_presence,
+                                uint16                           rnti,
+                                uint32                           N_rb_dl,
+                                uint8                            N_ant,
+                                LIBLTE_PHY_ALLOCATION_STRUCT    *alloc);
 
 /*********************************************************************
     Name: dci_1c_pack
@@ -3162,8 +3168,14 @@ LIBLTE_ERROR_ENUM liblte_phy_detect_prach(LIBLTE_PHY_STRUCT *phy_struct,
            max_val != 0)
         {
             *N_det_pre = 1;
-            *det_pre   = max_root*(v_max+1) + ((max_offset+N_cs)%phy_struct->prach_N_zc)/N_cs;
-            *det_ta    = (((N_cs - ((max_offset+N_cs)%phy_struct->prach_N_zc))%N_cs)*29.155/16)-1;
+            if(0 == N_cs)
+            {
+                *det_pre = max_root*(v_max+1);
+                *det_ta  = ((max_offset%phy_struct->prach_N_zc)*29.155/16)-1;
+            }else{
+                *det_pre = max_root*(v_max+1) + ((max_offset+N_cs)%phy_struct->prach_N_zc)/N_cs;
+                *det_ta  = (((N_cs - ((max_offset+N_cs)%phy_struct->prach_N_zc))%N_cs)*29.155/16)-1;
+            }
         }else{
             *N_det_pre = 0;
         }
@@ -4639,14 +4651,13 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
                                                      dci_1a_size,
                                                      &rnti)))
             {
-                err = LIBLTE_SUCCESS;
-                dci_1a_unpack(phy_struct->pdcch_dci,
-                              dci_1a_size,
-                              LIBLTE_PHY_DCI_CA_NOT_PRESENT,
-                              rnti,
-                              phy_struct->N_rb_dl,
-                              N_ant,
-                              &pdcch->alloc[pdcch->N_alloc++]);
+                err = dci_1a_unpack(phy_struct->pdcch_dci,
+                                    dci_1a_size,
+                                    LIBLTE_PHY_DCI_CA_NOT_PRESENT,
+                                    rnti,
+                                    phy_struct->N_rb_dl,
+                                    N_ant,
+                                    &pdcch->alloc[pdcch->N_alloc++]);
             }
             if(pdcch->N_alloc  <  LIBLTE_PHY_PDCCH_MAX_ALLOC &&
                (LIBLTE_SUCCESS == dci_channel_decode(phy_struct,
@@ -4763,14 +4774,13 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
                                                      dci_1a_size,
                                                      &rnti)))
             {
-                err = LIBLTE_SUCCESS;
-                dci_1a_unpack(phy_struct->pdcch_dci,
-                              dci_1a_size,
-                              LIBLTE_PHY_DCI_CA_NOT_PRESENT,
-                              rnti,
-                              phy_struct->N_rb_dl,
-                              N_ant,
-                              &pdcch->alloc[pdcch->N_alloc++]);
+                err = dci_1a_unpack(phy_struct->pdcch_dci,
+                                    dci_1a_size,
+                                    LIBLTE_PHY_DCI_CA_NOT_PRESENT,
+                                    rnti,
+                                    phy_struct->N_rb_dl,
+                                    N_ant,
+                                    &pdcch->alloc[pdcch->N_alloc++]);
             }
             if(pdcch->N_alloc  <  LIBLTE_PHY_PDCCH_MAX_ALLOC &&
                (LIBLTE_SUCCESS == dci_channel_decode(phy_struct,
@@ -6106,7 +6116,9 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_ul(uint32  N_bits,
         // Determine I_tbs and N_prb
         for(i=0; i<27; i++)
         {
-            for(j=0; j<N_rb_ul; j++)
+//            for(j=0; j<N_rb_ul; j++)
+            // FIXME: This keeps processing reasonable
+            for(j=0; j<11; j++)
             {
                 if(N_bits <= TBS_71721[i][j])
                 {
@@ -9941,6 +9953,7 @@ void viterbi_decode_siso(LIBLTE_PHY_STRUCT *phy_struct,
         for(j=0; j<(N_d_bits/rate)+10; j++)
         {
             phy_struct->vd_path_metric[i][j] = 0;
+            phy_struct->vd_w_metric[i][j]    = 0;
         }
     }
     for(i=0; i<(int32)(N_d_bits/rate); i++)
@@ -12791,27 +12804,28 @@ void dci_1a_pack(LIBLTE_PHY_ALLOCATION_STRUCT    *alloc,
     Notes: Currently only handles SI-RNTI, P-RNTI, or RA-RNTI and
            localized virtual resource blocks
 *********************************************************************/
-void dci_1a_unpack(uint8                           *in_bits,
-                   uint32                           N_in_bits,
-                   LIBLTE_PHY_DCI_CA_PRESENCE_ENUM  ca_presence,
-                   uint16                           rnti,
-                   uint32                           N_rb_dl,
-                   uint8                            N_ant,
-                   LIBLTE_PHY_ALLOCATION_STRUCT    *alloc)
+LIBLTE_ERROR_ENUM dci_1a_unpack(uint8                           *in_bits,
+                                uint32                           N_in_bits,
+                                LIBLTE_PHY_DCI_CA_PRESENCE_ENUM  ca_presence,
+                                uint16                           rnti,
+                                uint32                           N_rb_dl,
+                                uint8                            N_ant,
+                                LIBLTE_PHY_ALLOCATION_STRUCT    *alloc)
 {
-    uint32  RB_start = 0;
-    uint32  RIV;
-    uint32  RIV_length;
-    uint32  i;
-    uint32  j;
-    uint32  ca_ind;
-    uint32  N_prb_1a;
-    uint32  tpc;
-    uint32  dci_0_1a_flag;
-    uint32  loc_or_dist;
-    uint32  harq_process;
-    uint32  new_data_ind;
-    uint8  *dci = in_bits;
+    LIBLTE_ERROR_ENUM  err      = LIBLTE_SUCCESS;
+    uint32             RB_start = 0;
+    uint32             RIV;
+    uint32             RIV_length;
+    uint32             i;
+    uint32             j;
+    uint32             ca_ind;
+    uint32             N_prb_1a;
+    uint32             tpc;
+    uint32             dci_0_1a_flag;
+    uint32             loc_or_dist;
+    uint32             harq_process;
+    uint32             new_data_ind;
+    uint8             *dci = in_bits;
 
     // Carrier indicator
     if(LIBLTE_PHY_DCI_CA_PRESENT == ca_presence)
@@ -12825,7 +12839,7 @@ void dci_1a_unpack(uint8                           *in_bits,
     if(DCI_0_1A_FLAG_0 == dci_0_1a_flag)
     {
         printf("ERROR: DCI 1A flagged as DCI 0\n");
-        return;
+        return(LIBLTE_ERROR_INVALID_CONTENTS);
     }
 
     if(LIBLTE_MAC_SI_RNTI        == rnti ||
@@ -12879,11 +12893,22 @@ void dci_1a_unpack(uint8                           *in_bits,
             alloc->tx_mode = 2;
         }
         alloc->N_codewords = 1;
-        alloc->tbs         = TBS_71721[alloc->mcs][N_prb_1a-1];
-        alloc->rnti        = rnti;
+        if(9 >= alloc->mcs)
+        {
+            alloc->tbs = TBS_71721[alloc->mcs][N_prb_1a-1];
+        }else if(16 >= alloc->mcs){
+            alloc->tbs = TBS_71721[alloc->mcs-1][N_prb_1a-1];
+        }else if(28 >= alloc->mcs){
+            alloc->tbs = TBS_71721[alloc->mcs-2][N_prb_1a-1];
+        }else{
+            err = LIBLTE_ERROR_INVALID_CONTENTS;
+        }
+        alloc->rnti = rnti;
     }else{
         printf("ERROR: Not handling DCI 1As for C-RNTI\n");
     }
+
+    return(err);
 }
 
 /*********************************************************************

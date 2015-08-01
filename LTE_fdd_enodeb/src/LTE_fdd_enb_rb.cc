@@ -44,6 +44,9 @@
     02/15/2015    Ben Wojtowicz    Split UL/DL QoS TTI frequency, added reset
                                    user support, and added multiple UMD RLC data
                                    support.
+    07/25/2015    Ben Wojtowicz    Moved QoS structure to the user class, fixed
+                                   RLC AM TX and RX buffers, and moved DRBs to
+                                   RLC AM.
 
 *******************************************************************************/
 
@@ -85,7 +88,6 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
     rb   = _rb;
     user = _user;
 
-    ul_sched_timer_id          = LTE_FDD_ENB_INVALID_TIMER_ID;
     t_poll_retransmit_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
 
     if(LTE_FDD_ENB_RB_SRB0 == rb)
@@ -115,11 +117,11 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
         mac_config    = LTE_FDD_ENB_MAC_CONFIG_TM;
     }else if(LTE_FDD_ENB_RB_DRB1 == rb){
         pdcp_config = LTE_FDD_ENB_PDCP_CONFIG_LONG_SN;
-        rlc_config  = LTE_FDD_ENB_RLC_CONFIG_UM;
+        rlc_config  = LTE_FDD_ENB_RLC_CONFIG_AM;
         mac_config  = LTE_FDD_ENB_MAC_CONFIG_TM;
     }else if(LTE_FDD_ENB_RB_DRB2 == rb){
         pdcp_config = LTE_FDD_ENB_PDCP_CONFIG_LONG_SN;
-        rlc_config  = LTE_FDD_ENB_RLC_CONFIG_UM;
+        rlc_config  = LTE_FDD_ENB_RLC_CONFIG_AM;
         mac_config  = LTE_FDD_ENB_MAC_CONFIG_TM;
     }
 
@@ -137,8 +139,6 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
     rlc_vrr                 = 0;
     rlc_vrmr                = rlc_vrr + LIBLTE_RLC_AM_WINDOW_SIZE;
     rlc_vrh                 = 0;
-    rlc_first_am_segment_sn = 0xFFFF;
-    rlc_last_am_segment_sn  = 0xFFFF;
     rlc_vta                 = 0;
     rlc_vtms                = rlc_vta + LIBLTE_RLC_AM_WINDOW_SIZE;
     rlc_vts                 = 0;
@@ -152,18 +152,11 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
     // MAC
     mac_con_res_id = 0;
     mac_last_tti   = 0xFFFFFFFF;
-
-    // Setup the QoS
-    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,   0,   0,   0};
-    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20,  20,  22,  22};
-    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 20,   5,  22, 373};
-    qos          = LTE_FDD_ENB_QOS_NONE;
 }
 LTE_fdd_enb_rb::~LTE_fdd_enb_rb()
 {
     LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
 
-    timer_mgr->stop_timer(ul_sched_timer_id);
     if(LTE_FDD_ENB_INVALID_TIMER_ID != t_poll_retransmit_timer_id)
     {
         timer_mgr->stop_timer(t_poll_retransmit_timer_id);
@@ -434,9 +427,9 @@ void LTE_fdd_enb_rb::set_rlc_vrr(uint16 vrr)
 }
 void LTE_fdd_enb_rb::update_rlc_vrr(void)
 {
-    std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>::iterator iter;
-    uint32                                               i;
-    uint16                                               vrr = rlc_vrr;
+    std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *>::iterator iter;
+    uint32                                                  i;
+    uint16                                                  vrr = rlc_vrr;
 
     for(i=vrr; i<rlc_vrh; i++)
     {
@@ -461,28 +454,18 @@ void LTE_fdd_enb_rb::set_rlc_vrh(uint16 vrh)
 }
 void LTE_fdd_enb_rb::rlc_add_to_am_reception_buffer(LIBLTE_RLC_AMD_PDU_STRUCT *amd_pdu)
 {
-    std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>::iterator  iter;
-    LIBLTE_BYTE_MSG_STRUCT                               *new_pdu = NULL;
+    std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *>::iterator  iter;
+    LIBLTE_RLC_AMD_PDU_STRUCT                               *new_pdu = NULL;
 
-    new_pdu = new LIBLTE_BYTE_MSG_STRUCT;
+    new_pdu = new LIBLTE_RLC_AMD_PDU_STRUCT;
 
     if(NULL != new_pdu)
     {
         iter = rlc_am_reception_buffer.find(amd_pdu->hdr.sn);
         if(rlc_am_reception_buffer.end() == iter)
         {
-            memcpy(new_pdu, &amd_pdu->data, sizeof(LIBLTE_BYTE_MSG_STRUCT));
+            memcpy(new_pdu, amd_pdu, sizeof(LIBLTE_RLC_AMD_PDU_STRUCT));
             rlc_am_reception_buffer[amd_pdu->hdr.sn] = new_pdu;
-
-            if(LIBLTE_RLC_FI_FIELD_FULL_SDU == amd_pdu->hdr.fi)
-            {
-                rlc_first_am_segment_sn = amd_pdu->hdr.sn;
-                rlc_last_am_segment_sn  = amd_pdu->hdr.sn;
-            }else if(LIBLTE_RLC_FI_FIELD_FIRST_SDU_SEGMENT == amd_pdu->hdr.fi){
-                rlc_first_am_segment_sn = amd_pdu->hdr.sn;
-            }else if(LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT == amd_pdu->hdr.fi){
-                rlc_last_am_segment_sn = amd_pdu->hdr.sn;
-            }
         }else{
             delete new_pdu;
         }
@@ -490,8 +473,8 @@ void LTE_fdd_enb_rb::rlc_add_to_am_reception_buffer(LIBLTE_RLC_AMD_PDU_STRUCT *a
 }
 void LTE_fdd_enb_rb::rlc_get_am_reception_buffer_status(LIBLTE_RLC_STATUS_PDU_STRUCT *status)
 {
-    std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>::iterator iter;
-    uint32                                               i;
+    std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *>::iterator iter;
+    uint32                                                  i;
 
     // Fill in the ACK_SN
     status->ack_sn = rlc_vrh;
@@ -523,16 +506,53 @@ void LTE_fdd_enb_rb::rlc_get_am_reception_buffer_status(LIBLTE_RLC_STATUS_PDU_ST
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_rb::rlc_am_reassemble(LIBLTE_BYTE_MSG_STRUCT *sdu)
 {
-    std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>::iterator iter;
-    LTE_FDD_ENB_ERROR_ENUM                               err = LTE_FDD_ENB_ERROR_CANT_REASSEMBLE_SDU;
-    uint32                                               i;
-    bool                                                 reassemble = true;
+    std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *>::iterator iter = rlc_am_reception_buffer.begin();
+    LTE_FDD_ENB_ERROR_ENUM                                  err  = LTE_FDD_ENB_ERROR_CANT_REASSEMBLE_SDU;
+    uint32                                                  i;
+    uint16                                                  first      = 0xFFFF;
+    uint16                                                  last       = 0xFFFF;
+    bool                                                    reassemble = true;
 
-    if(0xFFFF != rlc_first_am_segment_sn &&
-       0xFFFF != rlc_last_am_segment_sn)
+    // Find the beginning of the SDU
+    while(iter != rlc_am_reception_buffer.end())
+    {
+        if(LIBLTE_RLC_FI_FIELD_FULL_SDU == (*iter).second->hdr.fi)
+        {
+            first = (*iter).second->hdr.sn;
+            last  = (*iter).second->hdr.sn;
+            break;
+        }else if(LIBLTE_RLC_FI_FIELD_FIRST_SDU_SEGMENT == (*iter).second->hdr.fi){
+            first = (*iter).second->hdr.sn;
+            break;
+        }
+
+        // Somehow the first PDU in the RX buffer is not a full or first SDU
+        // Delete until this is true.
+        delete (*iter).second;
+        rlc_am_reception_buffer.erase(iter);
+        iter = rlc_am_reception_buffer.begin();
+    }
+
+    // Find the end of the SDU
+    if(0xFFFF == last)
+    {
+        for(iter=rlc_am_reception_buffer.begin(); iter!=rlc_am_reception_buffer.end(); iter++)
+        {
+            if(LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT == (*iter).second->hdr.fi ||
+               1                                    <  (*iter).second->N_data)
+            {
+                last = (*iter).second->hdr.sn;
+                break;
+            }
+        }
+    }
+
+    // Check that the whole SDU is present
+    if(0xFFFF != first &&
+       0xFFFF != last)
     {
         // Make sure all segments are available
-        for(i=rlc_first_am_segment_sn; i<=rlc_last_am_segment_sn; i++)
+        for(i=first; i<=last; i++)
         {
             iter = rlc_am_reception_buffer.find(i);
             if(rlc_am_reception_buffer.end() == iter)
@@ -545,18 +565,29 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_rb::rlc_am_reassemble(LIBLTE_BYTE_MSG_STRUCT 
         {
             // Reorder and reassemble the SDU
             sdu->N_bytes = 0;
-            for(i=rlc_first_am_segment_sn; i<=rlc_last_am_segment_sn; i++)
+            for(i=first; i<last; i++)
             {
                 iter = rlc_am_reception_buffer.find(i);
-                memcpy(&sdu->msg[sdu->N_bytes], (*iter).second->msg, (*iter).second->N_bytes);
-                sdu->N_bytes += (*iter).second->N_bytes;
+                memcpy(&sdu->msg[sdu->N_bytes], (*iter).second->data[0].msg, (*iter).second->data[0].N_bytes);
+                sdu->N_bytes += (*iter).second->data[0].N_bytes;
                 delete (*iter).second;
                 rlc_am_reception_buffer.erase(iter);
             }
-
-            // Clear the first/last segment SNs
-            rlc_first_am_segment_sn = 0xFFFF;
-            rlc_last_am_segment_sn  = 0xFFFF;
+            iter = rlc_am_reception_buffer.find(last);
+            memcpy(&sdu->msg[sdu->N_bytes], (*iter).second->data[0].msg, (*iter).second->data[0].N_bytes);
+            sdu->N_bytes += (*iter).second->data[0].N_bytes;
+            if(LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT == (*iter).second->hdr.fi ||
+               LIBLTE_RLC_FI_FIELD_FULL_SDU         == (*iter).second->hdr.fi)
+            {
+                delete (*iter).second;
+                rlc_am_reception_buffer.erase(iter);
+            }else{
+                memcpy((*iter).second->data[0].msg, (*iter).second->data[1].msg, (*iter).second->data[1].N_bytes);
+                (*iter).second->data[0].N_bytes = (*iter).second->data[1].N_bytes;
+                (*iter).second->N_data = 1; // FIXME
+                // Set the FI field to FIRST for next reassembly
+                (*iter).second->hdr.fi = LIBLTE_RLC_FI_FIELD_FIRST_SDU_SEGMENT;
+            }
 
             err = LTE_FDD_ENB_ERROR_NONE;
         }
@@ -597,28 +628,41 @@ void LTE_fdd_enb_rb::rlc_add_to_transmission_buffer(LIBLTE_RLC_AMD_PDU_STRUCT *a
         rlc_am_transmission_buffer[amd_pdu->hdr.sn] = new_pdu;
     }
 }
-void LTE_fdd_enb_rb::rlc_update_transmission_buffer(uint32 ack_sn)
+void LTE_fdd_enb_rb::rlc_update_transmission_buffer(LIBLTE_RLC_STATUS_PDU_STRUCT *status)
 {
     std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *>::iterator iter;
-    uint32                                                  i          = rlc_vta;
+    uint32                                                  i = rlc_vta;
+    uint32                                                  j;
     bool                                                    update_vta = true;
+    bool                                                    remove_sn;
 
-    while(i != ack_sn)
+    while(i != status->ack_sn)
     {
-        iter = rlc_am_transmission_buffer.find(i);
-        if(rlc_am_transmission_buffer.end() != iter)
+        remove_sn = true;
+        for(j=0; j<status->N_nack; j++)
         {
-            delete (*iter).second;
-            rlc_am_transmission_buffer.erase(iter);
-            if(update_vta)
+            if(i == status->nack_sn[j])
             {
-                set_rlc_vta(i+1);
+                remove_sn  = false;
+                update_vta = false;
+                break;
             }
-        }else{
-            update_vta = false;
+        }
+        if(remove_sn)
+        {
+            iter = rlc_am_transmission_buffer.find(i);
+            if(rlc_am_transmission_buffer.end() != iter)
+            {
+                delete (*iter).second;
+                rlc_am_transmission_buffer.erase(iter);
+                if(update_vta)
+                {
+                    set_rlc_vta(i+1);
+                }
+            }
         }
         i++;
-        if(i >= 1024)
+        if(1024 <= i)
         {
             i = 0;
         }
@@ -783,31 +827,6 @@ LTE_FDD_ENB_MAC_CONFIG_ENUM LTE_fdd_enb_rb::get_mac_config(void)
 {
     return(mac_config);
 }
-void LTE_fdd_enb_rb::start_ul_sched_timer(uint32 m_seconds)
-{
-    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-    LTE_fdd_enb_timer_cb   timer_expiry_cb(&LTE_fdd_enb_timer_cb_wrapper<LTE_fdd_enb_rb, &LTE_fdd_enb_rb::handle_ul_sched_timer_expiry>, this);
-
-    ul_sched_timer_m_seconds = m_seconds;
-    timer_mgr->start_timer(ul_sched_timer_m_seconds, timer_expiry_cb, &ul_sched_timer_id);
-}
-void LTE_fdd_enb_rb::stop_ul_sched_timer(void)
-{
-    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-
-    timer_mgr->stop_timer(ul_sched_timer_id);
-}
-void LTE_fdd_enb_rb::handle_ul_sched_timer_expiry(uint32 timer_id)
-{
-    LTE_fdd_enb_mac *mac = LTE_fdd_enb_mac::get_instance();
-
-    mac->sched_ul(user, avail_qos[qos].ul_bytes_per_subfn*8);
-    if(LTE_FDD_ENB_RRC_PROC_IDLE  != rrc_procedure &&
-       LTE_FDD_ENB_RRC_STATE_IDLE != rrc_state)
-    {
-        start_ul_sched_timer(ul_sched_timer_m_seconds);
-    }
-}
 void LTE_fdd_enb_rb::set_last_tti(uint32 last_tti)
 {
     mac_last_tti = last_tti;
@@ -959,34 +978,4 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_rb::delete_next_msg(boost::mutex             
     }
 
     return(err);
-}
-void LTE_fdd_enb_rb::set_qos(LTE_FDD_ENB_QOS_ENUM _qos)
-{
-    qos = _qos;
-    if(qos != LTE_FDD_ENB_QOS_NONE)
-    {
-        start_ul_sched_timer(avail_qos[qos].ul_tti_frequency-1);
-    }else{
-        stop_ul_sched_timer();
-    }
-}
-LTE_FDD_ENB_QOS_ENUM LTE_fdd_enb_rb::get_qos(void)
-{
-    return(qos);
-}
-uint32 LTE_fdd_enb_rb::get_qos_ul_tti_freq(void)
-{
-    return(avail_qos[qos].ul_tti_frequency);
-}
-uint32 LTE_fdd_enb_rb::get_qos_dl_tti_freq(void)
-{
-    return(avail_qos[qos].dl_tti_frequency);
-}
-uint32 LTE_fdd_enb_rb::get_qos_ul_bytes_per_subfn(void)
-{
-    return(avail_qos[qos].ul_bytes_per_subfn);
-}
-uint32 LTE_fdd_enb_rb::get_qos_dl_bytes_per_subfn(void)
-{
-    return(avail_qos[qos].dl_bytes_per_subfn);
 }

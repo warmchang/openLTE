@@ -45,6 +45,7 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue, added IP pcap
                                    support, and added UTC time to the log port.
     03/11/2015    Ben Wojtowicz    Made a common routine for formatting time.
+    07/25/2015    Ben Wojtowicz    Added config file support for TX/RX gains.
 
 *******************************************************************************/
 
@@ -166,6 +167,8 @@ LTE_fdd_enb_interface::LTE_fdd_enb_interface()
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_DNS_ADDR]]           = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_HEX, LTE_FDD_ENB_PARAM_DNS_ADDR, 0, 0, 0, 0, true, false, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_USE_CNFG_FILE]]      = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_USE_CNFG_FILE, 0, 0, 0, 1, false, true, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_USE_USER_FILE]]      = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_USE_USER_FILE, 0, 0, 0, 1, false, true, false};
+    var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_TX_GAIN]]            = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_TX_GAIN, 0, 0, 0, 100, false, true, false};
+    var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_RX_GAIN]]            = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_RX_GAIN, 0, 0, 0, 100, false, true, false};
 
     debug_type_mask = 0;
     for(i=0; i<LTE_FDD_ENB_DEBUG_TYPE_N_ITEMS; i++)
@@ -868,10 +871,6 @@ void LTE_fdd_enb_interface::handle_read(std::string msg)
                 send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, selected_radio.name);
             }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SELECTED_RADIO_IDX])){
                 send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(radio->get_selected_radio_idx()));
-            }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_TX_GAIN])){
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(radio->get_tx_gain()));
-            }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_RX_GAIN])){
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(radio->get_rx_gain()));
             }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_CLOCK_SOURCE])){
                 send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, radio->get_clock_source());
             }else{
@@ -954,12 +953,6 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_interface::handle_write(std::string msg)
             {
                 u_value = boost::lexical_cast<uint32>(msg.substr(msg.find(" ")+1, std::string::npos));
                 err = radio->set_selected_radio_idx(u_value);
-            }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_TX_GAIN])){
-                u_value = boost::lexical_cast<uint32>(msg.substr(msg.find(" ")+1, std::string::npos));
-                err = radio->set_tx_gain(u_value);
-            }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_RX_GAIN])){
-                u_value = boost::lexical_cast<uint32>(msg.substr(msg.find(" ")+1, std::string::npos));
-                err = radio->set_rx_gain(u_value);
             }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_CLOCK_SOURCE])){
                 err = radio->set_clock_source(msg.substr(msg.find(" ")+1, std::string::npos));
             }else{
@@ -1220,26 +1213,6 @@ void LTE_fdd_enb_interface::handle_help(void)
     try
     {
         tmp_str += boost::lexical_cast<std::string>(radio->get_selected_radio_idx());
-    }catch(...){
-        // Intentionally do nothing
-    }
-    send_ctrl_msg(tmp_str);
-    tmp_str  = "\t\t";
-    tmp_str += LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_TX_GAIN];
-    tmp_str += " = ";
-    try
-    {
-        tmp_str += boost::lexical_cast<std::string>(radio->get_tx_gain());
-    }catch(...){
-        // Intentionally do nothing
-    }
-    send_ctrl_msg(tmp_str);
-    tmp_str  = "\t\t";
-    tmp_str += LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_RX_GAIN];
-    tmp_str += " = ";
-    try
-    {
-        tmp_str += boost::lexical_cast<std::string>(radio->get_rx_gain());
     }catch(...){
         // Intentionally do nothing
     }

@@ -38,6 +38,8 @@
                                    and circular buffers and added a timer tick
                                    message.
     03/15/2015    Ben Wojtowicz    Added a mutex to the circular buffer.
+    07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
+                                   a single PHY schedule message.
 
 *******************************************************************************/
 
@@ -75,8 +77,7 @@ typedef enum{
     LTE_FDD_ENB_MESSAGE_TYPE_KILL = 0,
 
     // MAC -> PHY Messages
-    LTE_FDD_ENB_MESSAGE_TYPE_DL_SCHEDULE,
-    LTE_FDD_ENB_MESSAGE_TYPE_UL_SCHEDULE,
+    LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE,
 
     // PHY -> MAC Messages
     LTE_FDD_ENB_MESSAGE_TYPE_READY_TO_SEND,
@@ -122,8 +123,7 @@ typedef enum{
     LTE_FDD_ENB_MESSAGE_TYPE_N_ITEMS,
 }LTE_FDD_ENB_MESSAGE_TYPE_ENUM;
 static const char LTE_fdd_enb_message_type_text[LTE_FDD_ENB_MESSAGE_TYPE_N_ITEMS][100] = {"Kill",
-                                                                                          "DL schedule",
-                                                                                          "UL schedule",
+                                                                                          "PHY schedule",
                                                                                           "Ready to send",
                                                                                           "PRACH decode",
                                                                                           "PUCCH decode",
@@ -181,6 +181,10 @@ typedef struct{
     uint32                  current_tti;
     uint8                   next_prb;
 }LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT;
+typedef struct{
+    LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT dl_sched;
+    LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT ul_sched;
+}LTE_FDD_ENB_PHY_SCHEDULE_MSG_STRUCT;
 
 // PHY -> MAC Messages
 typedef struct{
@@ -298,8 +302,7 @@ typedef union{
     // Generic Messages
 
     // MAC -> PHY Messages
-    LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT dl_schedule;
-    LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT ul_schedule;
+    LTE_FDD_ENB_PHY_SCHEDULE_MSG_STRUCT phy_schedule;
 
     // PHY -> MAC Messages
     LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT ready_to_send;
@@ -386,6 +389,9 @@ public:
               LTE_FDD_ENB_DEST_LAYER_ENUM    dest_layer,
               LTE_FDD_ENB_MESSAGE_UNION     *msg_content,
               uint32                         msg_content_size);
+    void send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM       type,
+              LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT *dl_sched,
+              LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT *ul_sched);
     void send(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
 
 private:

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,8 @@
     06/15/2014    Ben Wojtowicz    Changed fn_combo to current_tti.
     07/22/2014    Ben Wojtowicz    Added clock source as a configurable
                                    parameter.
+    07/25/2015    Ben Wojtowicz    Added parameters to abstract PHY sample rate
+                                   from radio sample rate.
 
 *******************************************************************************/
 
@@ -72,7 +74,9 @@ typedef struct{
 typedef struct{
     float  i_buf[4][LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
     float  q_buf[4][LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
+    uint32 N_samps_per_ant;
     uint16 current_tti;
+    uint8  N_ant;
 }LTE_FDD_ENB_RADIO_TX_BUF_STRUCT;
 
 typedef struct{
@@ -108,7 +112,8 @@ public:
     LTE_FDD_ENB_ERROR_ENUM set_rx_gain(uint32 gain);
     std::string get_clock_source(void);
     LTE_FDD_ENB_ERROR_ENUM set_clock_source(std::string source);
-    uint32 get_sample_rate(void);
+    uint32 get_phy_sample_rate(void);
+    uint32 get_radio_sample_rate(void);
     void set_earfcns(int64 dl_earfcn, int64 ul_earfcn);
     void send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf);
 

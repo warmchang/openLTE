@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2014 Ben Wojtowicz
+    Copyright 2012-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,8 @@
     08/03/2014    Ben Wojtowicz    Commonized value_2_bits and bits_2_value.
     11/29/2014    Ben Wojtowicz    Added liblte prefix to value_2_bits and
                                    bits_2_value.
+    07/14/2015    Ben Wojtowicz    Added an error code for DCIs with invalid
+                                   contents.
 
 *******************************************************************************/
 
@@ -59,6 +61,7 @@ typedef enum{
     LIBLTE_ERROR_INVALID_INPUTS,
     LIBLTE_ERROR_DECODE_FAIL,
     LIBLTE_ERROR_INVALID_CRC,
+    LIBLTE_ERROR_INVALID_CONTENTS,
 }LIBLTE_ERROR_ENUM;
 
 typedef struct{

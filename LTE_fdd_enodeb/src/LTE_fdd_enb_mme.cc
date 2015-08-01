@@ -42,6 +42,8 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue, added more debug
                                    log points, and using the fixed user switch.
     03/11/2015    Ben Wojtowicz    Added detach handling.
+    07/25/2015    Ben Wojtowicz    Using the latest liblte and changed the
+                                   dedicated bearer QoS to 9.
 
 *******************************************************************************/
 
@@ -1376,7 +1378,6 @@ void LTE_fdd_enb_mme::send_attach_accept(LTE_fdd_enb_user *user,
                                       user->get_auth_vec()->k_nas_int,
                                       user->get_auth_vec()->nas_count_dl,
                                       LIBLTE_SECURITY_DIRECTION_DOWNLINK,
-                                      rb->get_rb_id()-1,
                                       &msg);
     user->increment_nas_count_dl();
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
@@ -1531,14 +1532,12 @@ void LTE_fdd_enb_mme::send_detach_accept(LTE_fdd_enb_user *user,
                                           user->get_auth_vec()->k_nas_int,
                                           user->get_auth_vec()->nas_count_dl,
                                           LIBLTE_SECURITY_DIRECTION_DOWNLINK,
-                                          rb->get_rb_id()-1,
                                           &msg);
         user->increment_nas_count_dl();
     }else{
         liblte_mme_pack_detach_accept_msg(&detach_accept,
                                           LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS,
                                           NULL,
-                                          0,
                                           0,
                                           0,
                                           &msg);
@@ -1596,7 +1595,6 @@ void LTE_fdd_enb_mme::send_emm_information(LTE_fdd_enb_user *user,
                                         user->get_auth_vec()->k_nas_int,
                                         user->get_auth_vec()->nas_count_dl,
                                         LIBLTE_SECURITY_DIRECTION_DOWNLINK,
-                                        rb->get_rb_id()-1,
                                         &msg);
     user->increment_nas_count_dl();
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
@@ -1696,7 +1694,6 @@ void LTE_fdd_enb_mme::send_security_mode_command(LTE_fdd_enb_user *user,
                                               user->get_auth_vec()->k_nas_int,
                                               user->get_auth_vec()->nas_count_dl,
                                               LIBLTE_SECURITY_DIRECTION_DOWNLINK,
-                                              rb->get_rb_id()-1,
                                               &msg);
     user->increment_nas_count_dl();
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
@@ -1733,7 +1730,6 @@ void LTE_fdd_enb_mme::send_service_reject(LTE_fdd_enb_user *user,
     liblte_mme_pack_service_reject_msg(&service_rej,
                                        LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS,
                                        NULL,
-                                       0,
                                        0,
                                        0,
                                        &msg);
@@ -1773,17 +1769,9 @@ void LTE_fdd_enb_mme::send_activate_dedicated_eps_bearer_context_request(LTE_fdd
     }
     act_ded_eps_bearer_context_req.proc_transaction_id                       = 0;
     act_ded_eps_bearer_context_req.linked_eps_bearer_id                      = user->get_eps_bearer_id();
-    act_ded_eps_bearer_context_req.eps_qos.qci                               = 4;
-    act_ded_eps_bearer_context_req.eps_qos.mbr_ul                            = 0x68;
-    act_ded_eps_bearer_context_req.eps_qos.mbr_dl                            = 0x68;
-    act_ded_eps_bearer_context_req.eps_qos.gbr_ul                            = 0x48;
-    act_ded_eps_bearer_context_req.eps_qos.gbr_dl                            = 0x48;
-    act_ded_eps_bearer_context_req.eps_qos.br_present                        = true;
-    act_ded_eps_bearer_context_req.eps_qos.mbr_ul_ext                        = 0x00;
-    act_ded_eps_bearer_context_req.eps_qos.mbr_dl_ext                        = 0x00;
-    act_ded_eps_bearer_context_req.eps_qos.br_ext_present                    = true;
-    act_ded_eps_bearer_context_req.eps_qos.gbr_ul_ext                        = 0x00;
-    act_ded_eps_bearer_context_req.eps_qos.gbr_dl_ext                        = 0x00;
+    act_ded_eps_bearer_context_req.eps_qos.qci                               = 9;
+    act_ded_eps_bearer_context_req.eps_qos.br_present                        = false;
+    act_ded_eps_bearer_context_req.eps_qos.br_ext_present                    = false;
     act_ded_eps_bearer_context_req.tft.tft_op_code                           = LIBLTE_MME_TFT_OPERATION_CODE_CREATE_NEW_TFT;
     act_ded_eps_bearer_context_req.tft.parameter_list_size                   = 0;
     act_ded_eps_bearer_context_req.tft.packet_filter_list_size               = 3;
@@ -1812,7 +1800,6 @@ void LTE_fdd_enb_mme::send_activate_dedicated_eps_bearer_context_request(LTE_fdd
                                                user->get_auth_vec()->k_nas_int,
                                                user->get_auth_vec()->nas_count_dl,
                                                LIBLTE_SECURITY_DIRECTION_DOWNLINK,
-                                               rb->get_rb_id()-1,
                                                &sec_msg);
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -1857,7 +1844,6 @@ void LTE_fdd_enb_mme::send_esm_information_request(LTE_fdd_enb_user *user,
                                                user->get_auth_vec()->k_nas_int,
                                                user->get_auth_vec()->nas_count_dl,
                                                LIBLTE_SECURITY_DIRECTION_DOWNLINK,
-                                               rb->get_rb_id()-1,
                                                &sec_msg);
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MME,

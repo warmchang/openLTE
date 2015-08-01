@@ -49,6 +49,9 @@
                                    C-RNTI release, changed RTS timing, and
                                    added DL QoS TTI frequency.
     03/15/2015    Ben Wojtowicz    Fixed RTS issues.
+    07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
+                                   a single PHY schedule message and using a
+                                   local copy of LIBLTE_MAC_PDU_STRUCT.
 
 *******************************************************************************/
 
@@ -324,14 +327,9 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
 
     if(rts->late)
     {
-        msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_DL_SCHEDULE,
-                          LTE_FDD_ENB_DEST_LAYER_PHY,
-                          (LTE_FDD_ENB_MESSAGE_UNION *)&sched_dl_subfr[sched_cur_dl_subfn],
-                          sizeof(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT));
-        msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_UL_SCHEDULE,
-                          LTE_FDD_ENB_DEST_LAYER_PHY,
-                          (LTE_FDD_ENB_MESSAGE_UNION *)&sched_ul_subfr[sched_cur_ul_subfn],
-                          sizeof(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT));
+        msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE,
+                          &sched_dl_subfr[sched_cur_dl_subfn],
+                          &sched_ul_subfr[sched_cur_ul_subfn]);
 
         for(i=0; i<2; i++)
         {
@@ -356,14 +354,9 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
         }
     }else if(rts->dl_current_tti == sched_dl_subfr[sched_cur_dl_subfn].current_tti &&
              rts->ul_current_tti == sched_ul_subfr[sched_cur_ul_subfn].current_tti){
-        msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_DL_SCHEDULE,
-                          LTE_FDD_ENB_DEST_LAYER_PHY,
-                          (LTE_FDD_ENB_MESSAGE_UNION *)&sched_dl_subfr[sched_cur_dl_subfn],
-                          sizeof(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT));
-        msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_UL_SCHEDULE,
-                          LTE_FDD_ENB_DEST_LAYER_PHY,
-                          (LTE_FDD_ENB_MESSAGE_UNION *)&sched_ul_subfr[sched_cur_ul_subfn],
-                          sizeof(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT));
+        msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE,
+                          &sched_dl_subfr[sched_cur_dl_subfn],
+                          &sched_ul_subfr[sched_cur_ul_subfn]);
 
         // Advance the frame number combination
         sched_dl_subfr[sched_cur_dl_subfn].current_tti = (sched_dl_subfr[sched_cur_dl_subfn].current_tti + 10) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
@@ -409,9 +402,10 @@ void LTE_fdd_enb_mac::handle_pucch_decode(LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT *p
 }
 void LTE_fdd_enb_mac::handle_pusch_decode(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT *pusch_decode)
 {
-    LTE_fdd_enb_user_mgr *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
-    LTE_fdd_enb_user     *user     = NULL;
-    uint32                i;
+    LTE_fdd_enb_user_mgr  *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_user      *user     = NULL;
+    LIBLTE_MAC_PDU_STRUCT  mac_pdu;
+    uint32                 i;
 
     // Find the user
     if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(pusch_decode->rnti, &user))
@@ -434,32 +428,32 @@ void LTE_fdd_enb_mac::handle_pusch_decode(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT *p
                                      pusch_decode->msg.N_bits);
 
         // Set the correct channel type
-        user->pusch_mac_pdu.chan_type = LIBLTE_MAC_CHAN_TYPE_ULSCH;
+        mac_pdu.chan_type = LIBLTE_MAC_CHAN_TYPE_ULSCH;
 
         // Unpack MAC PDU
         liblte_mac_unpack_mac_pdu(&pusch_decode->msg,
-                                  &user->pusch_mac_pdu);
+                                  &mac_pdu);
 
-        for(i=0; i<user->pusch_mac_pdu.N_subheaders; i++)
+        for(i=0; i<mac_pdu.N_subheaders; i++)
         {
-            if(LIBLTE_MAC_ULSCH_CCCH_LCID == user->pusch_mac_pdu.subheader[i].lcid)
+            if(LIBLTE_MAC_ULSCH_CCCH_LCID == mac_pdu.subheader[i].lcid)
             {
-                handle_ulsch_ccch_sdu(user, user->pusch_mac_pdu.subheader[i].lcid, &user->pusch_mac_pdu.subheader[i].payload.sdu);
-            }else if(LIBLTE_MAC_ULSCH_DCCH_LCID_BEGIN <= user->pusch_mac_pdu.subheader[i].lcid &&
-                     LIBLTE_MAC_ULSCH_DCCH_LCID_END   >= user->pusch_mac_pdu.subheader[i].lcid){
-                handle_ulsch_dcch_sdu(user, user->pusch_mac_pdu.subheader[i].lcid, &user->pusch_mac_pdu.subheader[i].payload.sdu);
-            }else if(LIBLTE_MAC_ULSCH_EXT_POWER_HEADROOM_REPORT_LCID == user->pusch_mac_pdu.subheader[i].lcid){
-                handle_ulsch_ext_power_headroom_report(user, &user->pusch_mac_pdu.subheader[i].payload.ext_power_headroom);
-            }else if(LIBLTE_MAC_ULSCH_POWER_HEADROOM_REPORT_LCID == user->pusch_mac_pdu.subheader[i].lcid){
-                handle_ulsch_power_headroom_report(user, &user->pusch_mac_pdu.subheader[i].payload.power_headroom);
-            }else if(LIBLTE_MAC_ULSCH_C_RNTI_LCID == user->pusch_mac_pdu.subheader[i].lcid){
-                handle_ulsch_c_rnti(&user, &user->pusch_mac_pdu.subheader[i].payload.c_rnti);
-            }else if(LIBLTE_MAC_ULSCH_TRUNCATED_BSR_LCID == user->pusch_mac_pdu.subheader[i].lcid){
-                handle_ulsch_truncated_bsr(user, &user->pusch_mac_pdu.subheader[i].payload.truncated_bsr);
-            }else if(LIBLTE_MAC_ULSCH_SHORT_BSR_LCID == user->pusch_mac_pdu.subheader[i].lcid){
-                handle_ulsch_short_bsr(user, &user->pusch_mac_pdu.subheader[i].payload.short_bsr);
-            }else if(LIBLTE_MAC_ULSCH_LONG_BSR_LCID == user->pusch_mac_pdu.subheader[i].lcid){
-                handle_ulsch_long_bsr(user, &user->pusch_mac_pdu.subheader[i].payload.long_bsr);
+                handle_ulsch_ccch_sdu(user, mac_pdu.subheader[i].lcid, &mac_pdu.subheader[i].payload.sdu);
+            }else if(LIBLTE_MAC_ULSCH_DCCH_LCID_BEGIN <= mac_pdu.subheader[i].lcid &&
+                     LIBLTE_MAC_ULSCH_DCCH_LCID_END   >= mac_pdu.subheader[i].lcid){
+                handle_ulsch_dcch_sdu(user, mac_pdu.subheader[i].lcid, &mac_pdu.subheader[i].payload.sdu);
+            }else if(LIBLTE_MAC_ULSCH_EXT_POWER_HEADROOM_REPORT_LCID == mac_pdu.subheader[i].lcid){
+                handle_ulsch_ext_power_headroom_report(user, &mac_pdu.subheader[i].payload.ext_power_headroom);
+            }else if(LIBLTE_MAC_ULSCH_POWER_HEADROOM_REPORT_LCID == mac_pdu.subheader[i].lcid){
+                handle_ulsch_power_headroom_report(user, &mac_pdu.subheader[i].payload.power_headroom);
+            }else if(LIBLTE_MAC_ULSCH_C_RNTI_LCID == mac_pdu.subheader[i].lcid){
+                handle_ulsch_c_rnti(&user, &mac_pdu.subheader[i].payload.c_rnti);
+            }else if(LIBLTE_MAC_ULSCH_TRUNCATED_BSR_LCID == mac_pdu.subheader[i].lcid){
+                handle_ulsch_truncated_bsr(user, &mac_pdu.subheader[i].payload.truncated_bsr);
+            }else if(LIBLTE_MAC_ULSCH_SHORT_BSR_LCID == mac_pdu.subheader[i].lcid){
+                handle_ulsch_short_bsr(user, &mac_pdu.subheader[i].payload.short_bsr);
+            }else if(LIBLTE_MAC_ULSCH_LONG_BSR_LCID == mac_pdu.subheader[i].lcid){
+                handle_ulsch_long_bsr(user, &mac_pdu.subheader[i].payload.long_bsr);
             }
         }
     }else{
@@ -484,7 +478,7 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
     LIBLTE_BYTE_MSG_STRUCT       *sdu;
     uint32                        current_tti;
     uint32                        last_tti = sdu_ready->rb->get_last_tti();
-    uint32                        tti_freq = sdu_ready->rb->get_qos_dl_tti_freq();
+    uint32                        tti_freq = sdu_ready->user->get_qos_dl_tti_freq();
 
     if(LTE_FDD_ENB_ERROR_NONE == sdu_ready->rb->get_next_mac_sdu(&sdu))
     {

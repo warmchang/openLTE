@@ -49,6 +49,10 @@
     11/29/2014    Ben Wojtowicz    Fixed a bug in RRC connection reestablishment
                                    UE identity.
     03/11/2015    Ben Wojtowicz    Converting to/from actual hysteresis value.
+    07/25/2015    Ben Wojtowicz    Fixed a bug with the default value of
+                                   filter_coeff in
+                                   LIBLTE_RRC_UL_POWER_CONTROL_DEDICATED_STRUCT.
+                                   Thanks to Paul Sutton for finding this.
 
 *******************************************************************************/
 
@@ -3827,6 +3831,7 @@ typedef struct{
     int32                              p0_ue_pusch;
     int32                              p0_ue_pucch;
     bool                               accumulation_en;
+    bool                               filter_coeff_present;
 }LIBLTE_RRC_UL_POWER_CONTROL_DEDICATED_STRUCT;
 typedef struct{
     LIBLTE_RRC_TPC_INDEX_ENUM tpc_idx_choice;

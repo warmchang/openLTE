@@ -31,6 +31,8 @@
     06/15/2014    Ben Wojtowicz    Changed fn_combo to current_tti.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
+    07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
+                                   a single PHY schedule message.
 
 *******************************************************************************/
 
@@ -106,8 +108,7 @@ private:
     LIBLTE_PHY_STRUCT *phy_struct;
 
     // Downlink
-    void handle_dl_schedule(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT *dl_sched);
-    void handle_ul_schedule(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT *ul_sched);
+    void handle_phy_schedule(LTE_FDD_ENB_PHY_SCHEDULE_MSG_STRUCT *phy_sched);
     void process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf);
     boost::mutex                       sys_info_mutex;
     boost::mutex                       dl_sched_mutex;

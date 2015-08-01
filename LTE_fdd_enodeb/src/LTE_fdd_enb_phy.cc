@@ -42,6 +42,9 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue and changed the
                                    RTS timing.
     03/11/2015    Ben Wojtowicz    Changed the RTS timing.
+    07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
+                                   a single PHY schedule message and using the
+                                   new radio interface.
 
 *******************************************************************************/
 
@@ -133,7 +136,7 @@ void LTE_fdd_enb_phy::start(LTE_fdd_enb_msgq      *from_mac,
         update_sys_info();
 
         // Initialize phy
-        samp_rate = radio->get_sample_rate();
+        samp_rate = radio->get_phy_sample_rate();
         if(30720000 == samp_rate)
         {
             fs = LIBLTE_PHY_FS_30_72MHZ;
@@ -342,11 +345,8 @@ void LTE_fdd_enb_phy::handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
     {
         switch(msg.type)
         {
-        case LTE_FDD_ENB_MESSAGE_TYPE_DL_SCHEDULE:
-            handle_dl_schedule(&msg.msg.dl_schedule);
-            break;
-        case LTE_FDD_ENB_MESSAGE_TYPE_UL_SCHEDULE:
-            handle_ul_schedule(&msg.msg.ul_schedule);
+        case LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE:
+            handle_phy_schedule(&msg.msg.phy_schedule);
             break;
         default:
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_WARNING,
@@ -391,74 +391,70 @@ void LTE_fdd_enb_phy::radio_interface(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
 /******************/
 /*    Downlink    */
 /******************/
-void LTE_fdd_enb_phy::handle_dl_schedule(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT *dl_sched)
+void LTE_fdd_enb_phy::handle_phy_schedule(LTE_FDD_ENB_PHY_SCHEDULE_MSG_STRUCT *phy_sched)
 {
-    boost::mutex::scoped_lock lock(dl_sched_mutex);
+    boost::mutex::scoped_lock d_lock(dl_sched_mutex);
+    boost::mutex::scoped_lock u_lock(ul_sched_mutex);
 
-    if(dl_sched->current_tti                    < dl_current_tti &&
-       (dl_current_tti - dl_sched->current_tti) < (LTE_FDD_ENB_CURRENT_TTI_MAX/2))
+    if(phy_sched->dl_sched.current_tti                    < dl_current_tti &&
+       (dl_current_tti - phy_sched->dl_sched.current_tti) < (LTE_FDD_ENB_CURRENT_TTI_MAX/2))
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_PHY,
                                   __FILE__,
                                   __LINE__,
                                   "Late DL subframe from MAC:%u, PHY is currently on %u",
-                                  dl_sched->current_tti,
+                                  phy_sched->dl_sched.current_tti,
                                   dl_current_tti);
 
         late_subfr = true;
-        if(dl_sched->current_tti == last_rts_current_tti)
+        if(phy_sched->dl_sched.current_tti == last_rts_current_tti)
         {
             late_subfr = false;
         }
     }else{
-        if(dl_sched->dl_allocations.N_alloc ||
-           dl_sched->ul_allocations.N_alloc)
+        if(phy_sched->dl_sched.dl_allocations.N_alloc ||
+           phy_sched->dl_sched.ul_allocations.N_alloc)
         {
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                       LTE_FDD_ENB_DEBUG_LEVEL_PHY,
                                       __FILE__,
                                       __LINE__,
                                       "Received PDSCH schedule from MAC CURRENT_TTI:MAC=%u,PHY=%u N_dl_allocs=%u N_ul_allocs=%u",
-                                      dl_sched->current_tti,
+                                      phy_sched->dl_sched.current_tti,
                                       dl_current_tti,
-                                      dl_sched->dl_allocations.N_alloc,
-                                      dl_sched->ul_allocations.N_alloc);
+                                      phy_sched->dl_sched.dl_allocations.N_alloc,
+                                      phy_sched->dl_sched.ul_allocations.N_alloc);
         }
 
-        memcpy(&dl_schedule[dl_sched->current_tti%10], dl_sched, sizeof(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT));
+        memcpy(&dl_schedule[phy_sched->dl_sched.current_tti%10], &phy_sched->dl_sched, sizeof(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT));
 
         late_subfr = false;
     }
-}
-void LTE_fdd_enb_phy::handle_ul_schedule(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT *ul_sched)
-{
-    boost::mutex::scoped_lock lock(ul_sched_mutex);
-
-    if(ul_sched->current_tti                    < ul_current_tti &&
-       (ul_current_tti - ul_sched->current_tti) < (LTE_FDD_ENB_CURRENT_TTI_MAX/2))
+    if(phy_sched->ul_sched.current_tti                    < ul_current_tti &&
+       (ul_current_tti - phy_sched->ul_sched.current_tti) < (LTE_FDD_ENB_CURRENT_TTI_MAX/2))
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_PHY,
                                   __FILE__,
                                   __LINE__,
                                   "Late UL subframe from MAC:%u, PHY is currently on %u",
-                                  ul_sched->current_tti,
+                                  phy_sched->ul_sched.current_tti,
                                   ul_current_tti);
     }else{
-        if(ul_sched->decodes.N_alloc)
+        if(phy_sched->ul_sched.decodes.N_alloc)
         {
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                       LTE_FDD_ENB_DEBUG_LEVEL_PHY,
                                       __FILE__,
                                       __LINE__,
                                       "Received PUSCH schedule from MAC CURRENT_TTI:MAC=%u,PHY=%u N_ul_decodes=%u",
-                                      ul_sched->current_tti,
+                                      phy_sched->ul_sched.current_tti,
                                       ul_current_tti,
-                                      ul_sched->decodes.N_alloc);
+                                      phy_sched->ul_sched.decodes.N_alloc);
         }
 
-        memcpy(&ul_schedule[ul_sched->current_tti%10], ul_sched, sizeof(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT));
+        memcpy(&ul_schedule[phy_sched->ul_sched.current_tti%10], &phy_sched->ul_sched, sizeof(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT));
     }
 }
 void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
@@ -702,7 +698,9 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
                                       &tx_buf->i_buf[p][0],
                                       &tx_buf->q_buf[p][0]);
     }
-    tx_buf->current_tti = dl_current_tti;
+    tx_buf->N_samps_per_ant = phy_struct->N_samps_per_subfr;
+    tx_buf->current_tti     = dl_current_tti;
+    tx_buf->N_ant           = sys_info.N_ant;
 
     // Update current TTI
     dl_current_tti = (dl_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);

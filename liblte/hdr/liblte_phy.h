@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2014 Ben Wojtowicz
+    Copyright 2012-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -60,6 +60,8 @@
                                    in each slot.
     05/04/2014    Ben Wojtowicz    Added PHICH and TPC support.
     06/15/2014    Ben Wojtowicz    Added TPC values for DCI 0, 3, and 4.
+    07/14/2015    Ben Wojtowicz    Added a constant definition of Fs as an
+                                   integer.
 
 *******************************************************************************/
 
@@ -165,6 +167,7 @@ typedef enum{
     LIBLTE_PHY_FS_N_ITEMS,
 }LIBLTE_PHY_FS_ENUM;
 static const char liblte_phy_fs_text[LIBLTE_PHY_FS_N_ITEMS][20] = {"1.92", "3.84", "7.68", "15.36", "30.72"};
+static const uint32 liblte_phy_fs_num[LIBLTE_PHY_FS_N_ITEMS] = {1920000, 3840000, 7680000, 15360000, 30720000};
 
 typedef enum{
     LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY = 0,

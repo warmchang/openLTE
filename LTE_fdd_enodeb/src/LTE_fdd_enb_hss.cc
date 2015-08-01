@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_hss.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,8 @@
     11/01/2014    Ben Wojtowicz    Added user file support.
     11/29/2014    Ben Wojtowicz    Added support for regenerating eNodeB
                                    security data.
+    07/25/2015    Ben Wojtowicz    Moved away from using boost::lexical_cast
+                                   in del_user.
 
 *******************************************************************************/
 
@@ -43,6 +45,7 @@
 #include "LTE_fdd_enb_cnfg_db.h"
 #include "liblte_security.h"
 #include <boost/lexical_cast.hpp>
+#include <iomanip>
 
 /*******************************************************************************
                               DEFINES
@@ -191,12 +194,22 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::del_user(std::string imsi)
 {
     boost::mutex::scoped_lock                           lock(user_mutex);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_HSS_USER_STRUCT                        *user = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                              err  = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
+    LTE_FDD_ENB_HSS_USER_STRUCT                        *user     = NULL;
+    LTE_FDD_ENB_ERROR_ENUM                              err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
+    const char                                         *imsi_str = imsi.c_str();
+    uint64                                              imsi_num;
+    uint32                                              i;
+
+    imsi_num = 0;
+    for(i=0; i<15; i++)
+    {
+        imsi_num *= 10;
+        imsi_num += imsi_str[i] - '0';
+    }
 
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
-        if(imsi == boost::lexical_cast<std::string>((*iter)->id.imsi))
+        if(imsi_num == (*iter)->id.imsi)
         {
             user = (*iter);
             user_list.erase(iter);
@@ -219,6 +232,7 @@ std::string LTE_fdd_enb_hss::print_all_users(void)
     boost::mutex::scoped_lock                          lock(user_mutex);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
     std::string                                        output;
+    std::stringstream                                  tmp_ss;
     uint32                                             i;
     uint32                                             hex_val;
 
@@ -226,8 +240,11 @@ std::string LTE_fdd_enb_hss::print_all_users(void)
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
         output += "\n";
-        output += "imsi=" + boost::lexical_cast<std::string>((*iter)->id.imsi);
-        output += " imei=" + boost::lexical_cast<std::string>((*iter)->id.imei);
+        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->id.imsi;
+        output += "imsi=" + tmp_ss.str();
+        tmp_ss.seekp(0);
+        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->id.imei;
+        output += " imei=" + tmp_ss.str();
         output += " k=";
         for(i=0; i<16; i++)
         {

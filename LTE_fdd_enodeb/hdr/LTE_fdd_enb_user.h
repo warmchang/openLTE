@@ -35,6 +35,9 @@
                                    timer support.
     12/16/2014    Ben Wojtowicz    Changed the delayed delete functionality.
     02/15/2015    Ben Wojtowicz    Added clear_rbs and fixed copy_rbs.
+    07/25/2015    Ben Wojtowicz    Moved the QoS structure from the RB class to
+                                   the user class and got rid of the cached
+                                   copy of pusch_mac_pdu;
 
 *******************************************************************************/
 
@@ -83,6 +86,24 @@ typedef struct{
     uint8  k_rrc_enc[32];
     uint8  k_rrc_int[32];
 }LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT;
+
+typedef enum{
+    LTE_FDD_ENB_QOS_NONE = 0,
+    LTE_FDD_ENB_QOS_SIGNALLING,
+    LTE_FDD_ENB_QOS_DEFAULT_DATA,
+    LTE_FDD_ENB_QOS_N_ITEMS,
+}LTE_FDD_ENB_QOS_ENUM;
+static const char LTE_fdd_enb_qos_text[LTE_FDD_ENB_QOS_N_ITEMS][20] = {"None",
+                                                                       "Signalling",
+                                                                       "Default Data"};
+
+typedef struct{
+    LTE_FDD_ENB_QOS_ENUM qos;
+    uint32               ul_tti_frequency;
+    uint32               dl_tti_frequency;
+    uint32               ul_bytes_per_subfn;
+    uint32               dl_bytes_per_subfn;
+}LTE_FDD_ENB_QOS_STRUCT;
 
 /*******************************************************************************
                               CLASS DECLARATIONS
@@ -176,11 +197,18 @@ public:
     void flip_dl_ndi(void);
     bool get_ul_ndi(void);
     void flip_ul_ndi(void);
-    LIBLTE_MAC_PDU_STRUCT pusch_mac_pdu;
+    void start_ul_sched_timer(uint32 m_seconds);
+    void stop_ul_sched_timer(void);
 
     // Generic
     void set_N_del_ticks(uint32 N_ticks);
     uint32 get_N_del_ticks(void);
+    void set_qos(LTE_FDD_ENB_QOS_ENUM _qos);
+    LTE_FDD_ENB_QOS_ENUM get_qos(void);
+    uint32 get_qos_ul_tti_freq(void);
+    uint32 get_qos_dl_tti_freq(void);
+    uint32 get_qos_ul_bytes_per_subfn(void);
+    uint32 get_qos_dl_bytes_per_subfn(void);
 
 private:
     // Identity
@@ -225,12 +253,16 @@ private:
     bool                                      eit_flag;
 
     // MAC
-    bool dl_ndi;
-    bool ul_ndi;
+    uint32 ul_sched_timer_m_seconds;
+    uint32 ul_sched_timer_id;
+    bool   dl_ndi;
+    bool   ul_ndi;
 
     // Generic
     void handle_timer_expiry(uint32 timer_id);
-    uint32 N_del_ticks;
+    LTE_FDD_ENB_QOS_STRUCT avail_qos[LTE_FDD_ENB_QOS_N_ITEMS];
+    LTE_FDD_ENB_QOS_ENUM   qos;
+    uint32                 N_del_ticks;
 };
 
 #endif /* __LTE_FDD_ENB_USER_H__ */

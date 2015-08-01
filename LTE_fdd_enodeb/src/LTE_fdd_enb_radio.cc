@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_radio.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -42,6 +42,8 @@
     12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
                                    USRP X300 support.
     12/24/2014    Ben Wojtowicz    Added more time spec information in debug.
+    07/25/2015    Ben Wojtowicz    Added parameters to abstract PHY sample rate
+                                   from radio sample rate.
 
 *******************************************************************************/
 
@@ -115,7 +117,7 @@ LTE_fdd_enb_radio::LTE_fdd_enb_radio()
     get_available_radios();
 
     // Setup radio thread
-    get_sample_rate();
+    get_radio_sample_rate();
     N_tx_samps   = 0;
     N_rx_samps   = 0;
     tx_gain      = 0;
@@ -184,8 +186,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start(void)
                 }
                 if(master_clock_set)
                 {
-                    usrp->set_tx_rate(get_sample_rate());
-                    usrp->set_rx_rate(get_sample_rate());
+                    usrp->set_tx_rate(get_radio_sample_rate());
+                    usrp->set_rx_rate(get_radio_sample_rate());
                     usrp->set_tx_freq((double)liblte_interface_dl_earfcn_to_frequency(dl_earfcn));
                     usrp->set_rx_freq((double)liblte_interface_ul_earfcn_to_frequency(ul_earfcn));
                     usrp->set_tx_gain(tx_gain);
@@ -427,11 +429,10 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_clock_source(std::string source)
 
     return(err);
 }
-uint32 LTE_fdd_enb_radio::get_sample_rate(void)
+uint32 LTE_fdd_enb_radio::get_phy_sample_rate(void)
 {
-    boost::mutex::scoped_lock  lock(start_mutex);
-    LTE_fdd_enb_cnfg_db       *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-    int64                      dl_bw;
+    LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    int64                dl_bw;
 
     if(!started)
     {
@@ -463,6 +464,17 @@ uint32 LTE_fdd_enb_radio::get_sample_rate(void)
             N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_1_92MHZ;
             break;
         }
+    }
+
+    return(fs);
+}
+uint32 LTE_fdd_enb_radio::get_radio_sample_rate(void)
+{
+    boost::mutex::scoped_lock lock(start_mutex);
+
+    if(!started)
+    {
+        fs = get_phy_sample_rate();
     }
 
     return(fs);

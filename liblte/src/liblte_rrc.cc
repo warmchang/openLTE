@@ -53,6 +53,10 @@
     11/29/2014    Ben Wojtowicz    Fixed a bug in RRC connection reestablishment
                                    UE identity.
     03/11/2015    Ben Wojtowicz    Converting to/from actual hysteresis value.
+    07/25/2015    Ben Wojtowicz    Fixed a bug with the default value of
+                                   filter_coeff in
+                                   LIBLTE_RRC_UL_POWER_CONTROL_DEDICATED_STRUCT.
+                                   Thanks to Paul Sutton for finding this.
 
 *******************************************************************************/
 
@@ -8190,6 +8194,9 @@ LIBLTE_ERROR_ENUM liblte_rrc_pack_ul_power_control_dedicated_ie(LIBLTE_RRC_UL_PO
     if(ul_pwr_ctrl != NULL &&
        ie_ptr      != NULL)
     {
+        // Default indicators
+        liblte_value_2_bits(ul_pwr_ctrl->filter_coeff_present, ie_ptr, 1);
+
         // P0 UE PUSCH
         liblte_value_2_bits(ul_pwr_ctrl->p0_ue_pusch + 8, ie_ptr, 4);
 
@@ -8206,7 +8213,10 @@ LIBLTE_ERROR_ENUM liblte_rrc_pack_ul_power_control_dedicated_ie(LIBLTE_RRC_UL_PO
         liblte_value_2_bits(ul_pwr_ctrl->p_srs_offset, ie_ptr, 4);
 
         // Filter Coefficient
-        liblte_rrc_pack_filter_coefficient_ie(ul_pwr_ctrl->filter_coeff, ie_ptr);
+        if(ul_pwr_ctrl->filter_coeff_present)
+        {
+            liblte_rrc_pack_filter_coefficient_ie(ul_pwr_ctrl->filter_coeff, ie_ptr);
+        }
 
         err = LIBLTE_SUCCESS;
     }
@@ -8221,6 +8231,9 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ul_power_control_dedicated_ie(uint8         
     if(ie_ptr      != NULL &&
        ul_pwr_ctrl != NULL)
     {
+        // Default indicators
+        ul_pwr_ctrl->filter_coeff_present = liblte_bits_2_value(ie_ptr, 1);
+
         // P0 UE PUSCH
         ul_pwr_ctrl->p0_ue_pusch = liblte_bits_2_value(ie_ptr, 4) - 8;
 
@@ -8237,7 +8250,10 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ul_power_control_dedicated_ie(uint8         
         ul_pwr_ctrl->p_srs_offset = liblte_bits_2_value(ie_ptr, 4);
 
         // Filter Coefficient
-        liblte_rrc_unpack_filter_coefficient_ie(ie_ptr, &ul_pwr_ctrl->filter_coeff);
+        if(ul_pwr_ctrl->filter_coeff_present)
+        {
+            liblte_rrc_unpack_filter_coefficient_ie(ie_ptr, &ul_pwr_ctrl->filter_coeff);
+        }
 
         err = LIBLTE_SUCCESS;
     }

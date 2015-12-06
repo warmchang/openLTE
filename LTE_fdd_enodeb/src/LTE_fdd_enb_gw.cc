@@ -29,6 +29,8 @@
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     03/11/2015    Ben Wojtowicz    Closing TUN device on stop.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t.
 
 *******************************************************************************/
 
@@ -39,6 +41,7 @@
 #include "LTE_fdd_enb_gw.h"
 #include "LTE_fdd_enb_user_mgr.h"
 #include "LTE_fdd_enb_cnfg_db.h"
+#include "libtools_scoped_lock.h"
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <linux/ip.h>
@@ -46,6 +49,7 @@
 #include <linux/if_tun.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <errno.h>
 
 /*******************************************************************************
                               DEFINES
@@ -61,8 +65,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_gw* LTE_fdd_enb_gw::instance = NULL;
-boost::mutex    gw_instance_mutex;
+LTE_fdd_enb_gw*        LTE_fdd_enb_gw::instance = NULL;
+static pthread_mutex_t gw_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -73,7 +77,7 @@ boost::mutex    gw_instance_mutex;
 /*******************/
 LTE_fdd_enb_gw* LTE_fdd_enb_gw::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(gw_instance_mutex);
+    libtools_scoped_lock lock(gw_instance_mutex);
 
     if(NULL == instance)
     {
@@ -84,7 +88,7 @@ LTE_fdd_enb_gw* LTE_fdd_enb_gw::get_instance(void)
 }
 void LTE_fdd_enb_gw::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(gw_instance_mutex);
+    libtools_scoped_lock lock(gw_instance_mutex);
 
     if(NULL != instance)
     {
@@ -98,11 +102,13 @@ void LTE_fdd_enb_gw::cleanup(void)
 /********************************/
 LTE_fdd_enb_gw::LTE_fdd_enb_gw()
 {
+    sem_init(&start_sem, 0, 1);
     started = false;
 }
 LTE_fdd_enb_gw::~LTE_fdd_enb_gw()
 {
     stop();
+    sem_destroy(&start_sem);
 }
 
 /********************/
@@ -110,7 +116,7 @@ LTE_fdd_enb_gw::~LTE_fdd_enb_gw()
 /********************/
 bool LTE_fdd_enb_gw::is_started(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_sem);
 
     return(started);
 }
@@ -119,13 +125,13 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_gw::start(LTE_fdd_enb_msgq      *from_pdcp,
                                              char                  *err_str,
                                              LTE_fdd_enb_interface *iface)
 {
-    boost::mutex::scoped_lock  lock(start_mutex);
-    LTE_fdd_enb_cnfg_db       *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-    LTE_fdd_enb_msgq_cb        pdcp_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_gw, &LTE_fdd_enb_gw::handle_pdcp_msg>, this);
-    struct ifreq               ifr;
-    int32                      sock;
-    char                       dev[IFNAMSIZ] = "tun_openlte";
-    uint32                     ip_addr;
+    libtools_scoped_lock  lock(start_sem);
+    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    LTE_fdd_enb_msgq_cb   pdcp_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_gw, &LTE_fdd_enb_gw::handle_pdcp_msg>, this);
+    struct ifreq          ifr;
+    int32                 sock;
+    char                  dev[IFNAMSIZ] = "tun_openlte";
+    uint32                ip_addr;
 
     if(!started)
     {
@@ -204,16 +210,17 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_gw::start(LTE_fdd_enb_msgq      *from_pdcp,
 }
 void LTE_fdd_enb_gw::stop(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
-
+    sem_wait(&start_sem);
     if(started)
     {
         started = false;
-        start_mutex.unlock();
+        sem_post(&start_sem);
         pthread_cancel(rx_thread);
         pthread_join(rx_thread, NULL);
 
         close(tun_fd);
+    }else{
+        sem_post(&start_sem);
     }
 }
 

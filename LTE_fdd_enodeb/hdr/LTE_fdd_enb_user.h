@@ -37,7 +37,9 @@
     02/15/2015    Ben Wojtowicz    Added clear_rbs and fixed copy_rbs.
     07/25/2015    Ben Wojtowicz    Moved the QoS structure from the RB class to
                                    the user class and got rid of the cached
-                                   copy of pusch_mac_pdu;
+                                   copy of pusch_mac_pdu.
+    12/06/2015    Ben Wojtowicz    Changed the deletion and C-RNTI release
+                                   procedures.
 
 *******************************************************************************/
 
@@ -135,10 +137,10 @@ public:
     void set_c_rnti(uint16 _c_rnti);
     uint16 get_c_rnti(void);
     bool is_c_rnti_set(void);
-    void start_c_rnti_release_timer(void);
     void set_ip_addr(uint32 addr);
     uint32 get_ip_addr(void);
     bool is_ip_addr_set(void);
+    void prepare_for_deletion(void);
 
     // Security
     void set_auth_vec(LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT *av);
@@ -216,7 +218,6 @@ private:
     LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT guti;
     uint64                               temp_id;
     uint32                               c_rnti;
-    uint32                               c_rnti_timer_id;
     uint32                               ip_addr;
     bool                                 id_set;
     bool                                 guti_set;

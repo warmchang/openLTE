@@ -32,6 +32,7 @@
                                    parameter.
     07/25/2015    Ben Wojtowicz    Added parameters to abstract PHY sample rate
                                    from radio sample rate.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -46,7 +47,6 @@
 #include "liblte_phy.h"
 #include <gnuradio/gr_complex.h>
 #include <uhd/usrp/multi_usrp.hpp>
-#include <boost/thread/mutex.hpp>
 
 /*******************************************************************************
                               DEFINES
@@ -124,8 +124,8 @@ private:
     ~LTE_fdd_enb_radio();
 
     // Start/Stop
-    boost::mutex start_mutex;
-    bool         started;
+    sem_t start_sem;
+    bool  started;
 
     // Radios
     uhd::usrp::multi_usrp::sptr         usrp;

@@ -52,6 +52,12 @@
     07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
                                    a single PHY schedule message and using a
                                    local copy of LIBLTE_MAC_PDU_STRUCT.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t, added and used some helper functions,
+                                   fixed an issue with RTS response on late
+                                   subframes, and properly initialize allocation
+                                   structure (thanks to Markus Grab for finding
+                                   this).
 
 *******************************************************************************/
 
@@ -63,6 +69,7 @@
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "LTE_fdd_enb_mac.h"
 #include "LTE_fdd_enb_phy.h"
+#include "libtools_scoped_lock.h"
 
 /*******************************************************************************
                               DEFINES
@@ -78,8 +85,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_mac* LTE_fdd_enb_mac::instance = NULL;
-boost::mutex     mac_instance_mutex;
+LTE_fdd_enb_mac*       LTE_fdd_enb_mac::instance = NULL;
+static pthread_mutex_t mac_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -90,7 +97,7 @@ boost::mutex     mac_instance_mutex;
 /*******************/
 LTE_fdd_enb_mac* LTE_fdd_enb_mac::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(mac_instance_mutex);
+    libtools_scoped_lock lock(mac_instance_mutex);
 
     if(NULL == instance)
     {
@@ -101,7 +108,7 @@ LTE_fdd_enb_mac* LTE_fdd_enb_mac::get_instance(void)
 }
 void LTE_fdd_enb_mac::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(mac_instance_mutex);
+    libtools_scoped_lock lock(mac_instance_mutex);
 
     if(NULL != instance)
     {
@@ -115,12 +122,22 @@ void LTE_fdd_enb_mac::cleanup(void)
 /********************************/
 LTE_fdd_enb_mac::LTE_fdd_enb_mac()
 {
+    sem_init(&start_sem, 0, 1);
+    sem_init(&rar_sched_queue_sem, 0, 1);
+    sem_init(&dl_sched_queue_sem, 0, 1);
+    sem_init(&ul_sched_queue_sem, 0, 1);
+    sem_init(&sys_info_sem, 0, 1);
     interface = NULL;
     started   = false;
 }
 LTE_fdd_enb_mac::~LTE_fdd_enb_mac()
 {
     stop();
+    sem_destroy(&sys_info_sem);
+    sem_destroy(&ul_sched_queue_sem);
+    sem_destroy(&dl_sched_queue_sem);
+    sem_destroy(&rar_sched_queue_sem);
+    sem_destroy(&start_sem);
 }
 
 /********************/
@@ -133,11 +150,11 @@ void LTE_fdd_enb_mac::start(LTE_fdd_enb_msgq      *from_phy,
                             LTE_fdd_enb_msgq      *to_timer,
                             LTE_fdd_enb_interface *iface)
 {
-    boost::mutex::scoped_lock  lock(start_mutex);
-    LTE_fdd_enb_msgq_cb        phy_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mac, &LTE_fdd_enb_mac::handle_phy_msg>, this);
-    LTE_fdd_enb_msgq_cb        rlc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mac, &LTE_fdd_enb_mac::handle_rlc_msg>, this);
-    LTE_fdd_enb_cnfg_db       *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-    uint32                     i;
+    libtools_scoped_lock  lock(start_sem);
+    LTE_fdd_enb_msgq_cb   phy_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mac, &LTE_fdd_enb_mac::handle_phy_msg>, this);
+    LTE_fdd_enb_msgq_cb   rlc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mac, &LTE_fdd_enb_mac::handle_rlc_msg>, this);
+    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    uint32                i;
 
     if(!started)
     {
@@ -176,7 +193,7 @@ void LTE_fdd_enb_mac::start(LTE_fdd_enb_msgq      *from_phy,
 }
 void LTE_fdd_enb_mac::stop(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_sem);
 
     if(started)
     {
@@ -250,11 +267,10 @@ void LTE_fdd_enb_mac::handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 /****************************/
 void LTE_fdd_enb_mac::update_sys_info(void)
 {
-    LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    libtools_scoped_lock  lock(sys_info_sem);
+    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
 
-    sys_info_mutex.lock();
     cnfg_db->get_sys_info(sys_info);
-    sys_info_mutex.unlock();
 }
 void LTE_fdd_enb_mac::sched_ul(LTE_fdd_enb_user *user,
                                uint32            requested_tbs)
@@ -272,13 +288,13 @@ void LTE_fdd_enb_mac::sched_ul(LTE_fdd_enb_user *user,
     alloc.tpc            = LIBLTE_PHY_TPC_COMMAND_DCI_0_3_4_DB_NEG_1;
     alloc.ndi            = user->get_ul_ndi();
     user->flip_ul_ndi();
-    sys_info_mutex.lock();
+    sem_wait(&sys_info_sem);
     liblte_phy_get_tbs_mcs_and_n_prb_for_ul(requested_tbs,
                                             sys_info.N_rb_ul,
                                             &alloc.tbs,
                                             &alloc.mcs,
                                             &alloc.N_prb);
-    sys_info_mutex.unlock();
+    sem_post(&sys_info_sem);
     if(11 > alloc.mcs)
     {
         alloc.mod_type = LIBLTE_PHY_MODULATION_TYPE_QPSK;
@@ -289,7 +305,7 @@ void LTE_fdd_enb_mac::sched_ul(LTE_fdd_enb_user *user,
     }
 
     // Add the allocation to the scheduling queue
-    if(LTE_FDD_ENB_ERROR_NONE != add_to_ul_sched_queue((sched_ul_subfr[sched_cur_ul_subfn].current_tti + 4) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1),
+    if(LTE_FDD_ENB_ERROR_NONE != add_to_ul_sched_queue(add_to_tti(sched_ul_subfr[sched_cur_ul_subfn].current_tti, 4),
                                                        &alloc))
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -327,18 +343,18 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
 
     if(rts->late)
     {
-        msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE,
-                          &sched_dl_subfr[sched_cur_dl_subfn],
-                          &sched_ul_subfr[sched_cur_ul_subfn]);
-
         for(i=0; i<2; i++)
         {
+            msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE,
+                              &sched_dl_subfr[sched_cur_dl_subfn],
+                              &sched_ul_subfr[sched_cur_ul_subfn]);
+
             // Advance the frame number combination
-            sched_dl_subfr[sched_cur_dl_subfn].current_tti = (sched_dl_subfr[sched_cur_dl_subfn].current_tti + 10) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-            sched_ul_subfr[sched_cur_ul_subfn].current_tti = (sched_ul_subfr[sched_cur_ul_subfn].current_tti + 10) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+            sched_dl_subfr[sched_cur_dl_subfn].current_tti = add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti, 10);
+            sched_ul_subfr[sched_cur_ul_subfn].current_tti = add_to_tti(sched_ul_subfr[sched_cur_ul_subfn].current_tti, 10);
 
             // Clear the subframes
-            sys_info_mutex.lock();
+            sem_wait(&sys_info_sem);
             sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc = 0;
             sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc = 0;
             sched_dl_subfr[sched_cur_dl_subfn].N_avail_prbs           = sys_info.N_rb_dl - get_n_reserved_prbs(sched_dl_subfr[sched_cur_dl_subfn].current_tti);
@@ -346,7 +362,7 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
             sched_ul_subfr[sched_cur_ul_subfn].decodes.N_alloc        = 0;
             sched_ul_subfr[sched_cur_ul_subfn].N_sched_prbs           = 0;
             sched_ul_subfr[sched_cur_ul_subfn].next_prb               = 0;
-            sys_info_mutex.unlock();
+            sem_post(&sys_info_sem);
 
             // Advance the subframe numbers
             sched_cur_dl_subfn = (sched_cur_dl_subfn + 1) % 10;
@@ -359,11 +375,11 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
                           &sched_ul_subfr[sched_cur_ul_subfn]);
 
         // Advance the frame number combination
-        sched_dl_subfr[sched_cur_dl_subfn].current_tti = (sched_dl_subfr[sched_cur_dl_subfn].current_tti + 10) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-        sched_ul_subfr[sched_cur_ul_subfn].current_tti = (sched_ul_subfr[sched_cur_ul_subfn].current_tti + 10) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+        sched_dl_subfr[sched_cur_dl_subfn].current_tti = add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti, 10);
+        sched_ul_subfr[sched_cur_ul_subfn].current_tti = add_to_tti(sched_ul_subfr[sched_cur_ul_subfn].current_tti, 10);
 
         // Clear the subframes
-        sys_info_mutex.lock();
+        sem_wait(&sys_info_sem);
         sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc = 0;
         sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc = 0;
         sched_dl_subfr[sched_cur_dl_subfn].N_avail_prbs           = sys_info.N_rb_dl - get_n_reserved_prbs(sched_dl_subfr[sched_cur_dl_subfn].current_tti);
@@ -371,7 +387,7 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
         sched_ul_subfr[sched_cur_ul_subfn].decodes.N_alloc        = 0;
         sched_ul_subfr[sched_cur_ul_subfn].N_sched_prbs           = 0;
         sched_ul_subfr[sched_cur_ul_subfn].next_prb               = 0;
-        sys_info_mutex.unlock();
+        sem_post(&sys_info_sem);
 
         // Advance the subframe numbers
         sched_cur_dl_subfn = (sched_cur_dl_subfn + 1) % 10;
@@ -474,7 +490,7 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
 {
     LTE_fdd_enb_user             *user;
     LIBLTE_MAC_PDU_STRUCT         mac_pdu;
-    LIBLTE_PHY_ALLOCATION_STRUCT  alloc;
+    LIBLTE_PHY_ALLOCATION_STRUCT  alloc = {0};
     LIBLTE_BYTE_MSG_STRUCT       *sdu;
     uint32                        current_tti;
     uint32                        last_tti = sdu_ready->rb->get_last_tti();
@@ -499,14 +515,14 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
         alloc.chan_type      = LIBLTE_PHY_CHAN_TYPE_DLSCH;
         alloc.rv_idx         = 0;
         alloc.N_codewords    = 1;
-        sys_info_mutex.lock();
+        sem_wait(&sys_info_sem);
         if(1 == sys_info.N_ant)
         {
             alloc.tx_mode = 1;
         }else{
             alloc.tx_mode = 2;
         }
-        sys_info_mutex.unlock();
+        sem_post(&sys_info_sem);
         alloc.rnti = user->get_c_rnti();
         alloc.tpc  = LIBLTE_PHY_TPC_COMMAND_DCI_1_1A_1B_1D_2_3_DB_ZERO;
         alloc.ndi  = user->get_dl_ndi();
@@ -529,11 +545,11 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
         }
 
         // Determine the current_tti
-        current_tti = (sched_dl_subfr[sched_cur_dl_subfn].current_tti + 4) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-        if(0xFFFFFFFF            != last_tti &&
-           (last_tti + tti_freq)  > current_tti)
+        current_tti = add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti, 4);
+        if(0xFFFFFFFF != last_tti &&
+           is_tti_in_future(add_to_tti(last_tti, tti_freq), current_tti))
         {
-            current_tti = (last_tti + tti_freq) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+            current_tti = add_to_tti(last_tti, tti_freq);
         }
         sdu_ready->rb->set_last_tti(current_tti);
 
@@ -805,13 +821,13 @@ void LTE_fdd_enb_mac::construct_random_access_response(uint8  preamble,
         ul_alloc.N_layers       = 1;
         ul_alloc.tx_mode        = 1; // From 36.213 v10.3.0 section 7.1
         ul_alloc.rnti           = rar.temp_c_rnti;
-        sys_info_mutex.lock();
+        sem_wait(&sys_info_sem);
         liblte_phy_get_tbs_mcs_and_n_prb_for_ul(56,
                                                 sys_info.N_rb_ul,
                                                 &ul_alloc.tbs,
                                                 &ul_alloc.mcs,
                                                 &ul_alloc.N_prb);
-        sys_info_mutex.unlock();
+        sem_post(&sys_info_sem);
 
         // Fill in the RAR
         rar.hdr_type       = LIBLTE_MAC_RAR_HEADER_TYPE_RAPID;
@@ -860,7 +876,7 @@ void LTE_fdd_enb_mac::construct_random_access_response(uint8  preamble,
 /*******************/
 void LTE_fdd_enb_mac::scheduler(void)
 {
-    boost::mutex::scoped_lock           lock(sys_info_mutex);
+    libtools_scoped_lock                lock(sys_info_sem);
     LTE_fdd_enb_phy                    *phy = LTE_fdd_enb_phy::get_instance();
     LTE_FDD_ENB_RAR_SCHED_QUEUE_STRUCT *rar_sched;
     LTE_FDD_ENB_DL_SCHED_QUEUE_STRUCT  *dl_sched;
@@ -882,7 +898,7 @@ void LTE_fdd_enb_mac::scheduler(void)
     N_cce = phy->get_n_cce();
 
     // Schedule RAR for the next subframe
-    rar_sched_queue_mutex.lock();
+    sem_wait(&rar_sched_queue_sem);
     sched_out_of_headroom = false;
     while(0     != rar_sched_queue.size() &&
           false == sched_out_of_headroom)
@@ -890,10 +906,11 @@ void LTE_fdd_enb_mac::scheduler(void)
         rar_sched = rar_sched_queue.front();
 
         // Determine when the response window starts
-        resp_win_start = (rar_sched->current_tti + 3) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+        resp_win_start = add_to_tti(rar_sched->current_tti, 3);
 
         // Determine when the response window stops
-        resp_win_stop = (resp_win_start + liblte_rrc_ra_response_window_size_num[sys_info.sib2.rr_config_common_sib.rach_cnfg.ra_resp_win_size]) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+        resp_win_stop = add_to_tti(resp_win_start,
+                                   liblte_rrc_ra_response_window_size_num[sys_info.sib2.rr_config_common_sib.rach_cnfg.ra_resp_win_size]);
 
         // Take into account the SFN wrap
         // FIXME: Test this
@@ -1009,10 +1026,10 @@ void LTE_fdd_enb_mac::scheduler(void)
             break;
         }
     }
-    rar_sched_queue_mutex.unlock();
+    sem_post(&rar_sched_queue_sem);
 
     // Schedule DL for the next subframe
-    dl_sched_queue_mutex.lock();
+    sem_wait(&dl_sched_queue_sem);
     sched_out_of_headroom = false;
     while(0     != dl_sched_queue.size() &&
           false == sched_out_of_headroom)
@@ -1128,10 +1145,10 @@ void LTE_fdd_enb_mac::scheduler(void)
             sched_out_of_headroom = true;
         }
     }
-    dl_sched_queue_mutex.unlock();
+    sem_post(&dl_sched_queue_sem);
 
     // Schedule UL for the next subframe
-    ul_sched_queue_mutex.lock();
+    sem_wait(&ul_sched_queue_sem);
     sched_out_of_headroom = false;
     while(0     != ul_sched_queue.size() &&
           false == sched_out_of_headroom)
@@ -1182,7 +1199,7 @@ void LTE_fdd_enb_mac::scheduler(void)
             sched_out_of_headroom = true;
         }
     }
-    ul_sched_queue_mutex.unlock();
+    sem_post(&ul_sched_queue_sem);
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_mac::add_to_rar_sched_queue(uint32                        current_tti,
                                                                LIBLTE_PHY_ALLOCATION_STRUCT *dl_alloc,
@@ -1201,9 +1218,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_mac::add_to_rar_sched_queue(uint32           
         memcpy(&rar_sched->ul_alloc, ul_alloc, sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
         memcpy(&rar_sched->rar, rar, sizeof(LIBLTE_MAC_RAR_STRUCT));
 
-        rar_sched_queue_mutex.lock();
+        sem_wait(&rar_sched_queue_sem);
         rar_sched_queue.push_back(rar_sched);
-        rar_sched_queue_mutex.unlock();
+        sem_post(&rar_sched_queue_sem);
 
         err = LTE_FDD_ENB_ERROR_NONE;
     }
@@ -1226,17 +1243,17 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_mac::add_to_dl_sched_queue(uint32            
         memcpy(&dl_sched->mac_pdu, mac_pdu, sizeof(LIBLTE_MAC_PDU_STRUCT));
         memcpy(&dl_sched->alloc, alloc, sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
 
-        dl_sched_queue_mutex.lock();
+        sem_wait(&dl_sched_queue_sem);
         for(iter=dl_sched_queue.begin(); iter!=dl_sched_queue.end(); iter++)
         {
             if((*iter)->alloc.rnti  == alloc->rnti &&
                (*iter)->current_tti == dl_sched->current_tti)
             {
-                dl_sched->current_tti = (dl_sched->current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+                dl_sched->current_tti = add_to_tti(dl_sched->current_tti, 1);
             }
         }
         dl_sched_queue.push_back(dl_sched);
-        dl_sched_queue_mutex.unlock();
+        sem_post(&dl_sched_queue_sem);
 
         err = LTE_FDD_ENB_ERROR_NONE;
     }
@@ -1257,17 +1274,17 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_mac::add_to_ul_sched_queue(uint32            
         ul_sched->current_tti = current_tti;
         memcpy(&ul_sched->alloc, alloc, sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
 
-        ul_sched_queue_mutex.lock();
+        sem_wait(&ul_sched_queue_sem);
         for(iter=ul_sched_queue.begin(); iter!=ul_sched_queue.end(); iter++)
         {
             if((*iter)->alloc.rnti  == alloc->rnti &&
                (*iter)->current_tti == ul_sched->current_tti)
             {
-                ul_sched->current_tti = (ul_sched->current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+                ul_sched->current_tti = add_to_tti(ul_sched->current_tti, 1);
             }
         }
         ul_sched_queue.push_back(ul_sched);
-        ul_sched_queue_mutex.unlock();
+        sem_post(&ul_sched_queue_sem);
 
         err = LTE_FDD_ENB_ERROR_NONE;
     }
@@ -1308,4 +1325,23 @@ uint32 LTE_fdd_enb_mac::get_n_reserved_prbs(uint32 current_tti)
     }
 
     return(N_reserved_prbs);
+}
+uint32 LTE_fdd_enb_mac::add_to_tti(uint32 tti,
+                                   uint32 addition)
+{
+    return((tti + addition) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1));
+}
+bool LTE_fdd_enb_mac::is_tti_in_future(uint32 tti_to_check,
+                                       uint32 current_tti)
+{
+    uint32 max_future_tti = add_to_tti(current_tti, 100);
+    bool   tti_in_future  = false;
+
+    if(tti_to_check > current_tti &&
+       tti_to_check < max_future_tti)
+    {
+        tti_in_future = true;
+    }
+
+    return(tti_in_future);
 }

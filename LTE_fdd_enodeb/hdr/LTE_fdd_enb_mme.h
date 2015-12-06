@@ -39,6 +39,7 @@
                                    sending of EMM information message.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     03/11/2015    Ben Wojtowicz    Added detach handling.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -52,7 +53,6 @@
 #include "LTE_fdd_enb_cnfg_db.h"
 #include "LTE_fdd_enb_msgq.h"
 #include <boost/interprocess/ipc/message_queue.hpp>
-#include <boost/thread/mutex.hpp>
 
 /*******************************************************************************
                               DEFINES
@@ -95,7 +95,7 @@ private:
 
     // Start/Stop
     LTE_fdd_enb_interface *interface;
-    boost::mutex           start_mutex;
+    sem_t                  start_sem;
     bool                   started;
 
     // Communication
@@ -141,7 +141,7 @@ private:
     void send_rrc_command(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LTE_FDD_ENB_RRC_CMD_ENUM cmd);
 
     // Parameters
-    boost::mutex                sys_info_mutex;
+    sem_t                       sys_info_sem;
     LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
 
     // Helpers

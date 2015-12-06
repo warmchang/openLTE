@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -17,15 +17,14 @@
 
 *******************************************************************************
 
-    File: liblte_common.cc
+    File: libtools_scoped_lock.cc
 
-    Description: Contains all the implementations for the LTE common library.
+    Description: Contains all the implementations for the RAII class for sem_t
+                 and pthread_mutex_t.
 
     Revision History
     ----------    -------------    --------------------------------------------
-    08/03/2014    Ben Wojtowicz    Created file.
-    11/29/2014    Ben Wojtowicz    Added liblte prefix to value_2_bits and
-                                   bits_2_value.
+    12/05/2015    Ben Wojtowicz    Created file
 
 *******************************************************************************/
 
@@ -33,7 +32,7 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "liblte_common.h"
+#include "libtools_scoped_lock.h"
 
 /*******************************************************************************
                               DEFINES
@@ -51,43 +50,28 @@
 
 
 /*******************************************************************************
-                              FUNCTIONS
+                              CLASS IMPLEMENTATIONS
 *******************************************************************************/
 
-/*********************************************************************
-    Name: liblte_value_2_bits
-
-    Description: Converts a value to a bit string
-*********************************************************************/
-void liblte_value_2_bits(uint32   value,
-                         uint8  **bits,
-                         uint32   N_bits)
+// Constructor/Destructor
+libtools_scoped_lock::libtools_scoped_lock(sem_t &sem)
 {
-    uint32 i;
-
-    for(i=0; i<N_bits; i++)
-    {
-        (*bits)[i] = (value >> (N_bits-i-1)) & 0x1;
-    }
-    *bits += N_bits;
+    sem_ = &sem;
+    use_sem = true;
+    sem_wait(sem_);
 }
-
-/*********************************************************************
-    Name: liblte_bits_2_value
-
-    Description: Converts a bit string to a value
-*********************************************************************/
-uint32 liblte_bits_2_value(uint8  **bits,
-                           uint32   N_bits)
+libtools_scoped_lock::libtools_scoped_lock(pthread_mutex_t &mutex)
 {
-    uint32 value = 0;
-    uint32 i;
-
-    for(i=0; i<N_bits; i++)
+    mutex_ = &mutex;
+    use_sem = false;
+    pthread_mutex_lock(mutex_);
+}
+libtools_scoped_lock::~libtools_scoped_lock()
+{
+    if(use_sem)
     {
-        value |= (*bits)[i] << (N_bits-i-1);
+        sem_post(sem_);
+    }else{
+        pthread_mutex_unlock(mutex_);
     }
-    *bits += N_bits;
-
-    return(value);
 }

@@ -34,6 +34,8 @@
                                    security data.
     07/25/2015    Ben Wojtowicz    Moved away from using boost::lexical_cast
                                    in del_user.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t.
 
 *******************************************************************************/
 
@@ -44,6 +46,7 @@
 #include "LTE_fdd_enb_hss.h"
 #include "LTE_fdd_enb_cnfg_db.h"
 #include "liblte_security.h"
+#include "libtools_scoped_lock.h"
 #include <boost/lexical_cast.hpp>
 #include <iomanip>
 
@@ -61,8 +64,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_hss* LTE_fdd_enb_hss::instance = NULL;
-boost::mutex     hss_instance_mutex;
+LTE_fdd_enb_hss*       LTE_fdd_enb_hss::instance = NULL;
+static pthread_mutex_t hss_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -73,7 +76,7 @@ boost::mutex     hss_instance_mutex;
 /*******************/
 LTE_fdd_enb_hss* LTE_fdd_enb_hss::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(hss_instance_mutex);
+    libtools_scoped_lock lock(hss_instance_mutex);
 
     if(NULL == instance)
     {
@@ -84,7 +87,7 @@ LTE_fdd_enb_hss* LTE_fdd_enb_hss::get_instance(void)
 }
 void LTE_fdd_enb_hss::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(hss_instance_mutex);
+    libtools_scoped_lock lock(hss_instance_mutex);
 
     if(NULL != instance)
     {
@@ -98,11 +101,21 @@ void LTE_fdd_enb_hss::cleanup(void)
 /********************************/
 LTE_fdd_enb_hss::LTE_fdd_enb_hss()
 {
+    sem_init(&user_sem, 0, 1);
     user_list.clear();
     use_user_file = false;
 }
 LTE_fdd_enb_hss::~LTE_fdd_enb_hss()
 {
+    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
+
+    sem_wait(&user_sem);
+    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    {
+        delete (*iter);
+    }
+    sem_post(&user_sem);
+    sem_destroy(&user_sem);
 }
 
 /****************************/
@@ -164,7 +177,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
         new_user->generated_data.seq_he = 0;
         new_user->generated_data.ind_he = 0;
 
-        user_mutex.lock();
+        sem_wait(&user_sem);
         err = LTE_FDD_ENB_ERROR_NONE;
         for(iter=user_list.begin(); iter!=user_list.end(); iter++)
         {
@@ -180,7 +193,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
         }else{
             delete new_user;
         }
-        user_mutex.unlock();
+        sem_post(&user_sem);
 
         if(use_user_file)
         {
@@ -192,13 +205,13 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::del_user(std::string imsi)
 {
-    boost::mutex::scoped_lock                           lock(user_mutex);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
     LTE_FDD_ENB_HSS_USER_STRUCT                        *user     = NULL;
     LTE_FDD_ENB_ERROR_ENUM                              err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
     const char                                         *imsi_str = imsi.c_str();
     uint64                                              imsi_num;
     uint32                                              i;
+    bool                                                update_user_file = false;
 
     imsi_num = 0;
     for(i=0; i<15; i++)
@@ -207,6 +220,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::del_user(std::string imsi)
         imsi_num += imsi_str[i] - '0';
     }
 
+    sem_wait(&user_sem);
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
         if(imsi_num == (*iter)->id.imsi)
@@ -217,19 +231,22 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::del_user(std::string imsi)
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
         }
-        user_mutex.unlock();
 
-        if(use_user_file)
-        {
-            write_user_file();
-        }
+        update_user_file = true;
+    }
+    sem_post(&user_sem);
+
+    if(update_user_file &&
+       use_user_file)
+    {
+        write_user_file();
     }
 
     return(err);
 }
 std::string LTE_fdd_enb_hss::print_all_users(void)
 {
-    boost::mutex::scoped_lock                          lock(user_mutex);
+    libtools_scoped_lock                               lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
     std::string                                        output;
     std::stringstream                                  tmp_ss;
@@ -269,7 +286,7 @@ std::string LTE_fdd_enb_hss::print_all_users(void)
 }
 bool LTE_fdd_enb_hss::is_imsi_allowed(uint64 imsi)
 {
-    boost::mutex::scoped_lock                          lock(user_mutex);
+    libtools_scoped_lock                               lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
     bool                                               ret = false;
 
@@ -286,7 +303,7 @@ bool LTE_fdd_enb_hss::is_imsi_allowed(uint64 imsi)
 }
 bool LTE_fdd_enb_hss::is_imei_allowed(uint64 imei)
 {
-    boost::mutex::scoped_lock                          lock(user_mutex);
+    libtools_scoped_lock                               lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
     bool                                               ret = false;
 
@@ -303,7 +320,7 @@ bool LTE_fdd_enb_hss::is_imei_allowed(uint64 imei)
 }
 LTE_FDD_ENB_USER_ID_STRUCT* LTE_fdd_enb_hss::get_user_id_from_imsi(uint64 imsi)
 {
-    boost::mutex::scoped_lock                           lock(user_mutex);
+    libtools_scoped_lock                                lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
     LTE_FDD_ENB_USER_ID_STRUCT                         *id = NULL;
 
@@ -319,7 +336,7 @@ LTE_FDD_ENB_USER_ID_STRUCT* LTE_fdd_enb_hss::get_user_id_from_imsi(uint64 imsi)
 }
 LTE_FDD_ENB_USER_ID_STRUCT* LTE_fdd_enb_hss::get_user_id_from_imei(uint64 imei)
 {
-    boost::mutex::scoped_lock                           lock(user_mutex);
+    libtools_scoped_lock                                lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
     LTE_FDD_ENB_USER_ID_STRUCT                         *id = NULL;
 
@@ -337,7 +354,7 @@ void LTE_fdd_enb_hss::generate_security_data(LTE_FDD_ENB_USER_ID_STRUCT *id,
                                              uint16                      mcc,
                                              uint16                      mnc)
 {
-    boost::mutex::scoped_lock                          lock(user_mutex);
+    libtools_scoped_lock                               lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
     uint32                                             i;
     uint32                                             rand_val;
@@ -445,7 +462,7 @@ void LTE_fdd_enb_hss::security_resynch(LTE_FDD_ENB_USER_ID_STRUCT *id,
                                        uint16                      mnc,
                                        uint8                      *auts)
 {
-    boost::mutex::scoped_lock                          lock(user_mutex);
+    libtools_scoped_lock                               lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
     uint32                                             i;
     uint8                                              sqn[6];
@@ -479,7 +496,7 @@ void LTE_fdd_enb_hss::security_resynch(LTE_FDD_ENB_USER_ID_STRUCT *id,
 LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT* LTE_fdd_enb_hss::regenerate_enb_security_data(LTE_FDD_ENB_USER_ID_STRUCT *id,
                                                                                         uint32                      nas_count_ul)
 {
-    boost::mutex::scoped_lock                           lock(user_mutex);
+    libtools_scoped_lock                                lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
     LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT           *auth_vec = NULL;
 
@@ -517,7 +534,7 @@ LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT* LTE_fdd_enb_hss::regenerate_enb_securi
 }
 LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT* LTE_fdd_enb_hss::get_auth_vec(LTE_FDD_ENB_USER_ID_STRUCT *id)
 {
-    boost::mutex::scoped_lock                           lock(user_mutex);
+    libtools_scoped_lock                                lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
     LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT           *auth_vec = NULL;
 
@@ -574,7 +591,7 @@ void LTE_fdd_enb_hss::read_user_file(void)
 }
 void LTE_fdd_enb_hss::write_user_file(void)
 {
-    boost::mutex::scoped_lock                           lock(user_mutex);
+    libtools_scoped_lock                                lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
     FILE                                               *user_file = NULL;
     uint32                                              i;

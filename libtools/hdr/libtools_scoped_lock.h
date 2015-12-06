@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -17,26 +17,34 @@
 
 *******************************************************************************
 
-    File: liblte_common.cc
+    File: libtools_scoped_lock.h
 
-    Description: Contains all the implementations for the LTE common library.
+    Description: Contains all the definitions for the RAII class for sem_t and
+                 pthread_mutex_t.
 
     Revision History
     ----------    -------------    --------------------------------------------
-    08/03/2014    Ben Wojtowicz    Created file.
-    11/29/2014    Ben Wojtowicz    Added liblte prefix to value_2_bits and
-                                   bits_2_value.
+    12/05/2015    Ben Wojtowicz    Created file
 
 *******************************************************************************/
+
+#ifndef __LIBTOOLS_SCOPED_LOCK_H__
+#define __LIBTOOLS_SCOPED_LOCK_H__
 
 /*******************************************************************************
                               INCLUDES
 *******************************************************************************/
 
-#include "liblte_common.h"
+#include <semaphore.h>
+#include <pthread.h>
 
 /*******************************************************************************
                               DEFINES
+*******************************************************************************/
+
+
+/*******************************************************************************
+                              FORWARD DECLARATIONS
 *******************************************************************************/
 
 
@@ -46,48 +54,20 @@
 
 
 /*******************************************************************************
-                              GLOBAL VARIABLES
+                              CLASS DECLARATIONS
 *******************************************************************************/
 
-
-/*******************************************************************************
-                              FUNCTIONS
-*******************************************************************************/
-
-/*********************************************************************
-    Name: liblte_value_2_bits
-
-    Description: Converts a value to a bit string
-*********************************************************************/
-void liblte_value_2_bits(uint32   value,
-                         uint8  **bits,
-                         uint32   N_bits)
+class libtools_scoped_lock
 {
-    uint32 i;
+public:
+    libtools_scoped_lock(sem_t &sem);
+    libtools_scoped_lock(pthread_mutex_t &mutex);
+    ~libtools_scoped_lock();
 
-    for(i=0; i<N_bits; i++)
-    {
-        (*bits)[i] = (value >> (N_bits-i-1)) & 0x1;
-    }
-    *bits += N_bits;
-}
+private:
+    sem_t *sem_;
+    pthread_mutex_t *mutex_;
+    bool use_sem;
+};
 
-/*********************************************************************
-    Name: liblte_bits_2_value
-
-    Description: Converts a bit string to a value
-*********************************************************************/
-uint32 liblte_bits_2_value(uint8  **bits,
-                           uint32   N_bits)
-{
-    uint32 value = 0;
-    uint32 i;
-
-    for(i=0; i<N_bits; i++)
-    {
-        value |= (*bits)[i] << (N_bits-i-1);
-    }
-    *bits += N_bits;
-
-    return(value);
-}
+#endif /* __LIBTOOLS_SCOPED_LOCK_H__ */

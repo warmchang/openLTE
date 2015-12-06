@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (SIB13 printing)
 
     This program is free software: you can redistribute it and/or modify
@@ -30,6 +30,7 @@
     06/15/2014    Ben Wojtowicz    Added PCAP support.
     09/19/2014    Andrew Murphy    Added SIB13 printing.
     11/01/2014    Ben Wojtowicz    Using the latest LTE library.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
 
 *******************************************************************************/
 
@@ -40,6 +41,7 @@
 #include "LTE_fdd_dl_scan_interface.h"
 #include "LTE_fdd_dl_scan_flowgraph.h"
 #include "liblte_mcc_mnc_list.h"
+#include "libtools_scoped_lock.h"
 #include <assert.h>
 #include <string.h>
 #include <limits.h>
@@ -65,9 +67,9 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_dl_scan_interface* LTE_fdd_dl_scan_interface::instance = NULL;
-boost::mutex               interface_instance_mutex;
-boost::mutex               connect_mutex;
+LTE_fdd_dl_scan_interface* LTE_fdd_dl_scan_interface::instance       = NULL;
+static pthread_mutex_t     interface_instance_mutex                  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t     connect_mutex                             = PTHREAD_MUTEX_INITIALIZER;
 bool                       LTE_fdd_dl_scan_interface::ctrl_connected = false;
 
 /*******************************************************************************
@@ -77,7 +79,7 @@ bool                       LTE_fdd_dl_scan_interface::ctrl_connected = false;
 // Singleton
 LTE_fdd_dl_scan_interface* LTE_fdd_dl_scan_interface::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(interface_instance_mutex);
+    libtools_scoped_lock lock(interface_instance_mutex);
 
     if(NULL == instance)
     {
@@ -88,7 +90,7 @@ LTE_fdd_dl_scan_interface* LTE_fdd_dl_scan_interface::get_instance(void)
 }
 void LTE_fdd_dl_scan_interface::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(interface_instance_mutex);
+    libtools_scoped_lock lock(interface_instance_mutex);
 
     if(NULL != instance)
     {
@@ -103,11 +105,13 @@ LTE_fdd_dl_scan_interface::LTE_fdd_dl_scan_interface()
     uint32 i;
 
     // Communication
+    pthread_mutex_init(&ctrl_mutex, NULL);
     ctrl_socket    = NULL;
     ctrl_port      = LTE_FDD_DL_SCAN_DEFAULT_CTRL_PORT;
     ctrl_connected = false;
 
     // Variables
+    pthread_mutex_init(&dl_earfcn_list_mutex, NULL);
     band                = LIBLTE_INTERFACE_BAND_1;
     dl_earfcn_list_size = liblte_interface_last_dl_earfcn[band] - liblte_interface_first_dl_earfcn[band] + 1;
     dl_earfcn_list_idx  = 0;
@@ -127,12 +131,14 @@ LTE_fdd_dl_scan_interface::~LTE_fdd_dl_scan_interface()
     stop_ctrl_port();
 
     fclose(pcap_fd);
+    pthread_mutex_destroy(&dl_earfcn_list_mutex);
+    pthread_mutex_destroy(&ctrl_mutex);
 }
 
 // Communication
 void LTE_fdd_dl_scan_interface::set_ctrl_port(int16 port)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
+    libtools_scoped_lock lock(connect_mutex);
 
     if(!ctrl_connected)
     {
@@ -141,7 +147,7 @@ void LTE_fdd_dl_scan_interface::set_ctrl_port(int16 port)
 }
 void LTE_fdd_dl_scan_interface::start_ctrl_port(void)
 {
-    boost::mutex::scoped_lock       lock(ctrl_mutex);
+    libtools_scoped_lock            lock(ctrl_mutex);
     LIBTOOLS_SOCKET_WRAP_ERROR_ENUM error;
 
     if(NULL == ctrl_socket)
@@ -163,7 +169,7 @@ void LTE_fdd_dl_scan_interface::start_ctrl_port(void)
 }
 void LTE_fdd_dl_scan_interface::stop_ctrl_port(void)
 {
-    boost::mutex::scoped_lock lock(ctrl_mutex);
+    libtools_scoped_lock lock(ctrl_mutex);
 
     if(NULL != ctrl_socket)
     {
@@ -173,8 +179,8 @@ void LTE_fdd_dl_scan_interface::stop_ctrl_port(void)
 }
 void LTE_fdd_dl_scan_interface::send_ctrl_msg(std::string msg)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
 
     if(ctrl_connected)
     {
@@ -185,8 +191,8 @@ void LTE_fdd_dl_scan_interface::send_ctrl_msg(std::string msg)
 }
 void LTE_fdd_dl_scan_interface::send_ctrl_info_msg(std::string msg)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
 
     if(ctrl_connected)
     {
@@ -201,8 +207,8 @@ void LTE_fdd_dl_scan_interface::send_ctrl_channel_found_begin_msg(LTE_FDD_DL_SCA
                                                                   uint32                            sfn,
                                                                   uint8                             N_ant)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
 
     if(ctrl_connected)
     {
@@ -230,11 +236,11 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib1_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1_STRUCT *sib1,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    i;
-    uint32                    j;
-    uint16                    mnc;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               i;
+    uint32               j;
+    uint16               mnc;
 
     if(ctrl_connected)
     {
@@ -348,11 +354,11 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib2_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_2_STRUCT *sib2,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    coeff;
-    uint32                    T;
-    uint32                    i;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               coeff;
+    uint32               T;
+    uint32               i;
 
     if(ctrl_connected)
     {
@@ -724,8 +730,8 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib3_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_3_STRUCT *sib3,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
 
     if(ctrl_connected)
     {
@@ -792,9 +798,9 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib4_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_4_STRUCT *sib4,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    i;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               i;
 
     if(ctrl_connected)
     {
@@ -838,10 +844,10 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib5_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_5_STRUCT *sib5,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    i;
-    uint32                    j;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               i;
+    uint32               j;
 
     if(ctrl_connected)
     {
@@ -928,9 +934,9 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib6_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_6_STRUCT *sib6,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    i;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               i;
 
     if(ctrl_connected)
     {
@@ -999,10 +1005,10 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib7_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_7_STRUCT *sib7,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    i;
-    uint32                    j;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               i;
+    uint32               j;
 
     if(ctrl_connected)
     {
@@ -1074,11 +1080,11 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib8_decoded_msg(LTE_FDD_DL_SCAN_CHAN_
                                                            LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_8_STRUCT *sib8,
                                                            uint32                                   sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    i;
-    uint32                    j;
-    uint32                    k;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               i;
+    uint32               j;
+    uint32               k;
 
     if(ctrl_connected)
     {
@@ -1274,9 +1280,9 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib13_decoded_msg(LTE_FDD_DL_SCAN_CHAN
                                                             LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_13_STRUCT *sib13,
                                                             uint32                                    sfn)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
-    uint32                    i;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
+    uint32               i;
 
     if(ctrl_connected)
     {
@@ -1322,8 +1328,8 @@ void LTE_fdd_dl_scan_interface::send_ctrl_sib13_decoded_msg(LTE_FDD_DL_SCAN_CHAN
 }
 void LTE_fdd_dl_scan_interface::send_ctrl_channel_found_end_msg(LTE_FDD_DL_SCAN_CHAN_DATA_STRUCT *chan_data)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
 
     if(ctrl_connected)
     {
@@ -1343,8 +1349,8 @@ void LTE_fdd_dl_scan_interface::send_ctrl_channel_found_end_msg(LTE_FDD_DL_SCAN_
 }
 void LTE_fdd_dl_scan_interface::send_ctrl_channel_not_found_msg(void)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
 
     if(ctrl_connected)
     {
@@ -1363,8 +1369,8 @@ void LTE_fdd_dl_scan_interface::send_ctrl_channel_not_found_msg(void)
 void LTE_fdd_dl_scan_interface::send_ctrl_status_msg(LTE_FDD_DL_SCAN_STATUS_ENUM status,
                                                      std::string                 msg)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
-    std::string               tmp_msg;
+    libtools_scoped_lock lock(connect_mutex);
+    std::string          tmp_msg;
 
     if(ctrl_connected)
     {
@@ -1506,16 +1512,16 @@ void LTE_fdd_dl_scan_interface::handle_ctrl_connect(void)
 {
     LTE_fdd_dl_scan_interface *interface = LTE_fdd_dl_scan_interface::get_instance();
 
-    connect_mutex.lock();
+    pthread_mutex_lock(&connect_mutex);
     LTE_fdd_dl_scan_interface::ctrl_connected = true;
-    connect_mutex.unlock();
+    pthread_mutex_unlock(&connect_mutex);
 
     interface->send_ctrl_msg("*** LTE FDD DL SCAN ***");
     interface->send_ctrl_msg("Type help to see a list of commands");
 }
 void LTE_fdd_dl_scan_interface::handle_ctrl_disconnect(void)
 {
-    boost::mutex::scoped_lock lock(connect_mutex);
+    libtools_scoped_lock lock(connect_mutex);
 
     LTE_fdd_dl_scan_interface::ctrl_connected = false;
 }
@@ -1558,7 +1564,7 @@ void LTE_fdd_dl_scan_interface::handle_write(std::string msg)
 }
 void LTE_fdd_dl_scan_interface::handle_start(void)
 {
-    boost::mutex::scoped_lock  lock(dl_earfcn_list_mutex);
+    libtools_scoped_lock       lock(dl_earfcn_list_mutex);
     LTE_fdd_dl_scan_flowgraph *flowgraph = LTE_fdd_dl_scan_flowgraph::get_instance();
 
     if(!flowgraph->is_started())
@@ -1593,9 +1599,9 @@ void LTE_fdd_dl_scan_interface::handle_stop(void)
 }
 void LTE_fdd_dl_scan_interface::handle_help(void)
 {
-    boost::mutex::scoped_lock lock(dl_earfcn_list_mutex);
-    std::string               tmp_str;
-    uint32                    i;
+    libtools_scoped_lock lock(dl_earfcn_list_mutex);
+    std::string          tmp_str;
+    uint32               i;
 
     send_ctrl_msg("***System Configuration Parameters***");
     send_ctrl_msg("\tRead parameters using read <param> format");
@@ -1659,8 +1665,8 @@ void LTE_fdd_dl_scan_interface::read_band(void)
 }
 void LTE_fdd_dl_scan_interface::write_band(std::string band_str)
 {
-    boost::mutex::scoped_lock lock(dl_earfcn_list_mutex);
-    uint32                    i;
+    libtools_scoped_lock lock(dl_earfcn_list_mutex);
+    uint32               i;
 
     for(i=0; i<LIBLTE_INTERFACE_BAND_N_ITEMS; i++)
     {
@@ -1685,9 +1691,9 @@ void LTE_fdd_dl_scan_interface::write_band(std::string band_str)
 }
 void LTE_fdd_dl_scan_interface::read_dl_earfcn_list(void)
 {
-    boost::mutex::scoped_lock lock(dl_earfcn_list_mutex);
-    std::string               tmp_str;
-    uint32                    i;
+    libtools_scoped_lock lock(dl_earfcn_list_mutex);
+    std::string          tmp_str;
+    uint32               i;
 
     try
     {
@@ -1706,7 +1712,7 @@ void LTE_fdd_dl_scan_interface::read_dl_earfcn_list(void)
 }
 void LTE_fdd_dl_scan_interface::write_dl_earfcn_list(std::string dl_earfcn_list_str)
 {
-    boost::mutex::scoped_lock   lock(dl_earfcn_list_mutex);
+    libtools_scoped_lock        lock(dl_earfcn_list_mutex);
     LTE_FDD_DL_SCAN_STATUS_ENUM stat = LTE_FDD_DL_SCAN_STATUS_OK;
     uint32                      i;
     uint16                      tmp_list[65535];
@@ -1805,7 +1811,7 @@ void LTE_fdd_dl_scan_interface::write_enable_pcap(std::string enable_pcap_str)
 // Helpers
 LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_interface::switch_to_next_freq(void)
 {
-    boost::mutex::scoped_lock    lock(dl_earfcn_list_mutex);
+    libtools_scoped_lock         lock(dl_earfcn_list_mutex);
     LTE_fdd_dl_scan_flowgraph   *flowgraph = LTE_fdd_dl_scan_flowgraph::get_instance();
     LTE_FDD_DL_SCAN_STATUS_ENUM  stat      = LTE_FDD_DL_SCAN_STATUS_FAIL;
 

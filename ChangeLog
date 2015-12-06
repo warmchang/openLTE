@@ -195,3 +195,18 @@ v00.19.00     Removed rb_id from all MME pack routines (thanks to Przemek for fi
               changed the default timer alignment timer to 10240 subframes, removed
               boost::lexical_casts from HSS, moved the dedicated bearer QoS to 9, and
               moved DRBs to RLC AMD mode in LTE_fdd_enodeb.
+v00.19.01     Added support for all ID types for the mobile identity IE in MME, added
+              support for more PDU types in PDCP, added defines for sizes of fixed
+              arrays in LIBLTE_PHY_STRUCT, fixed the order of sizes for rate match
+              and unmatch arrays in LIBLTE_PHY_STRUCT (thanks to Ziming He), added
+              return values for liblte_phy_get_n_cce (thanks to Damian Jarek) and
+              liblte_rlc_unpack_status_pdu (thanks to Mikhail Gudkov) in the LTE
+              library, added a scoped lock RAII class for sem_t and pthread_mutex_t
+              in the tools library, changed from using boost::mutex to pthread_mutex_t
+              and_sem_t throughout, added helper functions in MAC, changed user
+              deletion and C-RNTI release procedures, properly initializing SIB
+              scheduling info, properly construct MNC (thanks to Mikhail Gudkov),
+              fixed an issue with RTS response in MAC, properly initialized PHY
+              allocation structure in MAC (thanks to Markus Grab), fixed the updating
+              of VT(A) in the RLC retransmission buffer, and changed the QoS parameters
+              for default data in LTE_fdd_enodeb.

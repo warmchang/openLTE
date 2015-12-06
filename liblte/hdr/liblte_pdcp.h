@@ -30,6 +30,9 @@
                                    except RRC SDUs and added user plan data
                                    processing.
     03/11/2015    Ben Wojtowicz    Added data PDU with short SN support.
+    12/06/2015    Ben Wojtowicz    Added control PDU for interspersed ROHC
+                                   feedback and RN user plane data PDU with
+                                   integrity protection support.
 
 *******************************************************************************/
 
@@ -196,10 +199,22 @@ LIBLTE_ERROR_ENUM liblte_pdcp_unpack_data_pdu_with_short_sn(LIBLTE_BYTE_MSG_STRU
     Document Reference: 36.323 v10.1.0 Section 6.2.5
 *********************************************************************/
 // Defines
+#define LIBLTE_PDCP_PDU_TYPE_STATUS_REPORT                     0x0
+#define LIBLTE_PDCP_PDU_TYPE_INTERSPERSED_ROHC_FEEDBACK_PACKET 0x1
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_BYTE_MSG_STRUCT rohc_feedback_packet;
+    uint8                  pdu_type;
+}LIBLTE_PDCP_CONTROL_PDU_FOR_INTERSPERSED_ROHC_FEEDBACK_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_control_pdu_for_interspersed_rohc_feedback(LIBLTE_PDCP_CONTROL_PDU_FOR_INTERSPERSED_ROHC_FEEDBACK_STRUCT *contents,
+                                                                              LIBLTE_BYTE_MSG_STRUCT                                        *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_control_pdu_for_interspersed_rohc_feedback(LIBLTE_PDCP_CONTROL_PDU_FOR_INTERSPERSED_ROHC_FEEDBACK_STRUCT *contents,
+                                                                              LIBLTE_BYTE_MSG_STRUCT                                        *rohc_feedback_packet,
+                                                                              LIBLTE_BYTE_MSG_STRUCT                                        *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_unpack_control_pdu_for_interspersed_rohc_feedback(LIBLTE_BYTE_MSG_STRUCT                                        *pdu,
+                                                                                LIBLTE_PDCP_CONTROL_PDU_FOR_INTERSPERSED_ROHC_FEEDBACK_STRUCT *contents);
 
 /*********************************************************************
     PDU Type: PDCP Control PDU for PDCP status report
@@ -220,7 +235,28 @@ LIBLTE_ERROR_ENUM liblte_pdcp_unpack_data_pdu_with_short_sn(LIBLTE_BYTE_MSG_STRU
 // Defines
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_BYTE_MSG_STRUCT data;
+    uint32                 count;
+}LIBLTE_PDCP_RN_USER_PLANE_DATA_PDU_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_rn_user_plane_data_pdu(LIBLTE_PDCP_RN_USER_PLANE_DATA_PDU_STRUCT *contents,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_rn_user_plane_data_pdu(LIBLTE_PDCP_RN_USER_PLANE_DATA_PDU_STRUCT *contents,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *data,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_rn_user_plane_data_pdu(LIBLTE_PDCP_RN_USER_PLANE_DATA_PDU_STRUCT *contents,
+                                                          uint8                                     *key_256,
+                                                          uint8                                      direction,
+                                                          uint8                                      rb_id,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_pack_rn_user_plane_data_pdu(LIBLTE_PDCP_RN_USER_PLANE_DATA_PDU_STRUCT *contents,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *data,
+                                                          uint8                                     *key_256,
+                                                          uint8                                      direction,
+                                                          uint8                                      rb_id,
+                                                          LIBLTE_BYTE_MSG_STRUCT                    *pdu);
+LIBLTE_ERROR_ENUM liblte_pdcp_unpack_rn_user_plane_data_pdu(LIBLTE_BYTE_MSG_STRUCT                    *pdu,
+                                                            LIBLTE_PDCP_RN_USER_PLANE_DATA_PDU_STRUCT *contents);
 
 #endif /* __LIBLTE_PDCP_H__ */

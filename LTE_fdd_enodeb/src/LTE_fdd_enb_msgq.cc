@@ -34,6 +34,9 @@
     03/15/2015    Ben Wojtowicz    Added a mutex to the circular buffer.
     07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
                                    a single PHY schedule message.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex and
+                                   boost::interprocess::interprocess_semaphore
+                                   to sem_t and properly initializing priority.
 
 *******************************************************************************/
 
@@ -84,7 +87,8 @@ void LTE_fdd_enb_msgq_cb::operator()(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 /********************************/
 LTE_fdd_enb_msgq::LTE_fdd_enb_msgq(std::string _msgq_name)
 {
-    sema      = new boost::interprocess::interprocess_semaphore(0);
+    sem_init(&sync_sem, 0, 1);
+    sem_init(&msg_sem, 0, 1);
     circ_buf  = new boost::circular_buffer<LTE_FDD_ENB_MESSAGE_STRUCT>(100);
     msgq_name = _msgq_name;
     rx_setup  = false;
@@ -103,6 +107,9 @@ LTE_fdd_enb_msgq::~LTE_fdd_enb_msgq()
         pthread_join(rx_thread, NULL);
         rx_setup = false;
     }
+    sem_destroy(&msg_sem);
+    sem_destroy(&sync_sem);
+    delete circ_buf;
 }
 
 /***************/
@@ -141,10 +148,10 @@ void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM  type,
         memcpy(&msg.msg, msg_content, msg_content_size);
     }
 
-    mutex.lock();
+    sem_wait(&sync_sem);
     circ_buf->push_back(msg);
-    mutex.unlock();
-    sema->post();
+    sem_post(&sync_sem);
+    sem_post(&msg_sem);
 }
 void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM       type,
                             LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT *dl_sched,
@@ -157,17 +164,17 @@ void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_TYPE_ENUM       type,
     memcpy(&msg.msg.phy_schedule.dl_sched, dl_sched, sizeof(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT));
     memcpy(&msg.msg.phy_schedule.ul_sched, ul_sched, sizeof(LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT));
 
-    mutex.lock();
+    sem_wait(&sync_sem);
     circ_buf->push_back(msg);
-    mutex.unlock();
-    sema->post();
+    sem_post(&sync_sem);
+    sem_post(&msg_sem);
 }
 void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    mutex.lock();
+    sem_wait(&sync_sem);
     circ_buf->push_back(msg);
-    mutex.unlock();
-    sema->post();
+    sem_post(&sync_sem);
+    sem_post(&msg_sem);
 }
 void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
 {
@@ -175,30 +182,28 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
     LTE_fdd_enb_msgq           *msgq      = (LTE_fdd_enb_msgq *)inputs;
     LTE_FDD_ENB_MESSAGE_STRUCT  msg;
     struct sched_param          priority;
-    std::size_t                 rx_size;
-    uint32                      prio;
     bool                        not_done = true;
 
     // Set priority
     if(msgq->prio != 0)
     {
         // FIXME: verify
-        priority.sched_priority = prio;
+        priority.sched_priority = msgq->prio;
         pthread_setschedparam(msgq->rx_thread, SCHED_FIFO, &priority);
     }
 
     while(not_done)
     {
         // Wait for a message
-        msgq->sema->wait();
-        msgq->mutex.lock();
+        sem_wait(&msgq->msg_sem);
+        sem_wait(&msgq->sync_sem);
         if(msgq->circ_buf->size() != 0)
         {
             while(msgq->circ_buf->size() != 0)
             {
                 msg = msgq->circ_buf->front();
                 msgq->circ_buf->pop_front();
-                msgq->mutex.unlock();
+                sem_post(&msgq->sync_sem);
 
                 // Process message
                 switch(msg.type)
@@ -211,7 +216,7 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
                     break;
                 }
 
-                msgq->mutex.lock();
+                sem_wait(&msgq->sync_sem);
             }
         }else{
             interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -221,7 +226,7 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
                                       "%s circular buffer empty on receive",
                                       msgq->msgq_name.c_str());
         }
-        msgq->mutex.unlock();
+        sem_post(&msgq->sync_sem);
     }
 
     return(NULL);

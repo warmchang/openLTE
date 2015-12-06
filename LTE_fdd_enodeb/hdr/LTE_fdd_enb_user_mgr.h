@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,8 @@
                                    C-RNTI transfer, added more ways to add,
                                    delete, and find users.
     12/16/2014    Ben Wojtowicz    Added delayed user delete functionality.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t and changed the
+                                   user deletion procedure.
 
 *******************************************************************************/
 
@@ -44,7 +46,6 @@
 
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_user.h"
-#include <boost/thread/mutex.hpp>
 #include <string>
 
 /*******************************************************************************
@@ -85,11 +86,10 @@ public:
     LTE_FDD_ENB_ERROR_ENUM find_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM find_user(LIBLTE_RRC_S_TMSI_STRUCT *s_tmsi, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM find_user(uint32 ip_addr, LTE_fdd_enb_user **user);
-    LTE_FDD_ENB_ERROR_ENUM del_user(LTE_fdd_enb_user *user, bool delayed);
-    LTE_FDD_ENB_ERROR_ENUM del_user(std::string imsi, bool delayed);
-    LTE_FDD_ENB_ERROR_ENUM del_user(uint16 c_rnti, bool delayed);
-    LTE_FDD_ENB_ERROR_ENUM del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti, bool delayed);
-    void handle_tick(void);
+    LTE_FDD_ENB_ERROR_ENUM del_user(LTE_fdd_enb_user *user);
+    LTE_FDD_ENB_ERROR_ENUM del_user(std::string imsi);
+    LTE_FDD_ENB_ERROR_ENUM del_user(uint16 c_rnti);
+    LTE_FDD_ENB_ERROR_ENUM del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti);
 
 private:
     // Singleton
@@ -106,9 +106,9 @@ private:
     std::map<uint16, LTE_fdd_enb_user*> c_rnti_map;
     std::map<uint32, uint16>            timer_id_map_forward;
     std::map<uint16, uint32>            timer_id_map_reverse;
-    boost::mutex                        user_mutex;
-    boost::mutex                        c_rnti_mutex;
-    boost::mutex                        timer_id_mutex;
+    sem_t                               user_sem;
+    sem_t                               c_rnti_sem;
+    sem_t                               timer_id_sem;
     uint32                              next_m_tmsi;
     uint16                              next_c_rnti;
 };

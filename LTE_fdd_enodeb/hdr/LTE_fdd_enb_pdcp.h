@@ -29,6 +29,7 @@
     11/29/2014    Ben Wojtowicz    Added communication to IP gateway.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -41,7 +42,6 @@
 
 #include "LTE_fdd_enb_cnfg_db.h"
 #include "LTE_fdd_enb_msgq.h"
-#include <boost/thread/mutex.hpp>
 #include <boost/interprocess/ipc/message_queue.hpp>
 
 /*******************************************************************************
@@ -85,7 +85,7 @@ private:
 
     // Start/Stop
     LTE_fdd_enb_interface *interface;
-    boost::mutex           start_mutex;
+    sem_t                  start_sem;
     bool                   started;
 
     // Communication
@@ -109,7 +109,7 @@ private:
     void handle_data_sdu_ready(LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG_STRUCT *data_sdu_ready);
 
     // Parameters
-    boost::mutex                sys_info_mutex;
+    sem_t                       sys_info_sem;
     LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
 };
 

@@ -112,6 +112,8 @@
                                    ziminghe for finding this), an changed the
                                    upper limit of PUSCH allocations to 10 PRBs
                                    for performance reasons.
+    12/06/2015    Ben Wojtowicz    Added a return to liblte_phy_get_n_cce,
+                                   thanks to Damian Jarek for reporting this.
 
 *******************************************************************************/
 
@@ -6186,6 +6188,8 @@ LIBLTE_ERROR_ENUM liblte_phy_get_n_cce(LIBLTE_PHY_STRUCT *phy_struct,
     }
 
     *N_cce = N_reg_pdcch/N_reg_cce;
+
+    return(LIBLTE_SUCCESS);
 }
 
 /*******************************************************************************

@@ -31,6 +31,8 @@
                                    struct.
     02/15/2015    Ben Wojtowicz    Added header extension handling to UMD.
     03/11/2015    Ben Wojtowicz    Added header extension handling to AMD.
+    12/06/2015    Ben Wojtowicz    Added a return to unpack status PDU, thanks
+                                   to Mikhail Gudkov for reporting this.
 
 *******************************************************************************/
 
@@ -568,4 +570,6 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_status_pdu(LIBLTE_BYTE_MSG_STRUCT       *pdu
             }
         }
     }
+
+    return(LIBLTE_SUCCESS);
 }

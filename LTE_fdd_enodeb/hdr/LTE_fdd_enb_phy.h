@@ -33,6 +33,7 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
                                    a single PHY schedule message.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -48,7 +49,6 @@
 #include "LTE_fdd_enb_msgq.h"
 #include "LTE_fdd_enb_radio.h"
 #include "liblte_phy.h"
-#include <boost/thread/mutex.hpp>
 
 /*******************************************************************************
                               DEFINES
@@ -110,9 +110,9 @@ private:
     // Downlink
     void handle_phy_schedule(LTE_FDD_ENB_PHY_SCHEDULE_MSG_STRUCT *phy_sched);
     void process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf);
-    boost::mutex                       sys_info_mutex;
-    boost::mutex                       dl_sched_mutex;
-    boost::mutex                       ul_sched_mutex;
+    sem_t                              sys_info_sem;
+    sem_t                              dl_sched_sem;
+    sem_t                              ul_sched_sem;
     LTE_FDD_ENB_SYS_INFO_STRUCT        sys_info;
     LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT dl_schedule[10];
     LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT ul_schedule[10];

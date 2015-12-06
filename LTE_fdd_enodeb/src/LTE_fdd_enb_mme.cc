@@ -44,6 +44,9 @@
     03/11/2015    Ben Wojtowicz    Added detach handling.
     07/25/2015    Ben Wojtowicz    Using the latest liblte and changed the
                                    dedicated bearer QoS to 9.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t and changed the user deletion and
+                                   C-RNTI release procedures.
 
 *******************************************************************************/
 
@@ -56,6 +59,7 @@
 #include "LTE_fdd_enb_user_mgr.h"
 #include "liblte_mme.h"
 #include "liblte_security.h"
+#include "libtools_scoped_lock.h"
 #include <netinet/in.h>
 
 /*******************************************************************************
@@ -72,8 +76,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_mme* LTE_fdd_enb_mme::instance = NULL;
-boost::mutex     mme_instance_mutex;
+LTE_fdd_enb_mme*       LTE_fdd_enb_mme::instance = NULL;
+static pthread_mutex_t mme_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -84,7 +88,7 @@ boost::mutex     mme_instance_mutex;
 /*******************/
 LTE_fdd_enb_mme* LTE_fdd_enb_mme::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(mme_instance_mutex);
+    libtools_scoped_lock lock(mme_instance_mutex);
 
     if(NULL == instance)
     {
@@ -95,7 +99,7 @@ LTE_fdd_enb_mme* LTE_fdd_enb_mme::get_instance(void)
 }
 void LTE_fdd_enb_mme::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(mme_instance_mutex);
+    libtools_scoped_lock lock(mme_instance_mutex);
 
     if(NULL != instance)
     {
@@ -109,11 +113,15 @@ void LTE_fdd_enb_mme::cleanup(void)
 /********************************/
 LTE_fdd_enb_mme::LTE_fdd_enb_mme()
 {
+    sem_init(&start_sem, 0, 1);
+    sem_init(&sys_info_sem, 0, 1);
     started = false;
 }
 LTE_fdd_enb_mme::~LTE_fdd_enb_mme()
 {
     stop();
+    sem_destroy(&sys_info_sem);
+    sem_destroy(&start_sem);
 }
 
 /********************/
@@ -123,9 +131,9 @@ void LTE_fdd_enb_mme::start(LTE_fdd_enb_msgq      *from_rrc,
                             LTE_fdd_enb_msgq      *to_rrc,
                             LTE_fdd_enb_interface *iface)
 {
-    boost::mutex::scoped_lock  lock(start_mutex);
-    LTE_fdd_enb_cnfg_db       *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-    LTE_fdd_enb_msgq_cb        rrc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mme, &LTE_fdd_enb_mme::handle_rrc_msg>, this);
+    libtools_scoped_lock  lock(start_sem);
+    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    LTE_fdd_enb_msgq_cb   rrc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mme, &LTE_fdd_enb_mme::handle_rrc_msg>, this);
 
     if(!started)
     {
@@ -142,7 +150,7 @@ void LTE_fdd_enb_mme::start(LTE_fdd_enb_msgq      *from_rrc,
 }
 void LTE_fdd_enb_mme::stop(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_sem);
 
     if(started)
     {
@@ -179,11 +187,10 @@ void LTE_fdd_enb_mme::handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 /****************************/
 void LTE_fdd_enb_mme::update_sys_info(void)
 {
-    LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    libtools_scoped_lock  lock(sys_info_sem);
+    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
 
-    sys_info_mutex.lock();
     cnfg_db->get_sys_info(sys_info);
-    sys_info_mutex.unlock();
 }
 
 /******************************/
@@ -688,9 +695,9 @@ void LTE_fdd_enb_mme::parse_authentication_failure(LIBLTE_BYTE_MSG_STRUCT *msg,
     if(LIBLTE_MME_EMM_CAUSE_SYNCH_FAILURE == auth_fail.emm_cause &&
        auth_fail.auth_fail_param_present)
     {
-        sys_info_mutex.lock();
+        sem_wait(&sys_info_sem);
         hss->security_resynch(user->get_id(), sys_info.mcc, sys_info.mnc, auth_fail.auth_fail_param);
-        sys_info_mutex.unlock();
+        sem_post(&sys_info_sem);
     }else{
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_MME,
@@ -802,7 +809,7 @@ void LTE_fdd_enb_mme::parse_detach_request(LIBLTE_BYTE_MSG_STRUCT *msg,
     rb->set_mme_state(LTE_FDD_ENB_MME_STATE_SEND_DETACH_ACCEPT);
 
     // Delete the user
-    user_mgr->del_user(user, true);
+    user->prepare_for_deletion();
 }
 void LTE_fdd_enb_mme::parse_identity_response(LIBLTE_BYTE_MSG_STRUCT *msg,
                                               LTE_fdd_enb_user       *user,
@@ -1195,7 +1202,7 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
         send_identity_request(user, rb, LIBLTE_MME_ID_TYPE_2_IMSI);
         break;
     case LTE_FDD_ENB_MME_STATE_REJECT:
-        user_mgr->del_user(user, true);
+        user->prepare_for_deletion();
         send_attach_reject(user, rb);
         break;
     case LTE_FDD_ENB_MME_STATE_AUTHENTICATE:
@@ -1347,7 +1354,7 @@ void LTE_fdd_enb_mme::send_attach_accept(LTE_fdd_enb_user *user,
     liblte_mme_pack_activate_default_eps_bearer_context_request_msg(&act_def_eps_bearer_context_req,
                                                                     &attach_accept.esm_msg);
 
-    sys_info_mutex.lock();
+    sem_wait(&sys_info_sem);
     attach_accept.eps_attach_result                   = user->get_attach_type();
     attach_accept.t3412.unit                          = LIBLTE_MME_GPRS_TIMER_DEACTIVATED;
     attach_accept.tai_list.N_tais                     = 1;
@@ -1371,7 +1378,7 @@ void LTE_fdd_enb_mme::send_attach_accept(LTE_fdd_enb_user *user,
     attach_accept.eps_network_feature_support_present = false;
     attach_accept.additional_update_result_present    = false;
     attach_accept.t3412_ext_present                   = false;
-    sys_info_mutex.unlock();
+    sem_post(&sys_info_sem);
     user->set_guti(&attach_accept.guti.guti);
     liblte_mme_pack_attach_accept_msg(&attach_accept,
                                       LIBLTE_MME_SECURITY_HDR_TYPE_INTEGRITY_AND_CIPHERED,
@@ -1483,9 +1490,9 @@ void LTE_fdd_enb_mme::send_authentication_request(LTE_fdd_enb_user *user,
     LIBLTE_BYTE_MSG_STRUCT                        msg;
     uint32                                        i;
 
-    sys_info_mutex.lock();
+    sem_wait(&sys_info_sem);
     hss->generate_security_data(user->get_id(), sys_info.mcc, sys_info.mnc);
-    sys_info_mutex.unlock();
+    sem_post(&sys_info_sem);
     auth_vec = hss->get_auth_vec(user->get_id());
     if(NULL != auth_vec)
     {
@@ -1879,12 +1886,6 @@ void LTE_fdd_enb_mme::send_rrc_command(LTE_fdd_enb_user         *user,
                       LTE_FDD_ENB_DEST_LAYER_RRC,
                       (LTE_FDD_ENB_MESSAGE_UNION *)&cmd_ready,
                       sizeof(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT));
-
-    if(LTE_FDD_ENB_RRC_CMD_RELEASE == cmd)
-    {
-        // Give the lower layers time to clean up, then release the C-RNTI
-        user->start_c_rnti_release_timer();
-    }
 }
 
 /*****************/

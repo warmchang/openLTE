@@ -45,6 +45,7 @@
     03/11/2015    Ben Wojtowicz    Made a common routine for formatting time.
     07/25/2015    Ben Wojtowicz    Made tx_gain and rx_gain into config file
                                    tracked parameters.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -59,7 +60,6 @@
 #include "LTE_fdd_enb_msgq.h"
 #include "liblte_common.h"
 #include "libtools_socket_wrap.h"
-#include <boost/thread/mutex.hpp>
 #include <string>
 
 /*******************************************************************************
@@ -284,8 +284,8 @@ public:
     static void handle_debug_connect(void);
     static void handle_debug_disconnect(void);
     static void handle_debug_error(LIBTOOLS_SOCKET_WRAP_ERROR_ENUM err);
-    boost::mutex          ctrl_mutex;
-    boost::mutex          debug_mutex;
+    sem_t                 ctrl_sem;
+    sem_t                 debug_sem;
     FILE                 *lte_pcap_fd;
     FILE                 *ip_pcap_fd;
     libtools_socket_wrap *ctrl_socket;
@@ -319,7 +319,7 @@ private:
 
     // Variables
     std::map<std::string, LTE_FDD_ENB_VAR_STRUCT> var_map;
-    boost::mutex                                  start_mutex;
+    sem_t                                         start_sem;
     uint32                                        debug_type_mask;
     uint32                                        debug_level_mask;
     bool                                          shutdown;

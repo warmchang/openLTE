@@ -40,6 +40,9 @@
     03/15/2015    Ben Wojtowicz    Added a mutex to the circular buffer.
     07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
                                    a single PHY schedule message.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex and
+                                   boost::interprocess::interprocess_semaphore
+                                   to sem_t.
 
 *******************************************************************************/
 
@@ -53,7 +56,6 @@
 #include "LTE_fdd_enb_user.h"
 #include "liblte_rrc.h"
 #include "liblte_phy.h"
-#include <boost/interprocess/sync/interprocess_semaphore.hpp>
 #include <boost/circular_buffer.hpp>
 #include <string>
 
@@ -400,8 +402,8 @@ private:
 
     // Variables
     LTE_fdd_enb_msgq_cb                                 callback;
-    boost::mutex                                        mutex;
-    boost::interprocess::interprocess_semaphore        *sema;
+    sem_t                                               sync_sem;
+    sem_t                                               msg_sem;
     boost::circular_buffer<LTE_FDD_ENB_MESSAGE_STRUCT> *circ_buf;
     std::string                                         msgq_name;
     pthread_t                                           rx_thread;

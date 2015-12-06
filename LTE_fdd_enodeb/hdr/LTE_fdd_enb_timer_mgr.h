@@ -29,6 +29,7 @@
     08/03/2014    Ben Wojtowicz    Added an invalid timer id.
     11/29/2014    Ben Wojtowicz    Added timer reset support.
     02/15/2015    Ben Wojtowicz    Moved to new message queue for timer ticks.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -42,7 +43,6 @@
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_timer.h"
 #include "LTE_fdd_enb_msgq.h"
-#include <boost/thread/mutex.hpp>
 
 /*******************************************************************************
                               DEFINES
@@ -88,7 +88,7 @@ private:
 
     // Start/Stop
     LTE_fdd_enb_interface *interface;
-    boost::mutex           start_mutex;
+    sem_t                  start_sem;
     bool                   started;
 
     // Communication
@@ -97,7 +97,7 @@ private:
     LTE_fdd_enb_msgq *msgq_from_mac;
 
     // Timer Storage
-    boost::mutex                         timer_mutex;
+    sem_t                                timer_sem;
     std::map<uint32, LTE_fdd_enb_timer*> timer_map;
     uint32                               next_timer_id;
 };

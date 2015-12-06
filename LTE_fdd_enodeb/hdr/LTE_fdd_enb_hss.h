@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014-2015 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@
     11/01/2014    Ben Wojtowicz    Added user file support.
     11/29/2014    Ben Wojtowicz    Added support for regenerating eNodeB
                                    security data.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -120,7 +121,7 @@ private:
     ~LTE_fdd_enb_hss();
 
     // Allowed users
-    boost::mutex                             user_mutex;
+    sem_t                                    user_sem;
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *> user_list;
 
     // User File

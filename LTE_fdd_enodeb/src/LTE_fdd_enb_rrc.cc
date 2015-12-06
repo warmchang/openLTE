@@ -45,6 +45,8 @@
     07/25/2015    Ben Wojtowicz    Using the new user QoS structure, moved DRBs
                                    to RLC AM, and changed the default time
                                    alignment timer to 10240 subframes.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t.
 
 *******************************************************************************/
 
@@ -55,6 +57,7 @@
 #include "LTE_fdd_enb_rrc.h"
 #include "LTE_fdd_enb_pdcp.h"
 #include "LTE_fdd_enb_user_mgr.h"
+#include "libtools_scoped_lock.h"
 
 /*******************************************************************************
                               DEFINES
@@ -70,8 +73,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_rrc* LTE_fdd_enb_rrc::instance = NULL;
-boost::mutex     rrc_instance_mutex;
+LTE_fdd_enb_rrc*       LTE_fdd_enb_rrc::instance = NULL;
+static pthread_mutex_t rrc_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -82,7 +85,7 @@ boost::mutex     rrc_instance_mutex;
 /*******************/
 LTE_fdd_enb_rrc* LTE_fdd_enb_rrc::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(rrc_instance_mutex);
+    libtools_scoped_lock lock(rrc_instance_mutex);
 
     if(NULL == instance)
     {
@@ -93,7 +96,7 @@ LTE_fdd_enb_rrc* LTE_fdd_enb_rrc::get_instance(void)
 }
 void LTE_fdd_enb_rrc::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(rrc_instance_mutex);
+    libtools_scoped_lock lock(rrc_instance_mutex);
 
     if(NULL != instance)
     {
@@ -107,11 +110,15 @@ void LTE_fdd_enb_rrc::cleanup(void)
 /********************************/
 LTE_fdd_enb_rrc::LTE_fdd_enb_rrc()
 {
+    sem_init(&start_sem, 0, 1);
+    sem_init(&sys_info_sem, 0, 1);
     started = false;
 }
 LTE_fdd_enb_rrc::~LTE_fdd_enb_rrc()
 {
     stop();
+    sem_destroy(&sys_info_sem);
+    sem_destroy(&start_sem);
 }
 
 /********************/
@@ -123,9 +130,9 @@ void LTE_fdd_enb_rrc::start(LTE_fdd_enb_msgq      *from_pdcp,
                             LTE_fdd_enb_msgq      *to_mme,
                             LTE_fdd_enb_interface *iface)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
-    LTE_fdd_enb_msgq_cb       pdcp_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_rrc, &LTE_fdd_enb_rrc::handle_pdcp_msg>, this);
-    LTE_fdd_enb_msgq_cb       mme_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_rrc, &LTE_fdd_enb_rrc::handle_mme_msg>, this);
+    libtools_scoped_lock lock(start_sem);
+    LTE_fdd_enb_msgq_cb  pdcp_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_rrc, &LTE_fdd_enb_rrc::handle_pdcp_msg>, this);
+    LTE_fdd_enb_msgq_cb  mme_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_rrc, &LTE_fdd_enb_rrc::handle_mme_msg>, this);
 
     if(!started)
     {
@@ -141,7 +148,7 @@ void LTE_fdd_enb_rrc::start(LTE_fdd_enb_msgq      *from_pdcp,
 }
 void LTE_fdd_enb_rrc::stop(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_sem);
 
     if(started)
     {
@@ -209,11 +216,10 @@ void LTE_fdd_enb_rrc::handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 /****************************/
 void LTE_fdd_enb_rrc::update_sys_info(void)
 {
-    LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    libtools_scoped_lock  lock(sys_info_sem);
+    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
 
-    sys_info_mutex.lock();
     cnfg_db->get_sys_info(sys_info);
-    sys_info_mutex.unlock();
 }
 
 /*******************************/

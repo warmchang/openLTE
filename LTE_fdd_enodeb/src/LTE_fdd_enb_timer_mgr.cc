@@ -31,6 +31,8 @@
     11/29/2014    Ben Wojtowicz    Added timer reset support.
     12/16/2014    Ben Wojtowicz    Passing timer tick to user_mgr.
     02/15/2015    Ben Wojtowicz    Moved to new message queue for timer ticks.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t.
 
 *******************************************************************************/
 
@@ -40,6 +42,7 @@
 
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "LTE_fdd_enb_user_mgr.h"
+#include "libtools_scoped_lock.h"
 #include <list>
 
 /*******************************************************************************
@@ -57,7 +60,7 @@
 *******************************************************************************/
 
 LTE_fdd_enb_timer_mgr* LTE_fdd_enb_timer_mgr::instance = NULL;
-boost::mutex           timer_mgr_instance_mutex;
+static pthread_mutex_t timer_mgr_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -68,7 +71,7 @@ boost::mutex           timer_mgr_instance_mutex;
 /*******************/
 LTE_fdd_enb_timer_mgr* LTE_fdd_enb_timer_mgr::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(timer_mgr_instance_mutex);
+    libtools_scoped_lock lock(timer_mgr_instance_mutex);
 
     if(NULL == instance)
     {
@@ -79,7 +82,7 @@ LTE_fdd_enb_timer_mgr* LTE_fdd_enb_timer_mgr::get_instance(void)
 }
 void LTE_fdd_enb_timer_mgr::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(timer_mgr_instance_mutex);
+    libtools_scoped_lock lock(timer_mgr_instance_mutex);
 
     if(NULL != instance)
     {
@@ -93,11 +96,23 @@ void LTE_fdd_enb_timer_mgr::cleanup(void)
 /********************************/
 LTE_fdd_enb_timer_mgr::LTE_fdd_enb_timer_mgr()
 {
+    sem_init(&start_sem, 0, 1);
+    sem_init(&timer_sem, 0, 1);
     interface = NULL;
     started   = false;
 }
 LTE_fdd_enb_timer_mgr::~LTE_fdd_enb_timer_mgr()
 {
+    std::map<uint32, LTE_fdd_enb_timer *>::iterator iter;
+
+    sem_wait(&timer_sem);
+    for(iter=timer_map.begin(); iter!=timer_map.end(); iter++)
+    {
+        delete (*iter).second;
+    }
+    sem_post(&timer_sem);
+    sem_destroy(&timer_sem);
+    sem_destroy(&start_sem);
 }
 
 /********************/
@@ -106,8 +121,8 @@ LTE_fdd_enb_timer_mgr::~LTE_fdd_enb_timer_mgr()
 void LTE_fdd_enb_timer_mgr::start(LTE_fdd_enb_msgq      *from_mac,
                                   LTE_fdd_enb_interface *iface)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
-    LTE_fdd_enb_msgq_cb       timer_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_timer_mgr, &LTE_fdd_enb_timer_mgr::handle_msg>, this);
+    libtools_scoped_lock lock(start_sem);
+    LTE_fdd_enb_msgq_cb  timer_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_timer_mgr, &LTE_fdd_enb_timer_mgr::handle_msg>, this);
 
     if(!started)
     {
@@ -120,7 +135,7 @@ void LTE_fdd_enb_timer_mgr::start(LTE_fdd_enb_msgq      *from_mac,
 }
 void LTE_fdd_enb_timer_mgr::stop(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_sem);
 
     if(started)
     {
@@ -135,7 +150,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::start_timer(uint32                
                                                           LTE_fdd_enb_timer_cb  cb,
                                                           uint32               *timer_id)
 {
-    boost::mutex::scoped_lock                        lock(timer_mutex);
+    libtools_scoped_lock                             lock(timer_sem);
     std::map<uint32, LTE_fdd_enb_timer *>::iterator  iter      = timer_map.find(next_timer_id);
     LTE_fdd_enb_timer                               *new_timer = NULL;
     LTE_FDD_ENB_ERROR_ENUM                           err       = LTE_FDD_ENB_ERROR_BAD_ALLOC;
@@ -159,7 +174,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::start_timer(uint32                
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::stop_timer(uint32 timer_id)
 {
-    boost::mutex::scoped_lock                       lock(timer_mutex);
+    libtools_scoped_lock                            lock(timer_sem);
     std::map<uint32, LTE_fdd_enb_timer *>::iterator iter = timer_map.find(timer_id);
     LTE_FDD_ENB_ERROR_ENUM                          err  = LTE_FDD_ENB_ERROR_TIMER_NOT_FOUND;
 
@@ -174,7 +189,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::stop_timer(uint32 timer_id)
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::reset_timer(uint32 timer_id)
 {
-    boost::mutex::scoped_lock                       lock(timer_mutex);
+    libtools_scoped_lock                            lock(timer_sem);
     std::map<uint32, LTE_fdd_enb_timer *>::iterator iter = timer_map.find(timer_id);
     LTE_FDD_ENB_ERROR_ENUM                          err  = LTE_FDD_ENB_ERROR_TIMER_NOT_FOUND;
 
@@ -224,7 +239,7 @@ void LTE_fdd_enb_timer_mgr::handle_tick(void)
     std::map<uint32, LTE_fdd_enb_timer *>::iterator  iter;
     std::list<uint32>                                expired_list;
 
-    timer_mutex.lock();
+    sem_wait(&timer_sem);
     for(iter=timer_map.begin(); iter!=timer_map.end(); iter++)
     {
         (*iter).second->increment();
@@ -234,7 +249,7 @@ void LTE_fdd_enb_timer_mgr::handle_tick(void)
             expired_list.push_back((*iter).first);
         }
     }
-    timer_mutex.unlock();
+    sem_post(&timer_sem);
 
     // Delete expired timers
     while(0 != expired_list.size())
@@ -248,7 +263,4 @@ void LTE_fdd_enb_timer_mgr::handle_tick(void)
         }
         expired_list.pop_front();
     }
-
-    // Pass tick to user_mgr
-    user_mgr->handle_tick();
 }

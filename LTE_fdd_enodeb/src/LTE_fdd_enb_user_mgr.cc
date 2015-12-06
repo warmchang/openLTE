@@ -38,6 +38,9 @@
     12/24/2014    Ben Wojtowicz    Hack to get around a crash when releasing a
                                    C-RNTI.
     02/15/2015    Ben Wojtowicz    Fixed C-RNTI assign/release list management.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t and changed the user deletion
+                                   procedure.
 
 *******************************************************************************/
 
@@ -48,6 +51,7 @@
 #include "LTE_fdd_enb_user_mgr.h"
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "liblte_mac.h"
+#include "libtools_scoped_lock.h"
 #include <boost/lexical_cast.hpp>
 
 /*******************************************************************************
@@ -64,8 +68,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_user_mgr* LTE_fdd_enb_user_mgr::instance = NULL;
-boost::mutex          user_mgr_instance_mutex;
+LTE_fdd_enb_user_mgr*  LTE_fdd_enb_user_mgr::instance = NULL;
+static pthread_mutex_t user_mgr_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -76,7 +80,7 @@ boost::mutex          user_mgr_instance_mutex;
 /*******************/
 LTE_fdd_enb_user_mgr* LTE_fdd_enb_user_mgr::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(user_mgr_instance_mutex);
+    libtools_scoped_lock lock(user_mgr_instance_mutex);
 
     if(NULL == instance)
     {
@@ -87,7 +91,7 @@ LTE_fdd_enb_user_mgr* LTE_fdd_enb_user_mgr::get_instance(void)
 }
 void LTE_fdd_enb_user_mgr::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(user_mgr_instance_mutex);
+    libtools_scoped_lock lock(user_mgr_instance_mutex);
 
     if(NULL != instance)
     {
@@ -101,11 +105,17 @@ void LTE_fdd_enb_user_mgr::cleanup(void)
 /********************************/
 LTE_fdd_enb_user_mgr::LTE_fdd_enb_user_mgr()
 {
+    sem_init(&user_sem, 0, 1);
+    sem_init(&c_rnti_sem, 0, 1);
+    sem_init(&timer_id_sem, 0, 1);
     next_m_tmsi = 1;
     next_c_rnti = LIBLTE_MAC_C_RNTI_START;
 }
 LTE_fdd_enb_user_mgr::~LTE_fdd_enb_user_mgr()
 {
+    sem_destroy(&user_sem);
+    sem_destroy(&c_rnti_sem);
+    sem_destroy(&timer_id_sem);
 }
 
 /****************************/
@@ -114,7 +124,7 @@ LTE_fdd_enb_user_mgr::~LTE_fdd_enb_user_mgr()
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::assign_c_rnti(LTE_fdd_enb_user *user,
                                                            uint16           *c_rnti)
 {
-    boost::mutex::scoped_lock                      lock(c_rnti_mutex);
+    libtools_scoped_lock                           lock(c_rnti_sem);
     LTE_fdd_enb_interface                         *interface    = LTE_fdd_enb_interface::get_instance();
     std::map<uint16, LTE_fdd_enb_user*>::iterator  iter         = c_rnti_map.find(next_c_rnti);
     LTE_FDD_ENB_ERROR_ENUM                         err          = LTE_FDD_ENB_ERROR_NONE;
@@ -158,8 +168,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::assign_c_rnti(LTE_fdd_enb_user *use
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::release_c_rnti(uint16 c_rnti)
 {
-    boost::mutex::scoped_lock                      lock(c_rnti_mutex);
-    boost::mutex::scoped_lock                      t_lock(timer_id_mutex);
+    libtools_scoped_lock                           c_lock(c_rnti_sem);
+    libtools_scoped_lock                           t_lock(timer_id_sem);
     LTE_fdd_enb_interface                         *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_timer_mgr                         *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
     std::map<uint16, LTE_fdd_enb_user*>::iterator  iter      = c_rnti_map.find(c_rnti);
@@ -181,7 +191,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::release_c_rnti(uint16 c_rnti)
         {
             (*iter).second->init();
         }else{
-            del_user((*iter).second, false);
+            del_user((*iter).second);
         }
 
         // Release the C-RNTI
@@ -208,7 +218,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::release_c_rnti(uint16 c_rnti)
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::transfer_c_rnti(LTE_fdd_enb_user *old_user,
                                                              LTE_fdd_enb_user *new_user)
 {
-    boost::mutex::scoped_lock                     lock(c_rnti_mutex);
+    libtools_scoped_lock                          lock(c_rnti_sem);
     std::map<uint16, LTE_fdd_enb_user*>::iterator iter = c_rnti_map.find(old_user->get_c_rnti());
     LTE_FDD_ENB_ERROR_ENUM                        err  = LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
     uint16                                        c_rnti;
@@ -222,7 +232,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::transfer_c_rnti(LTE_fdd_enb_user *o
         {
             old_user->init();
         }else{
-            del_user(old_user, true);
+            old_user->prepare_for_deletion();
         }
 
         // Update the C-RNTI map
@@ -242,7 +252,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::transfer_c_rnti(LTE_fdd_enb_user *o
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::reset_c_rnti_timer(uint16 c_rnti)
 {
-    boost::mutex::scoped_lock           lock(timer_id_mutex);
+    libtools_scoped_lock                lock(timer_id_sem);
     std::map<uint16, uint32>::iterator  iter      = timer_id_map_reverse.find(c_rnti);
     LTE_fdd_enb_timer_mgr              *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
     LTE_FDD_ENB_ERROR_ENUM              err       = LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
@@ -279,18 +289,18 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::add_user(LTE_fdd_enb_user **user)
         {
             // Start C-RNTI reservation timer
             timer_mgr->start_timer(5000, timer_expiry_cb, &timer_id);
-            timer_id_mutex.lock();
+            sem_wait(&timer_id_sem);
             timer_id_map_forward[timer_id] = c_rnti;
             timer_id_map_reverse[c_rnti]   = timer_id;
-            timer_id_mutex.unlock();
+            sem_post(&timer_id_sem);
 
             // Setup user
             new_user->set_c_rnti(c_rnti);
 
             // Store user
-            user_mutex.lock();
+            sem_wait(&user_sem);
             user_list.push_back(new_user);
-            user_mutex.unlock();
+            sem_post(&user_sem);
 
             // Return user
             *user = new_user;
@@ -307,7 +317,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::add_user(LTE_fdd_enb_user **user)
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(std::string        imsi,
                                                        LTE_fdd_enb_user **user)
 {
-    boost::mutex::scoped_lock               lock(user_mutex);
+    libtools_scoped_lock                    lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
     const char                             *imsi_str = imsi.c_str();
@@ -339,7 +349,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(std::string        imsi,
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(uint16             c_rnti,
                                                        LTE_fdd_enb_user **user)
 {
-    boost::mutex::scoped_lock              lock(user_mutex);
+    libtools_scoped_lock                   lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator iter;
     LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 
@@ -359,7 +369,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(uint16             c_rnti
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT  *guti,
                                                        LTE_fdd_enb_user                     **user)
 {
-    boost::mutex::scoped_lock              lock(user_mutex);
+    libtools_scoped_lock                   lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator iter;
     LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 
@@ -383,7 +393,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(LIBLTE_MME_EPS_MOBILE_ID_
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(LIBLTE_RRC_S_TMSI_STRUCT  *s_tmsi,
                                                        LTE_fdd_enb_user         **user)
 {
-    boost::mutex::scoped_lock              lock(user_mutex);
+    libtools_scoped_lock                   lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator iter;
     LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 
@@ -404,7 +414,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(LIBLTE_RRC_S_TMSI_STRUCT 
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(uint32             ip_addr,
                                                        LTE_fdd_enb_user **user)
 {
-    boost::mutex::scoped_lock              lock(user_mutex);
+    libtools_scoped_lock                   lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator iter;
     LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 
@@ -421,10 +431,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(uint32             ip_add
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user,
-                                                      bool              delayed)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
 {
-    boost::mutex::scoped_lock               lock(user_mutex);
+    libtools_scoped_lock                    lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
     LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
@@ -438,12 +447,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user,
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                if(delayed)
-                {
-                    delayed_del_user_list.push_back(tmp_user);
-                }else{
-                    delete tmp_user;
-                }
+                delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -459,12 +463,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user,
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                if(delayed)
-                {
-                    delayed_del_user_list.push_back(tmp_user);
-                }else{
-                    delete tmp_user;
-                }
+                delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -476,12 +475,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user,
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                if(delayed)
-                {
-                    delayed_del_user_list.push_back(tmp_user);
-                }else{
-                    delete tmp_user;
-                }
+                delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -490,10 +484,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user,
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi,
-                                                      bool        delayed)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
 {
-    boost::mutex::scoped_lock               lock(user_mutex);
+    libtools_scoped_lock                    lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
     LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
@@ -516,12 +509,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi,
             {
                 tmp_user = (*iter);
                 user_list.erase(iter);
-                if(delayed)
-                {
-                    delayed_del_user_list.push_back(tmp_user);
-                }else{
-                    delete tmp_user;
-                }
+                delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
             }
@@ -530,10 +518,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi,
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti,
-                                                      bool   delayed)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti)
 {
-    boost::mutex::scoped_lock               lock(user_mutex);
+    libtools_scoped_lock                    lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
     LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
@@ -545,12 +532,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti,
         {
             tmp_user = (*iter);
             user_list.erase(iter);
-            if(delayed)
-            {
-                delayed_del_user_list.push_back(tmp_user);
-            }else{
-                delete tmp_user;
-            }
+            delete tmp_user;
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
         }
@@ -558,10 +540,9 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti,
 
     return(err);
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti,
-                                                      bool                                  delayed)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti)
 {
-    boost::mutex::scoped_lock               lock(user_mutex);
+    libtools_scoped_lock                    lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
     LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
@@ -577,37 +558,13 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_G
         {
             tmp_user = (*iter);
             user_list.erase(iter);
-            if(delayed)
-            {
-                delayed_del_user_list.push_back(tmp_user);
-            }else{
-                delete tmp_user;
-            }
+            delete tmp_user;
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
         }
     }
 
     return(err);
-}
-void LTE_fdd_enb_user_mgr::handle_tick(void)
-{
-    LTE_fdd_enb_user *tmp_user;
-    uint32            i;
-    uint32            size = delayed_del_user_list.size();
-
-    for(i=0; i<size; i++)
-    {
-        tmp_user = delayed_del_user_list.front();
-        delayed_del_user_list.pop_front();
-        if(tmp_user->get_N_del_ticks() > 100)
-        {
-            delete tmp_user;
-        }else{
-            tmp_user->set_N_del_ticks(tmp_user->get_N_del_ticks()+1);
-            delayed_del_user_list.push_back(tmp_user);
-        }
-    }
 }
 
 /**********************/
@@ -616,11 +573,11 @@ void LTE_fdd_enb_user_mgr::handle_tick(void)
 void LTE_fdd_enb_user_mgr::handle_c_rnti_timer_expiry(uint32 timer_id)
 {
     LTE_fdd_enb_interface              *interface = LTE_fdd_enb_interface::get_instance();
-    boost::mutex::scoped_lock           lock(timer_id_mutex);
     std::map<uint32, uint16>::iterator  forward_iter = timer_id_map_forward.find(timer_id);
     std::map<uint16, uint32>::iterator  reverse_iter;
     uint16                              c_rnti;
 
+    sem_wait(&timer_id_sem);
     if(timer_id_map_forward.end() != forward_iter)
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
@@ -637,7 +594,9 @@ void LTE_fdd_enb_user_mgr::handle_c_rnti_timer_expiry(uint32 timer_id)
         }
         timer_id_map_forward.erase(forward_iter);
 
-        timer_id_mutex.unlock();
+        sem_post(&timer_id_sem);
         release_c_rnti(c_rnti);
+    }else{
+        sem_post(&timer_id_sem);
     }
 }

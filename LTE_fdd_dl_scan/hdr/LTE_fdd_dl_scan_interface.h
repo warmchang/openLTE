@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2015 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (SIB13 printing)
 
     This program is free software: you can redistribute it and/or modify
@@ -29,6 +29,7 @@
     07/21/2013    Ben Wojtowicz    Added support for decoding SIBs.
     06/15/2014    Ben Wojtowicz    Added PCAP support.
     09/19/2014    Andrew Murphy    Added SIB13 printing.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
 
 *******************************************************************************/
 
@@ -42,7 +43,6 @@
 #include "liblte_interface.h"
 #include "liblte_rrc.h"
 #include "libtools_socket_wrap.h"
-#include <boost/thread/mutex.hpp>
 #include <string>
 
 /*******************************************************************************
@@ -106,7 +106,7 @@ public:
     static void handle_ctrl_connect(void);
     static void handle_ctrl_disconnect(void);
     static void handle_ctrl_error(LIBTOOLS_SOCKET_WRAP_ERROR_ENUM err);
-    boost::mutex          ctrl_mutex;
+    pthread_mutex_t       ctrl_mutex;
     FILE                 *pcap_fd;
     libtools_socket_wrap *ctrl_socket;
     int16                 ctrl_port;
@@ -142,7 +142,7 @@ private:
     void write_enable_pcap(std::string enable_pcap_str);
 
     // Variables
-    boost::mutex               dl_earfcn_list_mutex;
+    pthread_mutex_t            dl_earfcn_list_mutex;
     LIBLTE_INTERFACE_BAND_ENUM band;
     uint16                     current_dl_earfcn;
     uint16                     dl_earfcn_list[65535];

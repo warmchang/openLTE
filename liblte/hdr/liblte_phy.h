@@ -62,6 +62,11 @@
     06/15/2014    Ben Wojtowicz    Added TPC values for DCI 0, 3, and 4.
     07/14/2015    Ben Wojtowicz    Added a constant definition of Fs as an
                                    integer.
+    12/06/2015    Ben Wojtowicz    Added defines for many of the array sizes in
+                                   LIBLTE_PHY_STRUCT and corrected the order of
+                                   sizes in the rate match/unmatch arrays in
+                                   LIBLTE_PHY_STRUCT (thanks to Ziming He for
+                                   finding this).
 
 *******************************************************************************/
 
@@ -153,6 +158,14 @@
 #define LIBLTE_PHY_N_SAMPS_PER_SLOT_1_92MHZ  960
 #define LIBLTE_PHY_N_SAMPS_PER_SUBFR_1_92MHZ (LIBLTE_PHY_N_SAMPS_PER_SLOT_1_92MHZ*LIBLTE_PHY_N_SLOTS_PER_SUBFR)
 #define LIBLTE_PHY_N_SAMPS_PER_FRAME_1_92MHZ (LIBLTE_PHY_N_SAMPS_PER_SUBFR_1_92MHZ*LIBLTE_PHY_N_SUBFR_PER_FRAME)
+
+// Turbo/Viterbi coding
+#define LIBLTE_PHY_MAX_CODE_BLOCK_SIZE 6176
+#define LIBLTE_PHY_MAX_VITERBI_STATES  128
+#define LIBLTE_PHY_BASE_CODING_RATE    3
+
+// Rate matching
+#define LIBLTE_PHY_N_COLUMNS_RATE_MATCH 32
 
 /*******************************************************************************
                               TYPEDEFS
@@ -432,95 +445,95 @@ typedef struct{
     fftwf_plan     samps_to_symbs_ul_plan;
 
     // Viterbi decode
-    float vd_path_metric[128][2048];
-    float vd_br_metric[128][2];
-    float vd_p_metric[128][2];
-    float vd_br_weight[128][2];
-    float vd_w_metric[128][2048];
-    float vd_tb_state[2048];
-    float vd_tb_weight[2048];
-    uint8 vd_st_output[128][2][3];
+    float vd_path_metric[LIBLTE_PHY_MAX_VITERBI_STATES][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float vd_br_metric[LIBLTE_PHY_MAX_VITERBI_STATES][2];
+    float vd_p_metric[LIBLTE_PHY_MAX_VITERBI_STATES][2];
+    float vd_br_weight[LIBLTE_PHY_MAX_VITERBI_STATES][2];
+    float vd_w_metric[LIBLTE_PHY_MAX_VITERBI_STATES][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float vd_tb_state[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float vd_tb_weight[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 vd_st_output[LIBLTE_PHY_MAX_VITERBI_STATES][2][3];
 
     // Turbo encode
-    uint8 te_z[6144];
-    uint8 te_fb1[6144];
-    uint8 te_c_prime[6144];
-    uint8 te_z_prime[6144];
-    uint8 te_x_prime[6144];
+    uint8 te_z[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 te_fb1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 te_c_prime[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 te_z_prime[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 te_x_prime[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // Turbo decode
-    int8 td_vitdec_in[18432];
-    int8 td_in_int[6144];
-    int8 td_in_calc_1[6144];
-    int8 td_in_calc_2[6144];
-    int8 td_in_calc_3[6144];
-    int8 td_in_int_1[6144];
-    int8 td_int_calc_1[6144];
-    int8 td_int_calc_2[6144];
-    int8 td_in_act_1[6144];
-    int8 td_fb_1[6144];
-    int8 td_int_act_1[6144];
-    int8 td_int_act_2[6144];
-    int8 td_fb_int_1[6144];
-    int8 td_fb_int_2[6144];
+    int8 td_vitdec_in[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_in_int[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_in_calc_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_in_calc_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_in_calc_3[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_in_int_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_int_calc_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_int_calc_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_in_act_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_fb_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_int_act_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_int_act_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_fb_int_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_fb_int_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // Rate Match Turbo
-    uint8 rmt_tmp[6144];
-    uint8 rmt_sb_mat[32][192];
-    uint8 rmt_sb_perm_mat[32][192];
-    uint8 rmt_y[6144];
-    uint8 rmt_w[18432];
+    uint8 rmt_tmp[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 rmt_sb_mat[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    uint8 rmt_sb_perm_mat[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    uint8 rmt_y[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 rmt_w[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // Rate Unmatch Turbo
-    float rut_tmp[6144];
-    float rut_sb_mat[32][192];
-    float rut_sb_perm_mat[32][192];
-    float rut_y[6144];
-    float rut_w_dum[18432];
-    float rut_w[18432];
-    float rut_v[3][6144];
+    float rut_tmp[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float rut_sb_mat[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    float rut_sb_perm_mat[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    float rut_y[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float rut_w_dum[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float rut_w[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float rut_v[LIBLTE_PHY_BASE_CODING_RATE][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // Rate Match Conv
-    uint8 rmc_tmp[1024];
-    uint8 rmc_sb_mat[32][32];
-    uint8 rmc_sb_perm_mat[32][32];
-    uint8 rmc_w[3*1024];
+    uint8 rmc_tmp[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8 rmc_sb_mat[LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    uint8 rmc_sb_perm_mat[LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    uint8 rmc_w[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // Rate Unatch Conv
-    float ruc_tmp[1024];
-    float ruc_sb_mat[32][32];
-    float ruc_sb_perm_mat[32][32];
-    float ruc_w_dum[3*1024];
-    float ruc_w[3*1024];
-    float ruc_v[3][1024];
+    float ruc_tmp[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float ruc_sb_mat[LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    float ruc_sb_perm_mat[LIBLTE_PHY_N_COLUMNS_RATE_MATCH][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE/LIBLTE_PHY_N_COLUMNS_RATE_MATCH];
+    float ruc_w_dum[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float ruc_w[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    float ruc_v[LIBLTE_PHY_BASE_CODING_RATE][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // ULSCH
     // FIXME: Sizes
     float  ulsch_y_idx[92160];
     float  ulsch_y_mat[92160];
     float  ulsch_rx_d_bits[75376];
-    float  ulsch_rx_e_bits[5][18432];
+    float  ulsch_rx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
     float  ulsch_rx_f_bits[92160];
     float  ulsch_rx_g_bits[92160];
     uint32 ulsch_N_c_bits[5];
     uint32 ulsch_N_e_bits[5];
     uint8  ulsch_b_bits[30720];
-    uint8  ulsch_c_bits[5][6144];
+    uint8  ulsch_c_bits[5][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
     uint8  ulsch_tx_d_bits[75376];
-    uint8  ulsch_tx_e_bits[5][18432];
+    uint8  ulsch_tx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
     uint8  ulsch_tx_f_bits[92160];
     uint8  ulsch_tx_g_bits[92160];
 
     // DLSCH
     // FIXME: Sizes
     float  dlsch_rx_d_bits[75376];
-    float  dlsch_rx_e_bits[5][18432];
+    float  dlsch_rx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
     uint32 dlsch_N_c_bits[5];
     uint32 dlsch_N_e_bits[5];
     uint8  dlsch_b_bits[30720];
-    uint8  dlsch_c_bits[5][6144];
+    uint8  dlsch_c_bits[5][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
     uint8  dlsch_tx_d_bits[75376];
-    uint8  dlsch_tx_e_bits[5][18432];
+    uint8  dlsch_tx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // DCI
     float dci_rx_d_bits[576];

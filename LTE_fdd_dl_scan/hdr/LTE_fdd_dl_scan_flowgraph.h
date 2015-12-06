@@ -34,6 +34,7 @@
     12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
                                    USRP X300 support.
     03/11/2015    Ben Wojtowicz    Added UmTRX support.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
 
 *******************************************************************************/
 
@@ -46,7 +47,6 @@
 
 #include "LTE_fdd_dl_scan_interface.h"
 #include "LTE_fdd_dl_scan_state_machine.h"
-#include <boost/thread/mutex.hpp>
 #include <gnuradio/top_block.h>
 #include <gnuradio/filter/rational_resampler_base_ccf.h>
 #include <gnuradio/filter/firdes.h>
@@ -110,9 +110,9 @@ private:
     osmosdr::source::sptr                         samp_src;
     LTE_fdd_dl_scan_state_machine_sptr            state_machine;
 
-    pthread_t    start_thread;
-    boost::mutex start_mutex;
-    bool         started;
+    pthread_t       start_thread;
+    pthread_mutex_t start_mutex;
+    bool            started;
 };
 
 #endif /* __LTE_FDD_DL_SCAN_FLOWGRAPH_H__ */

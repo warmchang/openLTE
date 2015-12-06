@@ -32,6 +32,8 @@
     11/29/2014    Ben Wojtowicz    Using the byte message struct for SDUs.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t and added some
+                                   helper functions.
 
 *******************************************************************************/
 
@@ -47,7 +49,6 @@
 #include "LTE_fdd_enb_msgq.h"
 #include "LTE_fdd_enb_user.h"
 #include "liblte_mac.h"
-#include <boost/thread/mutex.hpp>
 #include <boost/interprocess/ipc/message_queue.hpp>
 #include <list>
 
@@ -109,7 +110,7 @@ private:
     ~LTE_fdd_enb_mac();
 
     // Start/Stop
-    boost::mutex           start_mutex;
+    sem_t                  start_sem;
     LTE_fdd_enb_interface *interface;
     bool                   started;
 
@@ -149,9 +150,9 @@ private:
     LTE_FDD_ENB_ERROR_ENUM add_to_rar_sched_queue(uint32 current_tti, LIBLTE_PHY_ALLOCATION_STRUCT *dl_alloc, LIBLTE_PHY_ALLOCATION_STRUCT *ul_alloc, LIBLTE_MAC_RAR_STRUCT *rar);
     LTE_FDD_ENB_ERROR_ENUM add_to_dl_sched_queue(uint32 current_tti, LIBLTE_MAC_PDU_STRUCT *mac_pdu, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
     LTE_FDD_ENB_ERROR_ENUM add_to_ul_sched_queue(uint32 current_tti, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
-    boost::mutex                                   rar_sched_queue_mutex;
-    boost::mutex                                   dl_sched_queue_mutex;
-    boost::mutex                                   ul_sched_queue_mutex;
+    sem_t                                          rar_sched_queue_sem;
+    sem_t                                          dl_sched_queue_sem;
+    sem_t                                          ul_sched_queue_sem;
     std::list<LTE_FDD_ENB_RAR_SCHED_QUEUE_STRUCT*> rar_sched_queue;
     std::list<LTE_FDD_ENB_DL_SCHED_QUEUE_STRUCT*>  dl_sched_queue;
     std::list<LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT*>  ul_sched_queue;
@@ -161,11 +162,13 @@ private:
     uint8                                          sched_cur_ul_subfn;
 
     // Parameters
-    boost::mutex                sys_info_mutex;
+    sem_t                       sys_info_sem;
     LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
 
     // Helpers
     uint32 get_n_reserved_prbs(uint32 current_tti);
+    uint32 add_to_tti(uint32 tti, uint32 addition);
+    bool is_tti_in_future(uint32 tti_to_check, uint32 current_tti);
 };
 
 #endif /* __LTE_FDD_ENB_MAC_H__ */

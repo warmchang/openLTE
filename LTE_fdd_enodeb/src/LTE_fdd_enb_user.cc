@@ -38,6 +38,9 @@
     02/15/2015    Ben Wojtowicz    Added clear_rbs and fixed copy_rbs.
     07/25/2015    Ben Wojtowicz    Moved the QoS structure from the RB class to
                                    the user class.
+    12/06/2015    Ben Wojtowicz    Changed the deletion and C-RNTI release
+                                   procedures and changed the QoS parameters
+                                   for default data.
 
 *******************************************************************************/
 
@@ -118,17 +121,17 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
     proc_transaction_id       = 0;
     eit_flag                  = false;
     protocol_cnfg_opts.N_opts = 0;
-    ul_sched_timer_id         = LTE_FDD_ENB_INVALID_TIMER_ID;
 
     // MAC
-    dl_ndi = false;
-    ul_ndi = false;
+    ul_sched_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
+    dl_ndi            = false;
+    ul_ndi            = false;
 
     // Generic
     N_del_ticks  = 0;
     avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,  0,   0,   0};
     avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20, 20,  22,  22};
-    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 10, 10, 100, 100};
+    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 10,  5, 100, 400};
     qos          = LTE_FDD_ENB_QOS_NONE;
 }
 LTE_fdd_enb_user::~LTE_fdd_enb_user()
@@ -256,13 +259,6 @@ bool LTE_fdd_enb_user::is_c_rnti_set(void)
 {
     return(c_rnti_set);
 }
-void LTE_fdd_enb_user::start_c_rnti_release_timer(void)
-{
-    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-    LTE_fdd_enb_timer_cb   timer_expiry_cb(&LTE_fdd_enb_timer_cb_wrapper<LTE_fdd_enb_user, &LTE_fdd_enb_user::handle_timer_expiry>, this);
-
-    timer_mgr->start_timer(500, timer_expiry_cb, &c_rnti_timer_id);
-}
 void LTE_fdd_enb_user::set_ip_addr(uint32 addr)
 {
     ip_addr     = addr;
@@ -275,6 +271,11 @@ uint32 LTE_fdd_enb_user::get_ip_addr(void)
 bool LTE_fdd_enb_user::is_ip_addr_set(void)
 {
     return(ip_addr_set);
+}
+void LTE_fdd_enb_user::prepare_for_deletion(void)
+{
+    // Let the C-RNTI timer cleanup the user
+    id_set = false;
 }
 
 /******************/
@@ -653,14 +654,10 @@ uint32 LTE_fdd_enb_user::get_N_del_ticks(void)
 }
 void LTE_fdd_enb_user::handle_timer_expiry(uint32 timer_id)
 {
-    LTE_fdd_enb_user_mgr *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
-    LTE_fdd_enb_mac      *mac      = LTE_fdd_enb_mac::get_instance();
+    LTE_fdd_enb_mac *mac = LTE_fdd_enb_mac::get_instance();
 
-    if(timer_id == c_rnti_timer_id)
+    if(timer_id == ul_sched_timer_id)
     {
-        c_rnti_set = false;
-        user_mgr->release_c_rnti(c_rnti);
-    }else if(timer_id == ul_sched_timer_id){
         mac->sched_ul(this, avail_qos[qos].ul_bytes_per_subfn*8);
         if(c_rnti_set)
         {

@@ -36,6 +36,7 @@
                                    33.401 section 8.1.1 specifies 0 as the
                                    input to the security routines (credit goes
                                    to Przemek for finding this).
+    12/06/2015    Ben Wojtowicz    Added all ID types for Mobile Identity IE.
 
 *******************************************************************************/
 
@@ -175,10 +176,20 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_location_area_id_ie(uint8                   
 // Enums
 // Structs
 typedef struct{
-    uint8 type_of_id;
-    uint8 imsi[15];
-    uint8 imei[15];
-    uint8 imeisv[16];
+    uint32 mbms_service_id;
+    uint16 mcc;
+    uint16 mnc;
+    uint8  mbms_session_id;
+    bool   mbms_session_id_ind;
+    bool   mcc_mnc_ind;
+}LIBLTE_MME_MOBILE_ID_TMGI_STRUCT;
+typedef struct{
+    LIBLTE_MME_MOBILE_ID_TMGI_STRUCT tmgi;
+    uint32                           tmsi;
+    uint8                            type_of_id;
+    uint8                            imsi[15];
+    uint8                            imei[15];
+    uint8                            imeisv[16];
 }LIBLTE_MME_MOBILE_ID_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mme_pack_mobile_id_ie(LIBLTE_MME_MOBILE_ID_STRUCT  *mobile_id,

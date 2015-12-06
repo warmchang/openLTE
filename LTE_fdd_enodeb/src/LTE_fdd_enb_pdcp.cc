@@ -34,6 +34,8 @@
     11/29/2014    Ben Wojtowicz    Added communication to IP gateway.
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
+                                   sem_t.
 
 *******************************************************************************/
 
@@ -45,6 +47,7 @@
 #include "LTE_fdd_enb_rlc.h"
 #include "liblte_pdcp.h"
 #include "liblte_security.h"
+#include "libtools_scoped_lock.h"
 
 /*******************************************************************************
                               DEFINES
@@ -60,8 +63,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_pdcp* LTE_fdd_enb_pdcp::instance = NULL;
-boost::mutex      pdcp_instance_mutex;
+LTE_fdd_enb_pdcp*      LTE_fdd_enb_pdcp::instance = NULL;
+static pthread_mutex_t pdcp_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -72,7 +75,7 @@ boost::mutex      pdcp_instance_mutex;
 /*******************/
 LTE_fdd_enb_pdcp* LTE_fdd_enb_pdcp::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(pdcp_instance_mutex);
+    libtools_scoped_lock lock(pdcp_instance_mutex);
 
     if(NULL == instance)
     {
@@ -83,7 +86,7 @@ LTE_fdd_enb_pdcp* LTE_fdd_enb_pdcp::get_instance(void)
 }
 void LTE_fdd_enb_pdcp::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(pdcp_instance_mutex);
+    libtools_scoped_lock lock(pdcp_instance_mutex);
 
     if(NULL != instance)
     {
@@ -97,11 +100,15 @@ void LTE_fdd_enb_pdcp::cleanup(void)
 /********************************/
 LTE_fdd_enb_pdcp::LTE_fdd_enb_pdcp()
 {
+    sem_init(&start_sem, 0, 1);
+    sem_init(&sys_info_sem, 0, 1);
     started = false;
 }
 LTE_fdd_enb_pdcp::~LTE_fdd_enb_pdcp()
 {
     stop();
+    sem_destroy(&sys_info_sem);
+    sem_destroy(&start_sem);
 }
 
 /********************/
@@ -115,10 +122,10 @@ void LTE_fdd_enb_pdcp::start(LTE_fdd_enb_msgq      *from_rlc,
                              LTE_fdd_enb_msgq      *to_gw,
                              LTE_fdd_enb_interface *iface)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
-    LTE_fdd_enb_msgq_cb       rlc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rlc_msg>, this);
-    LTE_fdd_enb_msgq_cb       rrc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rrc_msg>, this);
-    LTE_fdd_enb_msgq_cb       gw_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_gw_msg>, this);
+    libtools_scoped_lock lock(start_sem);
+    LTE_fdd_enb_msgq_cb  rlc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rlc_msg>, this);
+    LTE_fdd_enb_msgq_cb  rrc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rrc_msg>, this);
+    LTE_fdd_enb_msgq_cb  gw_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_gw_msg>, this);
 
     if(!started)
     {
@@ -137,7 +144,7 @@ void LTE_fdd_enb_pdcp::start(LTE_fdd_enb_msgq      *from_rlc,
 }
 void LTE_fdd_enb_pdcp::stop(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_sem);
 
     if(started)
     {
@@ -230,11 +237,10 @@ void LTE_fdd_enb_pdcp::handle_gw_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 /****************************/
 void LTE_fdd_enb_pdcp::update_sys_info(void)
 {
-    LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    libtools_scoped_lock  lock(sys_info_sem);
+    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
 
-    sys_info_mutex.lock();
     cnfg_db->get_sys_info(sys_info);
-    sys_info_mutex.unlock();
 }
 
 /******************************/

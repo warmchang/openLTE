@@ -27,6 +27,7 @@
     11/29/2014    Ben Wojtowicz    Created file
     12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -79,7 +80,7 @@ private:
 
     // Start/Stop
     LTE_fdd_enb_interface *interface;
-    boost::mutex           start_mutex;
+    sem_t                  start_sem;
     bool                   started;
 
     // Communication

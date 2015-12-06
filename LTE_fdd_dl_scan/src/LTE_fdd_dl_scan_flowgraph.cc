@@ -37,6 +37,7 @@
     12/16/2014    Ben Wojtowicz    Pulled in a patch from Ruben Merz to add
                                    USRP X300 support.
     03/11/2015    Ben Wojtowicz    Added UmTRX support.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
 
 *******************************************************************************/
 
@@ -45,6 +46,7 @@
 *******************************************************************************/
 
 #include "LTE_fdd_dl_scan_flowgraph.h"
+#include "libtools_scoped_lock.h"
 #include "uhd/usrp/multi_usrp.hpp"
 
 /*******************************************************************************
@@ -62,7 +64,7 @@
 *******************************************************************************/
 
 LTE_fdd_dl_scan_flowgraph* LTE_fdd_dl_scan_flowgraph::instance = NULL;
-boost::mutex               flowgraph_instance_mutex;
+static pthread_mutex_t     flowgraph_instance_mutex            = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -71,7 +73,7 @@ boost::mutex               flowgraph_instance_mutex;
 // Singleton
 LTE_fdd_dl_scan_flowgraph* LTE_fdd_dl_scan_flowgraph::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(flowgraph_instance_mutex);
+    libtools_scoped_lock lock(flowgraph_instance_mutex);
 
     if(NULL == instance)
     {
@@ -82,7 +84,7 @@ LTE_fdd_dl_scan_flowgraph* LTE_fdd_dl_scan_flowgraph::get_instance(void)
 }
 void LTE_fdd_dl_scan_flowgraph::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(flowgraph_instance_mutex);
+    libtools_scoped_lock lock(flowgraph_instance_mutex);
 
     if(NULL != instance)
     {
@@ -94,29 +96,31 @@ void LTE_fdd_dl_scan_flowgraph::cleanup(void)
 // Constructor/Destructor
 LTE_fdd_dl_scan_flowgraph::LTE_fdd_dl_scan_flowgraph()
 {
+    pthread_mutex_init(&start_mutex, NULL);
     started = false;
 }
 LTE_fdd_dl_scan_flowgraph::~LTE_fdd_dl_scan_flowgraph()
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_mutex);
 
     if(started)
     {
-        start_mutex.unlock();
+        pthread_mutex_unlock(&start_mutex);
         stop();
     }
+    pthread_mutex_destroy(&start_mutex);
 }
 
 // Flowgraph
 bool LTE_fdd_dl_scan_flowgraph::is_started(void)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_mutex);
 
     return(started);
 }
 LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::start(uint16 dl_earfcn)
 {
-    boost::mutex::scoped_lock     lock(start_mutex);
+    libtools_scoped_lock          lock(start_mutex);
     LTE_fdd_dl_scan_interface    *interface = LTE_fdd_dl_scan_interface::get_instance();
     uhd::device_addr_t            hint;
     LTE_FDD_DL_SCAN_STATUS_ENUM   err           = LTE_FDD_DL_SCAN_STATUS_FAIL;
@@ -324,13 +328,13 @@ LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::start(uint16 dl_earfcn)
 }
 LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::stop(void)
 {
-    boost::mutex::scoped_lock   lock(start_mutex);
+    libtools_scoped_lock        lock(start_mutex);
     LTE_FDD_DL_SCAN_STATUS_ENUM err = LTE_FDD_DL_SCAN_STATUS_FAIL;
 
     if(started)
     {
         started = false;
-        start_mutex.unlock();
+        pthread_mutex_unlock(&start_mutex);
         sleep(1); // Wait for state_machine to exit
         pthread_cancel(start_thread);
         pthread_join(start_thread, NULL);
@@ -342,7 +346,7 @@ LTE_FDD_DL_SCAN_STATUS_ENUM LTE_fdd_dl_scan_flowgraph::stop(void)
 }
 void LTE_fdd_dl_scan_flowgraph::update_center_freq(uint16 dl_earfcn)
 {
-    boost::mutex::scoped_lock lock(start_mutex);
+    libtools_scoped_lock lock(start_mutex);
 
     if(started &&
        NULL != samp_src.get())

@@ -45,6 +45,7 @@
     03/11/2015    Ben Wojtowicz    Added detach handling.
     07/25/2015    Ben Wojtowicz    Moved QoS structure to the user class and
                                    fixed RLC AM TX and RX buffers.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
 
 *******************************************************************************/
 
@@ -59,7 +60,8 @@
 #include "liblte_rlc.h"
 #include "liblte_rrc.h"
 #include <list>
-#include <boost/thread/mutex.hpp>
+#include <map>
+#include <semaphore.h>
 
 /*******************************************************************************
                               DEFINES
@@ -310,18 +312,18 @@ private:
     LTE_fdd_enb_user    *user;
 
     // GW
-    boost::mutex                        gw_data_msg_queue_mutex;
+    sem_t                               gw_data_msg_queue_sem;
     std::list<LIBLTE_BYTE_MSG_STRUCT *> gw_data_msg_queue;
 
     // MME
-    boost::mutex                        mme_nas_msg_queue_mutex;
+    sem_t                               mme_nas_msg_queue_sem;
     std::list<LIBLTE_BYTE_MSG_STRUCT *> mme_nas_msg_queue;
     LTE_FDD_ENB_MME_PROC_ENUM           mme_procedure;
     LTE_FDD_ENB_MME_STATE_ENUM          mme_state;
 
     // RRC
-    boost::mutex                        rrc_pdu_queue_mutex;
-    boost::mutex                        rrc_nas_msg_queue_mutex;
+    sem_t                               rrc_pdu_queue_sem;
+    sem_t                               rrc_nas_msg_queue_sem;
     std::list<LIBLTE_BIT_MSG_STRUCT *>  rrc_pdu_queue;
     std::list<LIBLTE_BYTE_MSG_STRUCT *> rrc_nas_msg_queue;
     LTE_FDD_ENB_RRC_PROC_ENUM           rrc_procedure;
@@ -329,9 +331,9 @@ private:
     uint8                               rrc_transaction_id;
 
     // PDCP
-    boost::mutex                        pdcp_pdu_queue_mutex;
-    boost::mutex                        pdcp_sdu_queue_mutex;
-    boost::mutex                        pdcp_data_sdu_queue_mutex;
+    sem_t                               pdcp_pdu_queue_sem;
+    sem_t                               pdcp_sdu_queue_sem;
+    sem_t                               pdcp_data_sdu_queue_sem;
     std::list<LIBLTE_BYTE_MSG_STRUCT *> pdcp_pdu_queue;
     std::list<LIBLTE_BIT_MSG_STRUCT *>  pdcp_sdu_queue;
     std::list<LIBLTE_BYTE_MSG_STRUCT *> pdcp_data_sdu_queue;
@@ -340,14 +342,15 @@ private:
     uint32                              pdcp_tx_count;
 
     // RLC
-    boost::mutex                                  rlc_pdu_queue_mutex;
-    boost::mutex                                  rlc_sdu_queue_mutex;
+    sem_t                                         rlc_pdu_queue_sem;
+    sem_t                                         rlc_sdu_queue_sem;
     std::list<LIBLTE_BYTE_MSG_STRUCT *>           rlc_pdu_queue;
     std::list<LIBLTE_BYTE_MSG_STRUCT *>           rlc_sdu_queue;
     std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *> rlc_am_reception_buffer;
     std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *> rlc_am_transmission_buffer;
     std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>    rlc_um_reception_buffer;
     LTE_FDD_ENB_RLC_CONFIG_ENUM                   rlc_config;
+    uint32                                        t_poll_retransmit_timer_id;
     uint16                                        rlc_vrr;
     uint16                                        rlc_vrmr;
     uint16                                        rlc_vrh;
@@ -362,12 +365,11 @@ private:
     uint16                                        rlc_vtus;
 
     // MAC
-    boost::mutex                        mac_sdu_queue_mutex;
+    sem_t                               mac_sdu_queue_sem;
     std::list<LIBLTE_BYTE_MSG_STRUCT *> mac_sdu_queue;
     LTE_FDD_ENB_MAC_CONFIG_ENUM         mac_config;
     uint64                              mac_con_res_id;
     uint32                              mac_last_tti;
-    uint32                              t_poll_retransmit_timer_id;
     bool                                mac_send_con_res_id;
 
     // DRB
@@ -377,12 +379,12 @@ private:
     uint8  log_chan_group;
 
     // Generic
-    void queue_msg(LIBLTE_BIT_MSG_STRUCT *msg, boost::mutex *mutex, std::list<LIBLTE_BIT_MSG_STRUCT *> *queue);
-    void queue_msg(LIBLTE_BYTE_MSG_STRUCT *msg, boost::mutex *mutex, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue);
-    LTE_FDD_ENB_ERROR_ENUM get_next_msg(boost::mutex *mutex, std::list<LIBLTE_BIT_MSG_STRUCT *> *queue, LIBLTE_BIT_MSG_STRUCT **msg);
-    LTE_FDD_ENB_ERROR_ENUM get_next_msg(boost::mutex *mutex, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue, LIBLTE_BYTE_MSG_STRUCT **msg);
-    LTE_FDD_ENB_ERROR_ENUM delete_next_msg(boost::mutex *mutex, std::list<LIBLTE_BIT_MSG_STRUCT *> *queue);
-    LTE_FDD_ENB_ERROR_ENUM delete_next_msg(boost::mutex *mutex, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue);
+    void queue_msg(LIBLTE_BIT_MSG_STRUCT *msg, sem_t *sem, std::list<LIBLTE_BIT_MSG_STRUCT *> *queue);
+    void queue_msg(LIBLTE_BYTE_MSG_STRUCT *msg, sem_t *sem, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue);
+    LTE_FDD_ENB_ERROR_ENUM get_next_msg(sem_t *sem, std::list<LIBLTE_BIT_MSG_STRUCT *> *queue, LIBLTE_BIT_MSG_STRUCT **msg);
+    LTE_FDD_ENB_ERROR_ENUM get_next_msg(sem_t *sem, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue, LIBLTE_BYTE_MSG_STRUCT **msg);
+    LTE_FDD_ENB_ERROR_ENUM delete_next_msg(sem_t *sem, std::list<LIBLTE_BIT_MSG_STRUCT *> *queue);
+    LTE_FDD_ENB_ERROR_ENUM delete_next_msg(sem_t *sem, std::list<LIBLTE_BYTE_MSG_STRUCT *> *queue);
 };
 
 #endif /* __LTE_FDD_ENB_RB_H__ */

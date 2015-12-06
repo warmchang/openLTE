@@ -40,6 +40,10 @@
     07/25/2015    Ben Wojtowicz    Added config file support for TX/RX gains
                                    and changed the default time alignment timer
                                    to 10240 subframes.
+    12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t,
+                                   properly initialized SIB scheduling info, and
+                                   properly constructing MNC (thanks to Mikhail
+                                   Gudkov).
 
 *******************************************************************************/
 
@@ -58,7 +62,7 @@
 #include "LTE_fdd_enb_mme.h"
 #include "liblte_mac.h"
 #include "liblte_interface.h"
-#include <boost/thread/mutex.hpp>
+#include "libtools_scoped_lock.h"
 #include <boost/lexical_cast.hpp>
 
 /*******************************************************************************
@@ -75,8 +79,8 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_cnfg_db* LTE_fdd_enb_cnfg_db::instance = NULL;
-boost::mutex         cnfg_db_instance_mutex;
+LTE_fdd_enb_cnfg_db*   LTE_fdd_enb_cnfg_db::instance = NULL;
+static pthread_mutex_t cnfg_db_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
@@ -87,7 +91,7 @@ boost::mutex         cnfg_db_instance_mutex;
 /*******************/
 LTE_fdd_enb_cnfg_db* LTE_fdd_enb_cnfg_db::get_instance(void)
 {
-    boost::mutex::scoped_lock lock(cnfg_db_instance_mutex);
+    libtools_scoped_lock lock(cnfg_db_instance_mutex);
 
     if(NULL == instance)
     {
@@ -98,7 +102,7 @@ LTE_fdd_enb_cnfg_db* LTE_fdd_enb_cnfg_db::get_instance(void)
 }
 void LTE_fdd_enb_cnfg_db::cleanup(void)
 {
-    boost::mutex::scoped_lock lock(cnfg_db_instance_mutex);
+    libtools_scoped_lock lock(cnfg_db_instance_mutex);
 
     if(NULL != instance)
     {
@@ -484,8 +488,12 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
     }
 
     // Initialize the scheduling info
-    sys_info.sib1.N_sched_info                     = 1;
-    sys_info.sib1.sched_info[0].N_sib_mapping_info = 0;
+    sys_info.sib1.N_sched_info = 1;
+    for(i=0; i<LIBLTE_RRC_MAX_SI_MESSAGE; i++)
+    {
+        sys_info.sib1.sched_info[i].N_sib_mapping_info = 0;
+        sys_info.sib1.sched_info[i].si_periodicity     = LIBLTE_RRC_SI_PERIODICITY_RF8;
+    }
 
     // Map the SIBs
     while(num_sibs > 0)
@@ -539,7 +547,7 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
         for(i=0; i<3; i++)
         {
             sys_info.mcc *= 10;
-            sys_info.mcc |= (((*uint32_iter).second) >> (2-i)*4) & 0xF;
+            sys_info.mcc += (((*uint32_iter).second) >> (2-i)*4) & 0xF;
         }
     }
     uint32_iter = var_map_uint32.find(LTE_FDD_ENB_PARAM_MNC);
@@ -552,7 +560,7 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
             for(i=0; i<2; i++)
             {
                 sys_info.mnc *= 10;
-                sys_info.mnc |= (((*uint32_iter).second) >> (1-i)*4) & 0xF;
+                sys_info.mnc += (((*uint32_iter).second) >> (1-i)*4) & 0xF;
             }
         }else{
             for(i=0; i<3; i++)

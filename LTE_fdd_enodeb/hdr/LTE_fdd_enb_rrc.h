@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -38,6 +38,9 @@
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
+    02/13/2016    Ben Wojtowicz    Removed boost message queue include and
+                                   add support for connection reestablishment
+                                   and connection reestablishment reject.
 
 *******************************************************************************/
 
@@ -51,7 +54,6 @@
 #include "LTE_fdd_enb_cnfg_db.h"
 #include "LTE_fdd_enb_user.h"
 #include "LTE_fdd_enb_msgq.h"
-#include <boost/interprocess/ipc/message_queue.hpp>
 
 /*******************************************************************************
                               DEFINES
@@ -85,6 +87,7 @@ public:
 
     // External interface
     void update_sys_info(void);
+    void handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd);
 
 private:
     // Singleton
@@ -110,7 +113,6 @@ private:
 
     // MME Message Handlers
     void handle_nas_msg(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT *nas_msg);
-    void handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd);
 
     // State Machines
     void ccch_sm(LIBLTE_BIT_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
@@ -123,6 +125,8 @@ private:
     // Message Senders
     void send_dl_info_transfer(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *msg);
     void send_rrc_con_reconfig(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *msg);
+    void send_rrc_con_reest(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void send_rrc_con_reest_reject(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_rrc_con_release(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_rrc_con_setup(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_security_mode_command(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);

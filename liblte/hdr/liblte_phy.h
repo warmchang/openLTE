@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2015 Ben Wojtowicz
+    Copyright 2012-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -67,6 +67,10 @@
                                    sizes in the rate match/unmatch arrays in
                                    LIBLTE_PHY_STRUCT (thanks to Ziming He for
                                    finding this).
+    02/13/2016    Ben Wojtowicz    Moved turbo coder rate match/unmatch and
+                                   code block segmentation/desegmentation to
+                                   globally available routines to support unit
+                                   tests.
 
 *******************************************************************************/
 
@@ -1121,5 +1125,92 @@ LIBLTE_ERROR_ENUM liblte_phy_get_n_cce(LIBLTE_PHY_STRUCT *phy_struct,
                                        uint32             N_pdcch_symbs,
                                        uint8              N_ant,
                                        uint32            *N_cce);
+
+/*********************************************************************
+    Name: liblte_phy_rate_match_turbo
+
+    Description: Rate matches turbo encoded data
+
+    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.4.1
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void liblte_phy_rate_match_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
+                                 uint8                     *d_bits,
+                                 uint32                     N_d_bits,
+                                 uint32                     N_codeblocks,
+                                 uint32                     tx_mode,
+                                 uint32                     N_soft,
+                                 uint32                     M_dl_harq,
+                                 LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
+                                 uint32                     rv_idx,
+                                 uint32                     N_e_bits,
+                                 uint8                     *e_bits);
+
+/*********************************************************************
+    Name: liblte_phy_rate_unmatch_turbo
+
+    Description: Rate unmatches turbo encoded data
+
+    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.4.1
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void liblte_phy_rate_unmatch_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
+                                   float                     *e_bits,
+                                   uint32                     N_e_bits,
+                                   uint8                     *dummy_bits,
+                                   uint32                     N_dummy_bits,
+                                   uint32                     N_codeblocks,
+                                   uint32                     tx_mode,
+                                   uint32                     N_soft,
+                                   uint32                     M_dl_harq,
+                                   LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
+                                   uint32                     rv_idx,
+                                   float                     *d_bits,
+                                   uint32                    *N_d_bits);
+
+/*********************************************************************
+    Name: liblte_phy_code_block_segmentation
+
+    Description: Performs code block segmentation for turbo coded
+                 channels
+
+    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.2
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void liblte_phy_code_block_segmentation(uint8  *b_bits,
+                                        uint32  N_b_bits,
+                                        uint32 *N_codeblocks,
+                                        uint32 *N_filler_bits,
+                                        uint8  *c_bits,
+                                        uint32  N_c_bits_max,
+                                        uint32 *N_c_bits);
+
+/*********************************************************************
+    Name: liblte_phy_code_block_desegmentation
+
+    Description: Performs code block desegmentation for turbo coded
+                 channels
+
+    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.2
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void liblte_phy_code_block_desegmentation(uint8  *c_bits,
+                                          uint32 *N_c_bits,
+                                          uint32  N_c_bits_max,
+                                          uint32  tbs,
+                                          uint8  *b_bits,
+                                          uint32  N_b_bits);
 
 #endif /* __LIBLTE_PHY_H__ */

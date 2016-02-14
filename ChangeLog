@@ -210,3 +210,15 @@ v00.19.01     Added support for all ID types for the mobile identity IE in MME, 
               allocation structure in MAC (thanks to Markus Grab), fixed the updating
               of VT(A) in the RLC retransmission buffer, and changed the QoS parameters
               for default data in LTE_fdd_enodeb.
+v00.19.02     Pulled in unit tests for the turbo decoder from Ziming He, optimized
+              the PBCH detection algorithm (thanks to Ziming He), and fixed the setting
+              of id for IMEISV in Mobile Idenity IE (thanks to Mikhail Gudkov) in the
+              LTE library, added the ability to print all registered users, removed
+              extra boost includes, added an RRC connection reestablishment state
+              machine, added a UE inactivity timer, actually properly constructing
+              MNC (thanks to Mikhail Gudkov), memcpy-ing IP packet headers instead
+              of typecasting (thanks to Damian Jarek), initialized present flags
+              and changed packet filter evaluation precedence in activate dedicated
+              EPS bearer context (thanks to Pedro Batista), moved the message queue
+              empty error to a warning, and properly updating the user list iterator
+              after erasing a user (thanks to Damian Jarek).

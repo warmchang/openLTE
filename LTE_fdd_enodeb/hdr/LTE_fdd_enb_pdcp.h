@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@
     12/16/2014    Ben Wojtowicz    Added ol extension to message queues.
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
+    02/13/2016    Ben Wojtowicz    Removed boost message queue include.
 
 *******************************************************************************/
 
@@ -42,7 +43,6 @@
 
 #include "LTE_fdd_enb_cnfg_db.h"
 #include "LTE_fdd_enb_msgq.h"
-#include <boost/interprocess/ipc/message_queue.hpp>
 
 /*******************************************************************************
                               DEFINES

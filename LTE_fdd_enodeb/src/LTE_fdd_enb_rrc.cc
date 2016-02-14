@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_rrc.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -47,6 +47,8 @@
                                    alignment timer to 10240 subframes.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    02/13/2016    Ben Wojtowicz    Added RRC connection reestablishment state
+                                   machine.
 
 *******************************************************************************/
 
@@ -467,7 +469,33 @@ void LTE_fdd_enb_rrc::ccch_sm(LIBLTE_BIT_MSG_STRUCT *msg,
         }
         break;
     case LTE_FDD_ENB_RRC_PROC_RRC_CON_REEST_REQ:
-        // FIXME: Not handling RRC Connection Reestablishment Request
+        switch(loc_rb->get_rrc_state())
+        {
+        case LTE_FDD_ENB_RRC_STATE_IDLE:
+            loc_user->setup_srb1(&srb1);
+            if(NULL != srb1)
+            {
+                loc_rb->set_rrc_state(LTE_FDD_ENB_RRC_STATE_SRB1_SETUP);
+                send_rrc_con_reest(loc_user, loc_rb);
+
+                // Setup uplink scheduling
+                srb1->set_rrc_procedure(LTE_FDD_ENB_RRC_PROC_RRC_CON_REEST_REQ);
+                srb1->set_rrc_state(LTE_FDD_ENB_RRC_STATE_WAIT_FOR_CON_REEST_COMPLETE);
+                user->set_qos(LTE_FDD_ENB_QOS_SIGNALLING);
+            }else{
+                send_rrc_con_reest_reject(loc_user, loc_rb);
+            }
+            break;
+        default:
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_RRC,
+                                      __FILE__,
+                                      __LINE__,
+                                      "UL-CCCH-Message RRC CON REEST REQ state machine invalid state %s",
+                                      LTE_fdd_enb_rrc_state_text[loc_rb->get_rrc_state()]);
+            break;
+        }
+        break;
     default:
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_RRC,
@@ -488,9 +516,7 @@ void LTE_fdd_enb_rrc::dcch_sm(LIBLTE_BIT_MSG_STRUCT *msg,
         switch(rb->get_rrc_state())
         {
         case LTE_FDD_ENB_RRC_STATE_WAIT_FOR_CON_SETUP_COMPLETE:
-            // Parse the message
-            parse_ul_dcch_message(msg, user, rb);
-            break;
+        case LTE_FDD_ENB_RRC_STATE_WAIT_FOR_CON_REEST_COMPLETE:
         case LTE_FDD_ENB_RRC_STATE_RRC_CONNECTED:
             // Parse the message
             parse_ul_dcch_message(msg, user, rb);
@@ -567,12 +593,26 @@ void LTE_fdd_enb_rrc::parse_ul_ccch_message(LIBLTE_BIT_MSG_STRUCT  *msg,
         (*rb)->set_rrc_procedure(LTE_FDD_ENB_RRC_PROC_RRC_CON_REQ);
         break;
     case LIBLTE_RRC_UL_CCCH_MSG_TYPE_RRC_CON_REEST_REQ:
-        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                  LTE_FDD_ENB_DEBUG_LEVEL_RRC,
-                                  __FILE__,
-                                  __LINE__,
-                                  "Not handling UL-CCCH-Message with msg_type=%s",
-                                  liblte_rrc_ul_ccch_msg_type_text[(*rb)->ul_ccch_msg.msg_type]);
+        if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user((*rb)->ul_ccch_msg.msg.rrc_con_reest_req.ue_id.c_rnti, &act_user))
+        {
+            if(act_user != (*user))
+            {
+                act_user->copy_rbs((*user));
+                (*user)->clear_rbs();
+                user_mgr->transfer_c_rnti(*user, act_user);
+                *user = act_user;
+            }
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_RRC,
+                                      __FILE__,
+                                      __LINE__,
+                                      "IMSI=%s is associated with RNTI=%u, RB=%s",
+                                      (*user)->get_imsi_str().c_str(),
+                                      (*user)->get_c_rnti(),
+                                      LTE_fdd_enb_rb_text[(*rb)->get_rb_id()]);
+        }
+        (*rb)->set_rrc_procedure(LTE_FDD_ENB_RRC_PROC_RRC_CON_REEST_REQ);
+        (*rb)->set_rrc_state(LTE_FDD_ENB_RRC_STATE_IDLE);
         break;
     default:
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -607,6 +647,9 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
 
     switch(rb->ul_dcch_msg.msg_type)
     {
+    case LIBLTE_RRC_UL_DCCH_MSG_TYPE_RRC_CON_REEST_COMPLETE:
+        rb->set_rrc_state(LTE_FDD_ENB_RRC_STATE_RRC_CONNECTED);
+        break;
     case LIBLTE_RRC_UL_DCCH_MSG_TYPE_RRC_CON_SETUP_COMPLETE:
         rb->set_rrc_state(LTE_FDD_ENB_RRC_STATE_RRC_CONNECTED);
 
@@ -815,6 +858,86 @@ void LTE_fdd_enb_rrc::send_rrc_con_reconfig(LTE_fdd_enb_user       *user,
                               __LINE__,
                               &pdcp_sdu,
                               "Sending RRC Connection Reconfiguration for RNTI=%u, RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    // Queue the PDU for PDCP
+    rb->queue_pdcp_sdu(&pdcp_sdu);
+
+    // Signal PDCP
+    pdcp_sdu_ready.user = user;
+    pdcp_sdu_ready.rb   = rb;
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+}
+void LTE_fdd_enb_rrc::send_rrc_con_reest(LTE_fdd_enb_user *user,
+                                         LTE_fdd_enb_rb   *rb)
+{
+    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT         pdcp_sdu_ready;
+    LIBLTE_RRC_CONNECTION_REESTABLISHMENT_STRUCT *rrc_con_reest;
+    LIBLTE_BIT_MSG_STRUCT                         pdcp_sdu;
+
+    rb->dl_ccch_msg.msg_type                                                                  = LIBLTE_RRC_DL_CCCH_MSG_TYPE_RRC_CON_REEST;
+    rrc_con_reest                                                                             = (LIBLTE_RRC_CONNECTION_REESTABLISHMENT_STRUCT *)&rb->dl_ccch_msg.msg.rrc_con_reest;
+    rrc_con_reest->rrc_transaction_id                                                         = rb->get_rrc_transaction_id();
+    rrc_con_reest->rr_cnfg.srb_to_add_mod_list_size                                           = 1;
+    rrc_con_reest->rr_cnfg.srb_to_add_mod_list[0].srb_id                                      = 1;
+    rrc_con_reest->rr_cnfg.srb_to_add_mod_list[0].rlc_cnfg_present                            = true;
+    rrc_con_reest->rr_cnfg.srb_to_add_mod_list[0].rlc_default_cnfg_present                    = true;
+    rrc_con_reest->rr_cnfg.srb_to_add_mod_list[0].lc_cnfg_present                             = true;
+    rrc_con_reest->rr_cnfg.srb_to_add_mod_list[0].lc_default_cnfg_present                     = true;
+    rrc_con_reest->rr_cnfg.drb_to_add_mod_list_size                                           = 0;
+    rrc_con_reest->rr_cnfg.drb_to_release_list_size                                           = 0;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg_present                                              = true;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.default_value                                        = false;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.ulsch_cnfg_present                    = true;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.ulsch_cnfg.max_harq_tx_present        = true;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.ulsch_cnfg.max_harq_tx                = LIBLTE_RRC_MAX_HARQ_TX_N1;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.ulsch_cnfg.periodic_bsr_timer_present = false;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.ulsch_cnfg.retx_bsr_timer             = LIBLTE_RRC_RETRANSMISSION_BSR_TIMER_SF1280;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.ulsch_cnfg.tti_bundling               = false;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.drx_cnfg_present                      = false;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.phr_cnfg_present                      = false;
+    rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.time_alignment_timer                  = LIBLTE_RRC_TIME_ALIGNMENT_TIMER_SF10240;
+    rrc_con_reest->rr_cnfg.sps_cnfg_present                                                   = false;
+    rrc_con_reest->rr_cnfg.phy_cnfg_ded_present                                               = false;
+    rrc_con_reest->rr_cnfg.rlf_timers_and_constants_present                                   = false;
+    liblte_rrc_pack_dl_ccch_msg(&rb->dl_ccch_msg, &pdcp_sdu);
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_RRC,
+                              __FILE__,
+                              __LINE__,
+                              "Sending RRC Connection Reestablishment for RNTI=%u, RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    // Queue the PDU for PDCP
+    rb->queue_pdcp_sdu(&pdcp_sdu);
+
+    // Signal PDCP
+    pdcp_sdu_ready.user = user;
+    pdcp_sdu_ready.rb   = rb;
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+}
+void LTE_fdd_enb_rrc::send_rrc_con_reest_reject(LTE_fdd_enb_user *user,
+                                                LTE_fdd_enb_rb   *rb)
+{
+    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT pdcp_sdu_ready;
+    LIBLTE_BIT_MSG_STRUCT                 pdcp_sdu;
+
+    rb->dl_ccch_msg.msg_type = LIBLTE_RRC_DL_CCCH_MSG_TYPE_RRC_CON_REEST_REJ;
+    liblte_rrc_pack_dl_ccch_msg(&rb->dl_ccch_msg, &pdcp_sdu);
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_RRC,
+                              __FILE__,
+                              __LINE__,
+                              &pdcp_sdu,
+                              "Sending RRC Connection Reestablishment Reject for RNTI=%u, RB=%s",
                               user->get_c_rnti(),
                               LTE_fdd_enb_rb_text[rb->get_rb_id()]);
 

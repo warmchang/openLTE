@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_user.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -41,6 +41,7 @@
     12/06/2015    Ben Wojtowicz    Changed the deletion and C-RNTI release
                                    procedures and changed the QoS parameters
                                    for default data.
+    02/13/2016    Ben Wojtowicz    Added an inactivity timer.
 
 *******************************************************************************/
 
@@ -52,6 +53,7 @@
 #include "LTE_fdd_enb_user_mgr.h"
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "LTE_fdd_enb_mac.h"
+#include "LTE_fdd_enb_rrc.h"
 #include "liblte_mme.h"
 #include <boost/lexical_cast.hpp>
 
@@ -128,11 +130,12 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
     ul_ndi            = false;
 
     // Generic
-    N_del_ticks  = 0;
-    avail_qos[0] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,  0,   0,   0};
-    avail_qos[1] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20, 20,  22,  22};
-    avail_qos[2] = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 10,  5, 100, 400};
-    qos          = LTE_FDD_ENB_QOS_NONE;
+    N_del_ticks         = 0;
+    avail_qos[0]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,  0,   0,   0};
+    avail_qos[1]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20, 20,  22,  22};
+    avail_qos[2]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 10,  5, 100, 400};
+    qos                 = LTE_FDD_ENB_QOS_NONE;
+    inactivity_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
 }
 LTE_fdd_enb_user::~LTE_fdd_enb_user()
 {
@@ -639,6 +642,7 @@ void LTE_fdd_enb_user::stop_ul_sched_timer(void)
     LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
 
     timer_mgr->stop_timer(ul_sched_timer_id);
+    ul_sched_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
 }
 
 /*****************/
@@ -654,7 +658,9 @@ uint32 LTE_fdd_enb_user::get_N_del_ticks(void)
 }
 void LTE_fdd_enb_user::handle_timer_expiry(uint32 timer_id)
 {
-    LTE_fdd_enb_mac *mac = LTE_fdd_enb_mac::get_instance();
+    LTE_fdd_enb_mac                      *mac = LTE_fdd_enb_mac::get_instance();
+    LTE_fdd_enb_rrc                      *rrc = LTE_fdd_enb_rrc::get_instance();
+    LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT  cmd;
 
     if(timer_id == ul_sched_timer_id)
     {
@@ -662,6 +668,14 @@ void LTE_fdd_enb_user::handle_timer_expiry(uint32 timer_id)
         if(c_rnti_set)
         {
             start_ul_sched_timer(ul_sched_timer_m_seconds);
+        }
+    }else if(timer_id == inactivity_timer_id){
+        if(NULL != srb1)
+        {
+            cmd.cmd  = LTE_FDD_ENB_RRC_CMD_RELEASE;
+            cmd.user = this;
+            cmd.rb   = srb1;
+            rrc->handle_cmd(&cmd);
         }
     }
 }
@@ -694,4 +708,30 @@ uint32 LTE_fdd_enb_user::get_qos_ul_bytes_per_subfn(void)
 uint32 LTE_fdd_enb_user::get_qos_dl_bytes_per_subfn(void)
 {
     return(avail_qos[qos].dl_bytes_per_subfn);
+}
+void LTE_fdd_enb_user::start_inactivity_timer(uint32 m_seconds)
+{
+    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
+    LTE_fdd_enb_timer_cb   timer_expiry_cb(&LTE_fdd_enb_timer_cb_wrapper<LTE_fdd_enb_user, &LTE_fdd_enb_user::handle_timer_expiry>, this);
+
+    timer_mgr->start_timer(m_seconds, timer_expiry_cb, &inactivity_timer_id);
+}
+void LTE_fdd_enb_user::reset_inactivity_timer(uint32 m_seconds)
+{
+    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
+    LTE_fdd_enb_timer_cb   timer_expiry_cb(&LTE_fdd_enb_timer_cb_wrapper<LTE_fdd_enb_user, &LTE_fdd_enb_user::handle_timer_expiry>, this);
+
+    if(LTE_FDD_ENB_INVALID_TIMER_ID != inactivity_timer_id)
+    {
+        timer_mgr->reset_timer(inactivity_timer_id);
+    }else{
+        timer_mgr->start_timer(m_seconds, timer_expiry_cb, &inactivity_timer_id);
+    }
+}
+void LTE_fdd_enb_user::stop_inactivity_timer(void)
+{
+    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
+
+    timer_mgr->stop_timer(inactivity_timer_id);
+    inactivity_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
 }

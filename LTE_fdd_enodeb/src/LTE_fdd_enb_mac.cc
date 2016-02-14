@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_mac.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -58,6 +58,7 @@
                                    subframes, and properly initialize allocation
                                    structure (thanks to Markus Grab for finding
                                    this).
+    02/13/2016    Ben Wojtowicz    Added a user inactivity timer.
 
 *******************************************************************************/
 
@@ -428,6 +429,9 @@ void LTE_fdd_enb_mac::handle_pusch_decode(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT *p
     {
         // Reset the C-RNTI release timer
         user_mgr->reset_c_rnti_timer(pusch_decode->rnti);
+
+        // Reset the inactivity timer
+        user->reset_inactivity_timer(LTE_FDD_ENB_USER_INACTIVITY_TIMER_VALUE_MS);
 
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                   LTE_FDD_ENB_DEBUG_LEVEL_MAC,

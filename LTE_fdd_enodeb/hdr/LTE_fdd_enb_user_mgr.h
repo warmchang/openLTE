@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -34,6 +34,8 @@
     12/16/2014    Ben Wojtowicz    Added delayed user delete functionality.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t and changed the
                                    user deletion procedure.
+    02/13/2016    Ben Wojtowicz    Added ability to retrieve a string of all
+                                   registered users.
 
 *******************************************************************************/
 
@@ -90,6 +92,7 @@ public:
     LTE_FDD_ENB_ERROR_ENUM del_user(std::string imsi);
     LTE_FDD_ENB_ERROR_ENUM del_user(uint16 c_rnti);
     LTE_FDD_ENB_ERROR_ENUM del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti);
+    std::string print_all_users(void);
 
 private:
     // Singleton

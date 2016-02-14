@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_msgq.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -37,6 +37,8 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex and
                                    boost::interprocess::interprocess_semaphore
                                    to sem_t and properly initializing priority.
+    02/13/2016    Ben Wojtowicz    Moved the buffer empty log from ERROR to
+                                   WARNING.
 
 *******************************************************************************/
 
@@ -219,7 +221,7 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
                 sem_wait(&msgq->sync_sem);
             }
         }else{
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_WARNING,
                                       LTE_FDD_ENB_DEBUG_LEVEL_MSGQ,
                                       __FILE__,
                                       __LINE__,

@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_cnfg_db.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -44,6 +44,8 @@
                                    properly initialized SIB scheduling info, and
                                    properly constructing MNC (thanks to Mikhail
                                    Gudkov).
+    02/13/2016    Ben Wojtowicz    Actually properly constructing MNC (again,
+                                   thanks to Mikhail Gudkov).
 
 *******************************************************************************/
 
@@ -566,7 +568,7 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
             for(i=0; i<3; i++)
             {
                 sys_info.mnc *= 10;
-                sys_info.mnc |= (((*uint32_iter).second) >> (2-i)*4) & 0xF;
+                sys_info.mnc += (((*uint32_iter).second) >> (2-i)*4) & 0xF;
             }
         }
     }

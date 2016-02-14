@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2015 Ben Wojtowicz
+    Copyright 2012-2016 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (DCI 1C Unpack)
 
     This program is free software: you can redistribute it and/or modify
@@ -114,6 +114,11 @@
                                    for performance reasons.
     12/06/2015    Ben Wojtowicz    Added a return to liblte_phy_get_n_cce,
                                    thanks to Damian Jarek for reporting this.
+    02/13/2016    Ben Wojtowicz    Moved turbo coder rate match/unmatch and
+                                   code block segmentation/desegmentation to
+                                   globally available routines to support unit
+                                   tests and incorporated changes from Ziming
+                                   He for better PBCH detection.
 
 *******************************************************************************/
 
@@ -1333,45 +1338,6 @@ void calc_crc(uint8  *a_bits,
               uint32  N_p_bits);
 
 /*********************************************************************
-    Name: code_block_segmentation
-
-    Description: Performs code block segmentation for turbo coded
-                 channels
-
-    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.2
-*********************************************************************/
-// Defines
-// Enums
-// Structs
-// Functions
-void code_block_segmentation(uint8  *b_bits,
-                             uint32  N_b_bits,
-                             uint32 *N_codeblocks,
-                             uint32 *N_filler_bits,
-                             uint8  *c_bits,
-                             uint32  N_c_bits_max,
-                             uint32 *N_c_bits);
-
-/*********************************************************************
-    Name: code_block_desegmentation
-
-    Description: Performs code block desegmentation for turbo coded
-                 channels
-
-    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.2
-*********************************************************************/
-// Defines
-// Enums
-// Structs
-// Functions
-void code_block_desegmentation(uint8  *c_bits,
-                               uint32 *N_c_bits,
-                               uint32  N_c_bits_max,
-                               uint32  tbs,
-                               uint8  *b_bits,
-                               uint32  N_b_bits);
-
-/*********************************************************************
     Name: conv_encode
 
     Description: Convolutionally encodes a bit array using the
@@ -1576,54 +1542,6 @@ void turbo_internal_deinterleaver(float  *in_bits,
 void turbo_internal_deinterleaver(int8   *in_bits,
                                   uint32  N_in_bits,
                                   int8   *out_bits);
-
-/*********************************************************************
-    Name: rate_match_turbo
-
-    Description: Rate matches turbo encoded data
-
-    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.4.1
-*********************************************************************/
-// Defines
-// Enums
-// Structs
-// Functions
-void rate_match_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
-                      uint8                     *d_bits,
-                      uint32                     N_d_bits,
-                      uint32                     N_codeblocks,
-                      uint32                     tx_mode,
-                      uint32                     N_soft,
-                      uint32                     M_dl_harq,
-                      LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
-                      uint32                     rv_idx,
-                      uint32                     N_e_bits,
-                      uint8                     *e_bits);
-
-/*********************************************************************
-    Name: rate_unmatch_turbo
-
-    Description: Rate unmatches turbo encoded data
-
-    Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.4.1
-*********************************************************************/
-// Defines
-// Enums
-// Structs
-// Functions
-void rate_unmatch_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
-                        float                     *e_bits,
-                        uint32                     N_e_bits,
-                        uint8                     *dummy_bits,
-                        uint32                     N_dummy_bits,
-                        uint32                     N_codeblocks,
-                        uint32                     tx_mode,
-                        uint32                     N_soft,
-                        uint32                     M_dl_harq,
-                        LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
-                        uint32                     rv_idx,
-                        float                     *d_bits,
-                        uint32                    *N_d_bits);
 
 /*********************************************************************
     Name: rate_match_conv
@@ -1872,7 +1790,7 @@ void bch_channel_encode(LIBLTE_PHY_STRUCT *phy_struct,
 LIBLTE_ERROR_ENUM bch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
                                      float             *in_bits,
                                      uint32             N_in_bits,
-                                     uint8             *N_ant,
+                                     uint8              N_ant,
                                      uint8             *out_bits,
                                      uint32            *N_out_bits);
 
@@ -3736,7 +3654,9 @@ LIBLTE_ERROR_ENUM liblte_phy_bch_channel_decode(LIBLTE_PHY_STRUCT          *phy_
         // Generate the scrambling sequence
         generate_prs_c(N_id_cell, 1920, phy_struct->bch_c);
 
-        // Try decoding with 1, 2, and 4 antennas
+        // Try decoding with 1, 2, and 4 antenna configs,
+        // and for each antenna config, try decoding with 0 to 3 offset
+        *N_ant = 0;
         for(p=1; p<5; p++)
         {
             if(p != 3)
@@ -3769,7 +3689,6 @@ LIBLTE_ERROR_ENUM liblte_phy_bch_channel_decode(LIBLTE_PHY_STRUCT          *phy_
                                     &N_bits);
 
                 // Try decoding at each offset
-                *N_ant = 0;
                 for(i=0; i<4; i++)
                 {
                     for(j=0; j<1920; j++)
@@ -3783,11 +3702,12 @@ LIBLTE_ERROR_ENUM liblte_phy_bch_channel_decode(LIBLTE_PHY_STRUCT          *phy_
                     if(LIBLTE_SUCCESS == bch_channel_decode(phy_struct,
                                                             phy_struct->bch_descramb_bits,
                                                             1920,
-                                                            N_ant,
+                                                            p,
                                                             out_bits,
                                                             N_out_bits))
                     {
                         *offset = i;
+                        *N_ant  = p;
                         break;
                     }
                 }
@@ -9287,20 +9207,20 @@ void calc_crc(uint8  *a_bits,
 }
 
 /*********************************************************************
-    Name: code_block_segmentation
+    Name: liblte_phy_code_block_segmentation
 
     Description: Performs code block segmentation for turbo coded
                  channels
 
     Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.2
 *********************************************************************/
-void code_block_segmentation(uint8  *b_bits,
-                             uint32  N_b_bits,
-                             uint32 *N_codeblocks,
-                             uint32 *N_filler_bits,
-                             uint8  *c_bits,
-                             uint32  N_c_bits_max,
-                             uint32 *N_c_bits)
+void liblte_phy_code_block_segmentation(uint8  *b_bits,
+                                        uint32  N_b_bits,
+                                        uint32 *N_codeblocks,
+                                        uint32 *N_filler_bits,
+                                        uint8  *c_bits,
+                                        uint32  N_c_bits_max,
+                                        uint32 *N_c_bits)
 {
     uint32 Z = 6144;
     uint32 L;
@@ -9409,19 +9329,19 @@ void code_block_segmentation(uint8  *b_bits,
 }
 
 /*********************************************************************
-    Name: code_block_desegmentation
+    Name: liblte_phy_code_block_desegmentation
 
     Description: Performs code block desegmentation for turbo coded
                  channels
 
     Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.2
 *********************************************************************/
-void code_block_desegmentation(uint8  *c_bits,
-                               uint32 *N_c_bits,
-                               uint32  N_c_bits_max,
-                               uint32  tbs,
-                               uint8  *b_bits,
-                               uint32  N_b_bits)
+void liblte_phy_code_block_desegmentation(uint8  *c_bits,
+                                          uint32 *N_c_bits,
+                                          uint32  N_c_bits_max,
+                                          uint32  tbs,
+                                          uint8  *b_bits,
+                                          uint32  N_b_bits)
 {
     uint32  Z = 6144;
     uint32  L;
@@ -10607,23 +10527,23 @@ void turbo_internal_deinterleaver(int8   *in_bits,
 }
 
 /*********************************************************************
-    Name: rate_match_turbo
+    Name: liblte_phy_rate_match_turbo
 
     Description: Rate matches turbo encoded data
 
     Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.4.1
 *********************************************************************/
-void rate_match_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
-                      uint8                     *d_bits,
-                      uint32                     N_d_bits,
-                      uint32                     N_codeblocks,
-                      uint32                     tx_mode,
-                      uint32                     N_soft,
-                      uint32                     M_dl_harq,
-                      LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
-                      uint32                     rv_idx,
-                      uint32                     N_e_bits,
-                      uint8                     *e_bits)
+void liblte_phy_rate_match_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
+                                 uint8                     *d_bits,
+                                 uint32                     N_d_bits,
+                                 uint32                     N_codeblocks,
+                                 uint32                     tx_mode,
+                                 uint32                     N_soft,
+                                 uint32                     M_dl_harq,
+                                 LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
+                                 uint32                     rv_idx,
+                                 uint32                     N_e_bits,
+                                 uint8                     *e_bits)
 {
     uint32 C_tc_sb = 32; // Step 1: Assign C_tc_sb to 32
     uint32 R_tc_sb;
@@ -10772,25 +10692,25 @@ void rate_match_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
 }
 
 /*********************************************************************
-    Name: rate_unmatch_turbo
+    Name: liblte_phy_rate_unmatch_turbo
 
     Description: Rate unmatches turbo encoded data
 
     Document Reference: 3GPP TS 36.212 v10.1.0 section 5.1.4.1
 *********************************************************************/
-void rate_unmatch_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
-                        float                     *e_bits,
-                        uint32                     N_e_bits,
-                        uint8                     *dummy_bits,
-                        uint32                     N_dummy_bits,
-                        uint32                     N_codeblocks,
-                        uint32                     tx_mode,
-                        uint32                     N_soft,
-                        uint32                     M_dl_harq,
-                        LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
-                        uint32                     rv_idx,
-                        float                     *d_bits,
-                        uint32                    *N_d_bits)
+void liblte_phy_rate_unmatch_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
+                                   float                     *e_bits,
+                                   uint32                     N_e_bits,
+                                   uint8                     *dummy_bits,
+                                   uint32                     N_dummy_bits,
+                                   uint32                     N_codeblocks,
+                                   uint32                     tx_mode,
+                                   uint32                     N_soft,
+                                   uint32                     M_dl_harq,
+                                   LIBLTE_PHY_CHAN_TYPE_ENUM  chan_type,
+                                   uint32                     rv_idx,
+                                   float                     *d_bits,
+                                   uint32                    *N_d_bits)
 {
     uint32 C_tc_sb = 32; // Step 1: Assign C_tc_sb to 32
     uint32 R_tc_sb;
@@ -11814,13 +11734,13 @@ void ulsch_channel_encode(LIBLTE_PHY_STRUCT *phy_struct,
     }
 
     // Construct c_bits
-    code_block_segmentation(phy_struct->ulsch_b_bits,
-                            tbs+24,
-                            &N_codeblocks,
-                            &N_fill_bits,
-                            phy_struct->ulsch_c_bits[0],
-                            6144,
-                            phy_struct->ulsch_N_c_bits);
+    liblte_phy_code_block_segmentation(phy_struct->ulsch_b_bits,
+                                       tbs+24,
+                                       &N_codeblocks,
+                                       &N_fill_bits,
+                                       phy_struct->ulsch_c_bits[0],
+                                       LIBLTE_PHY_MAX_CODE_BLOCK_SIZE,
+                                       phy_struct->ulsch_N_c_bits);
 
     for(cb=0; cb<N_codeblocks; cb++)
     {
@@ -11841,17 +11761,17 @@ void ulsch_channel_encode(LIBLTE_PHY_STRUCT *phy_struct,
         }else{
             phy_struct->ulsch_N_e_bits[cb] = N_l*Q_m*(uint32)ceilf((float)G_prime/(float)N_codeblocks);
         }
-        rate_match_turbo(phy_struct,
-                         phy_struct->ulsch_tx_d_bits,
-                         N_d_bits,
-                         N_codeblocks,
-                         tx_mode,
-                         1,
-                         1,
-                         LIBLTE_PHY_CHAN_TYPE_ULSCH,
-                         rv_idx,
-                         phy_struct->ulsch_N_e_bits[cb],
-                         phy_struct->ulsch_tx_e_bits[0]);
+        liblte_phy_rate_match_turbo(phy_struct,
+                                    phy_struct->ulsch_tx_d_bits,
+                                    N_d_bits,
+                                    N_codeblocks,
+                                    tx_mode,
+                                    1,
+                                    1,
+                                    LIBLTE_PHY_CHAN_TYPE_ULSCH,
+                                    rv_idx,
+                                    phy_struct->ulsch_N_e_bits[cb],
+                                    phy_struct->ulsch_tx_e_bits[0]);
     }
 
     // Determine f_bits
@@ -11927,13 +11847,13 @@ LIBLTE_ERROR_ENUM ulsch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
     // determined by encoding a sequence of zeros
     N_b_bits = tbs+24;
     memset(phy_struct->ulsch_b_bits, 0, sizeof(uint8)*N_b_bits);
-    code_block_segmentation(phy_struct->ulsch_b_bits,
-                            N_b_bits,
-                            &N_codeblocks,
-                            &N_fill_bits,
-                            phy_struct->ulsch_c_bits[0],
-                            6144,
-                            phy_struct->ulsch_N_c_bits);
+    liblte_phy_code_block_segmentation(phy_struct->ulsch_b_bits,
+                                       N_b_bits,
+                                       &N_codeblocks,
+                                       &N_fill_bits,
+                                       phy_struct->ulsch_c_bits[0],
+                                       LIBLTE_PHY_MAX_CODE_BLOCK_SIZE,
+                                       phy_struct->ulsch_N_c_bits);
 
     // Determine g_bits
     ulsch_channel_deinterleaver(phy_struct,
@@ -11978,19 +11898,19 @@ LIBLTE_ERROR_ENUM ulsch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
                      &N_d_bits);
 
         // Determine d_bits
-        rate_unmatch_turbo(phy_struct,
-                           phy_struct->ulsch_rx_e_bits[cb],
-                           phy_struct->ulsch_N_e_bits[cb],
-                           phy_struct->ulsch_tx_d_bits,
-                           N_d_bits/3,
-                           N_codeblocks,
-                           tx_mode,
-                           1,
-                           1,
-                           LIBLTE_PHY_CHAN_TYPE_ULSCH,
-                           rv_idx,
-                           phy_struct->ulsch_rx_d_bits,
-                           &N_d_bits);
+        liblte_phy_rate_unmatch_turbo(phy_struct,
+                                      phy_struct->ulsch_rx_e_bits[cb],
+                                      phy_struct->ulsch_N_e_bits[cb],
+                                      phy_struct->ulsch_tx_d_bits,
+                                      N_d_bits/3,
+                                      N_codeblocks,
+                                      tx_mode,
+                                      1,
+                                      1,
+                                      LIBLTE_PHY_CHAN_TYPE_ULSCH,
+                                      rv_idx,
+                                      phy_struct->ulsch_rx_d_bits,
+                                      &N_d_bits);
 
         // Determine c_bits
         turbo_decode(phy_struct,
@@ -12002,12 +11922,12 @@ LIBLTE_ERROR_ENUM ulsch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
     }
 
     // Determine b_bits
-    code_block_desegmentation(phy_struct->ulsch_c_bits[0],
-                              phy_struct->ulsch_N_c_bits,
-                              6144,
-                              tbs,
-                              phy_struct->ulsch_b_bits,
-                              N_b_bits);
+    liblte_phy_code_block_desegmentation(phy_struct->ulsch_c_bits[0],
+                                         phy_struct->ulsch_N_c_bits,
+                                         LIBLTE_PHY_MAX_CODE_BLOCK_SIZE,
+                                         tbs,
+                                         phy_struct->ulsch_b_bits,
+                                         N_b_bits);
 
     // Recover a_bits and p_bits
     a_bits = &phy_struct->ulsch_b_bits[0];
@@ -12116,14 +12036,12 @@ void bch_channel_encode(LIBLTE_PHY_STRUCT *phy_struct,
 LIBLTE_ERROR_ENUM bch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
                                      float             *in_bits,
                                      uint32             N_in_bits,
-                                     uint8             *N_ant,
+                                     uint8              N_ant,
                                      uint8             *out_bits,
                                      uint32            *N_out_bits)
 {
     LIBLTE_ERROR_ENUM  err = LIBLTE_ERROR_INVALID_CRC;
-    uint32             ber_1;
-    uint32             ber_2;
-    uint32             ber_4;
+    uint32             ber;
     uint32             N_d_bits;
     uint32             N_c_bits;
     uint32             i;
@@ -12134,6 +12052,17 @@ LIBLTE_ERROR_ENUM bch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
     uint8              ant_mask_1[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
     uint8              ant_mask_2[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
     uint8              ant_mask_4[16] = {0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1};
+    uint8             *ant_mask;
+
+    // Choose the correct antenna mask
+    if(1 == N_ant)
+    {
+        ant_mask = ant_mask_1;
+    }else if(2 == N_ant){
+        ant_mask = ant_mask_2;
+    }else{ // 4 == N_ant
+        ant_mask = ant_mask_4;
+    }
 
     // Rate unmatch to get the d_bits
     rate_unmatch_conv(phy_struct,
@@ -12160,18 +12089,14 @@ LIBLTE_ERROR_ENUM bch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
     // Calculate p_bits
     calc_crc(a_bits, 24, CRC16, calc_p_bits, 16);
 
-    // Try all p_bit masks
-    ber_1 = 0;
-    ber_2 = 0;
-    ber_4 = 0;
+    // Calculate the number of bit errors
+    ber = 0;
     for(i=0; i<16; i++)
     {
-        ber_1 += p_bits[i] ^ (calc_p_bits[i] ^ ant_mask_1[i]);
-        ber_2 += p_bits[i] ^ (calc_p_bits[i] ^ ant_mask_2[i]);
-        ber_4 += p_bits[i] ^ (calc_p_bits[i] ^ ant_mask_4[i]);
+        ber += p_bits[i] ^ (calc_p_bits[i] ^ ant_mask[i]);
     }
 
-    if(ber_1 == 0 || ber_2 == 0 || ber_4 == 0)
+    if(ber == 0)
     {
         for(i=0; i<24; i++)
         {
@@ -12179,14 +12104,6 @@ LIBLTE_ERROR_ENUM bch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
         }
         *N_out_bits = 24;
         err         = LIBLTE_SUCCESS;
-    }
-    if(ber_1 == 0)
-    {
-        *N_ant = 1;
-    }else if(ber_2 == 0){
-        *N_ant = 2;
-    }else if(ber_4 == 0){
-        *N_ant = 4;
     }
 
     return(err);
@@ -12242,13 +12159,13 @@ void dlsch_channel_encode(LIBLTE_PHY_STRUCT *phy_struct,
     }
 
     // Construct c_bits
-    code_block_segmentation(phy_struct->dlsch_b_bits,
-                            tbs+24,
-                            &N_codeblocks,
-                            &N_fill_bits,
-                            phy_struct->dlsch_c_bits[0],
-                            6144,
-                            phy_struct->dlsch_N_c_bits);
+    liblte_phy_code_block_segmentation(phy_struct->dlsch_b_bits,
+                                       tbs+24,
+                                       &N_codeblocks,
+                                       &N_fill_bits,
+                                       phy_struct->dlsch_c_bits[0],
+                                       LIBLTE_PHY_MAX_CODE_BLOCK_SIZE,
+                                       phy_struct->dlsch_N_c_bits);
 
     for(cb=0; cb<N_codeblocks; cb++)
     {
@@ -12269,17 +12186,17 @@ void dlsch_channel_encode(LIBLTE_PHY_STRUCT *phy_struct,
         }else{
             phy_struct->dlsch_N_e_bits[cb] = N_l*Q_m*(uint32)ceilf((float)G_prime/(float)N_codeblocks);
         }
-        rate_match_turbo(phy_struct,
-                         phy_struct->dlsch_tx_d_bits,
-                         N_d_bits,
-                         N_codeblocks,
-                         tx_mode,
-                         N_soft,
-                         M_dl_harq,
-                         LIBLTE_PHY_CHAN_TYPE_DLSCH,
-                         rv_idx,
-                         phy_struct->dlsch_N_e_bits[cb],
-                         phy_struct->dlsch_tx_e_bits[0]);
+        liblte_phy_rate_match_turbo(phy_struct,
+                                    phy_struct->dlsch_tx_d_bits,
+                                    N_d_bits,
+                                    N_codeblocks,
+                                    tx_mode,
+                                    N_soft,
+                                    M_dl_harq,
+                                    LIBLTE_PHY_CHAN_TYPE_DLSCH,
+                                    rv_idx,
+                                    phy_struct->dlsch_N_e_bits[cb],
+                                    phy_struct->dlsch_tx_e_bits[0]);
     }
 
     code_block_concatenation(phy_struct->dlsch_tx_e_bits[0],
@@ -12324,13 +12241,13 @@ LIBLTE_ERROR_ENUM dlsch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
     // determined by encoding a sequence of zeros
     N_b_bits = tbs+24;
     memset(phy_struct->dlsch_b_bits, 0, sizeof(uint8)*N_b_bits);
-    code_block_segmentation(phy_struct->dlsch_b_bits,
-                            N_b_bits,
-                            &N_codeblocks,
-                            &N_fill_bits,
-                            phy_struct->dlsch_c_bits[0],
-                            6144,
-                            phy_struct->dlsch_N_c_bits);
+    liblte_phy_code_block_segmentation(phy_struct->dlsch_b_bits,
+                                       N_b_bits,
+                                       &N_codeblocks,
+                                       &N_fill_bits,
+                                       phy_struct->dlsch_c_bits[0],
+                                       LIBLTE_PHY_MAX_CODE_BLOCK_SIZE,
+                                       phy_struct->dlsch_N_c_bits);
 
     // Determine e_bits
     code_block_deconcatenation(in_bits,
@@ -12352,19 +12269,19 @@ LIBLTE_ERROR_ENUM dlsch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
                      &N_d_bits);
 
         // Determine d_bits
-        rate_unmatch_turbo(phy_struct,
-                           phy_struct->dlsch_rx_e_bits[cb],
-                           phy_struct->dlsch_N_e_bits[cb],
-                           phy_struct->dlsch_tx_d_bits,
-                           N_d_bits/3,
-                           N_codeblocks,
-                           tx_mode,
-                           N_soft,
-                           M_dl_harq,
-                           LIBLTE_PHY_CHAN_TYPE_DLSCH,
-                           rv_idx,
-                           phy_struct->dlsch_rx_d_bits,
-                           &N_d_bits);
+        liblte_phy_rate_unmatch_turbo(phy_struct,
+                                      phy_struct->dlsch_rx_e_bits[cb],
+                                      phy_struct->dlsch_N_e_bits[cb],
+                                      phy_struct->dlsch_tx_d_bits,
+                                      N_d_bits/3,
+                                      N_codeblocks,
+                                      tx_mode,
+                                      N_soft,
+                                      M_dl_harq,
+                                      LIBLTE_PHY_CHAN_TYPE_DLSCH,
+                                      rv_idx,
+                                      phy_struct->dlsch_rx_d_bits,
+                                      &N_d_bits);
 
         // Determine c_bits
         turbo_decode(phy_struct,
@@ -12376,12 +12293,12 @@ LIBLTE_ERROR_ENUM dlsch_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
     }
 
     // Determine b_bits
-    code_block_desegmentation(phy_struct->dlsch_c_bits[0],
-                              phy_struct->dlsch_N_c_bits,
-                              6144,
-                              tbs,
-                              phy_struct->dlsch_b_bits,
-                              N_b_bits);
+    liblte_phy_code_block_desegmentation(phy_struct->dlsch_c_bits[0],
+                                         phy_struct->dlsch_N_c_bits,
+                                         LIBLTE_PHY_MAX_CODE_BLOCK_SIZE,
+                                         tbs,
+                                         phy_struct->dlsch_b_bits,
+                                         N_b_bits);
 
     // Recover a_bits and p_bits
     a_bits = &phy_struct->dlsch_b_bits[0];

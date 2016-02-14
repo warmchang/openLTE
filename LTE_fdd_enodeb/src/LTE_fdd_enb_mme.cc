@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_mme.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -47,6 +47,10 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t and changed the user deletion and
                                    C-RNTI release procedures.
+    02/13/2016    Ben Wojtowicz    Properly initialize present flags and change
+                                   the packet filter evaluation precedence in
+                                   activate dedicated EPS bearer context (thanks
+                                   to Pedro Batista for reporting this).
 
 *******************************************************************************/
 
@@ -1228,7 +1232,6 @@ void LTE_fdd_enb_mme::attach_sm(LTE_fdd_enb_user *user,
         break;
     case LTE_FDD_ENB_MME_STATE_ATTACHED:
         send_emm_information(user, rb);
-//        send_rrc_command(user, rb, LTE_FDD_ENB_RRC_CMD_RELEASE);
         break;
     default:
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -1784,22 +1787,28 @@ void LTE_fdd_enb_mme::send_activate_dedicated_eps_bearer_context_request(LTE_fdd
     act_ded_eps_bearer_context_req.tft.packet_filter_list_size               = 3;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[0].id              = 1;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[0].dir             = LIBLTE_MME_TFT_PACKET_FILTER_DIRECTION_BIDIRECTIONAL;
-    act_ded_eps_bearer_context_req.tft.packet_filter_list[0].eval_precedence = 0;
+    act_ded_eps_bearer_context_req.tft.packet_filter_list[0].eval_precedence = 1;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[0].filter_size     = 2;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[0].filter[0]       = LIBLTE_MME_TFT_PACKET_FILTER_COMPONENT_TYPE_ID_PROTOCOL_ID_NEXT_HEADER_TYPE;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[0].filter[1]       = IPPROTO_UDP;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[1].id              = 2;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[1].dir             = LIBLTE_MME_TFT_PACKET_FILTER_DIRECTION_BIDIRECTIONAL;
-    act_ded_eps_bearer_context_req.tft.packet_filter_list[1].eval_precedence = 0;
+    act_ded_eps_bearer_context_req.tft.packet_filter_list[1].eval_precedence = 2;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[1].filter_size     = 2;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[1].filter[0]       = LIBLTE_MME_TFT_PACKET_FILTER_COMPONENT_TYPE_ID_PROTOCOL_ID_NEXT_HEADER_TYPE;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[1].filter[1]       = IPPROTO_TCP;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[2].id              = 3;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[2].dir             = LIBLTE_MME_TFT_PACKET_FILTER_DIRECTION_BIDIRECTIONAL;
-    act_ded_eps_bearer_context_req.tft.packet_filter_list[2].eval_precedence = 0;
+    act_ded_eps_bearer_context_req.tft.packet_filter_list[2].eval_precedence = 3;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[2].filter_size     = 2;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[2].filter[0]       = LIBLTE_MME_TFT_PACKET_FILTER_COMPONENT_TYPE_ID_PROTOCOL_ID_NEXT_HEADER_TYPE;
     act_ded_eps_bearer_context_req.tft.packet_filter_list[2].filter[1]       = IPPROTO_ICMP;
+    act_ded_eps_bearer_context_req.transaction_id_present                    = false;
+    act_ded_eps_bearer_context_req.negotiated_qos_present                    = false;
+    act_ded_eps_bearer_context_req.llc_sapi_present                          = false;
+    act_ded_eps_bearer_context_req.radio_prio_present                        = false;
+    act_ded_eps_bearer_context_req.packet_flow_id_present                    = false;
+    act_ded_eps_bearer_context_req.protocol_cnfg_opts_present                = false;
     liblte_mme_pack_activate_dedicated_eps_bearer_context_request_msg(&act_ded_eps_bearer_context_req,
                                                                       &msg);
     liblte_mme_pack_security_protected_nas_msg(&msg,

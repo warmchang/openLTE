@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -40,6 +40,7 @@
                                    copy of pusch_mac_pdu.
     12/06/2015    Ben Wojtowicz    Changed the deletion and C-RNTI release
                                    procedures.
+    02/13/2016    Ben Wojtowicz    Added an inactivity timer.
 
 *******************************************************************************/
 
@@ -60,6 +61,7 @@
                               DEFINES
 *******************************************************************************/
 
+#define LTE_FDD_ENB_USER_INACTIVITY_TIMER_VALUE_MS 10000
 
 /*******************************************************************************
                               FORWARD DECLARATIONS
@@ -211,6 +213,9 @@ public:
     uint32 get_qos_dl_tti_freq(void);
     uint32 get_qos_ul_bytes_per_subfn(void);
     uint32 get_qos_dl_bytes_per_subfn(void);
+    void start_inactivity_timer(uint32 m_seconds);
+    void reset_inactivity_timer(uint32 m_seconds);
+    void stop_inactivity_timer(void);
 
 private:
     // Identity
@@ -264,6 +269,7 @@ private:
     LTE_FDD_ENB_QOS_STRUCT avail_qos[LTE_FDD_ENB_QOS_N_ITEMS];
     LTE_FDD_ENB_QOS_ENUM   qos;
     uint32                 N_del_ticks;
+    uint32                 inactivity_timer_id;
 };
 
 #endif /* __LTE_FDD_ENB_USER_H__ */

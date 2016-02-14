@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -46,6 +46,8 @@
     07/25/2015    Ben Wojtowicz    Made tx_gain and rx_gain into config file
                                    tracked parameters.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
+    02/13/2016    Ben Wojtowicz    Added a command to print all registered
+                                   users.
 
 *******************************************************************************/
 
@@ -316,6 +318,7 @@ private:
     void handle_help(void);
     void handle_del_user(std::string msg);
     void handle_print_users(void);
+    void handle_print_registered_users(void);
 
     // Variables
     std::map<std::string, LTE_FDD_ENB_VAR_STRUCT> var_map;

@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_user_mgr.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -41,6 +41,11 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t and changed the user deletion
                                    procedure.
+    02/13/2016    Ben Wojtowicz    Added ability to retrieve a string of all
+                                   registered users, added a user inactivity
+                                   timer, and properly updating the iterator
+                                   after erasing a user from the user list
+                                   (thanks to Damian Jarek for reporting this).
 
 *******************************************************************************/
 
@@ -53,6 +58,7 @@
 #include "liblte_mac.h"
 #include "libtools_scoped_lock.h"
 #include <boost/lexical_cast.hpp>
+#include <iomanip>
 
 /*******************************************************************************
                               DEFINES
@@ -296,6 +302,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::add_user(LTE_fdd_enb_user **user)
 
             // Setup user
             new_user->set_c_rnti(c_rnti);
+            new_user->start_inactivity_timer(LTE_FDD_ENB_USER_INACTIVITY_TIMER_VALUE_MS);
 
             // Store user
             sem_wait(&user_sem);
@@ -446,7 +453,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
                user->get_id()->imei == (*iter)->get_id()->imei)
             {
                 tmp_user = (*iter);
-                user_list.erase(iter);
+                iter     = user_list.erase(iter);
                 delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
@@ -462,7 +469,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
                user->get_guti()->mme_code     == (*iter)->get_guti()->mme_code)
             {
                 tmp_user = (*iter);
-                user_list.erase(iter);
+                iter     = user_list.erase(iter);
                 delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
@@ -474,7 +481,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
             if(user->get_c_rnti() == (*iter)->get_c_rnti())
             {
                 tmp_user = (*iter);
-                user_list.erase(iter);
+                iter     = user_list.erase(iter);
                 delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
@@ -508,7 +515,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
                (*iter)->get_id()->imsi == imsi_num)
             {
                 tmp_user = (*iter);
-                user_list.erase(iter);
+                iter     = user_list.erase(iter);
                 delete tmp_user;
                 err = LTE_FDD_ENB_ERROR_NONE;
                 break;
@@ -531,7 +538,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti)
            (*iter)->get_c_rnti() == c_rnti)
         {
             tmp_user = (*iter);
-            user_list.erase(iter);
+            iter     = user_list.erase(iter);
             delete tmp_user;
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
@@ -557,7 +564,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_G
            (*iter)->get_guti()->mme_code     == guti->mme_code)
         {
             tmp_user = (*iter);
-            user_list.erase(iter);
+            iter     = user_list.erase(iter);
             delete tmp_user;
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
@@ -565,6 +572,44 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_G
     }
 
     return(err);
+}
+std::string LTE_fdd_enb_user_mgr::print_all_users(void)
+{
+    libtools_scoped_lock                    lock(user_sem);
+    std::list<LTE_fdd_enb_user*>::iterator  iter;
+    std::string                             output;
+    std::stringstream                       tmp_ss;
+    LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT   *guti;
+    uint32                                  i;
+    uint32                                  hex_val;
+
+    output = boost::lexical_cast<std::string>(user_list.size());
+    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    {
+        output += "\n";
+        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imsi_str();
+        output += "imsi=" + tmp_ss.str();
+        tmp_ss.seekp(0);
+        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imei_str();
+        output += " imei=" + tmp_ss.str();
+        if((*iter)->is_guti_set())
+        {
+            guti    = (*iter)->get_guti();
+            output += " m-tmsi=";
+            for(i=0; i<8; i++)
+            {
+                hex_val = (guti->m_tmsi >> (28 - (i*4))) & 0xF;
+                if(hex_val < 0xA)
+                {
+                    output += (char)(hex_val + '0');
+                }else{
+                    output += (char)((hex_val-0xA) + 'A');
+                }
+            }
+        }
+    }
+
+    return(output);
 }
 
 /**********************/

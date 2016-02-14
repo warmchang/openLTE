@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_interface.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -48,6 +48,8 @@
     07/25/2015    Ben Wojtowicz    Added config file support for TX/RX gains.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    02/13/2016    Ben Wojtowicz    Added a command to print all registered
+                                   users.
 
 *******************************************************************************/
 
@@ -73,6 +75,8 @@
 #include <boost/lexical_cast.hpp>
 #include <iomanip>
 #include <arpa/inet.h>
+#include <sys/time.h>
+#include <stdarg.h>
 
 /*******************************************************************************
                               DEFINES
@@ -730,6 +734,8 @@ void LTE_fdd_enb_interface::handle_ctrl_msg(std::string msg)
         interface->handle_del_user(msg.substr(msg.find("del_user")+sizeof("del_user"), std::string::npos));
     }else if(std::string::npos != msg.find("print_users")){
         interface->handle_print_users();
+    }else if(std::string::npos != msg.find("print_registered_users")){
+        interface->handle_print_registered_users();
     }else{
         interface->send_ctrl_error_msg(LTE_FDD_ENB_ERROR_INVALID_COMMAND, "");
     }
@@ -1198,6 +1204,7 @@ void LTE_fdd_enb_interface::handle_help(void)
     send_ctrl_msg("\t\tadd_user imsi=<imsi> imei=<imei> k=<k> - Adds a user to the HSS (<imsi> and <imei> are 15 decimal digits, and <k> is 32 hex digits)");
     send_ctrl_msg("\t\tdel_user imsi=<imsi>                   - Deletes a user from the HSS");
     send_ctrl_msg("\t\tprint_users                            - Prints all the users in the HSS");
+    send_ctrl_msg("\t\tprint_registered_users                 - Prints all the users currently registered");
 
     // Radio Parameters
     send_ctrl_msg("\tRadio Parameters:");
@@ -1353,6 +1360,12 @@ void LTE_fdd_enb_interface::handle_print_users(void)
     LTE_fdd_enb_hss *hss = LTE_fdd_enb_hss::get_instance();
 
     send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, hss->print_all_users());
+}
+void LTE_fdd_enb_interface::handle_print_registered_users(void)
+{
+    LTE_fdd_enb_user_mgr *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+
+    send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, user_mgr->print_all_users());
 }
 
 /*******************/

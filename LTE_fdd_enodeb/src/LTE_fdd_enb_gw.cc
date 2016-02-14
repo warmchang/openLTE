@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_gw.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -31,6 +31,9 @@
     03/11/2015    Ben Wojtowicz    Closing TUN device on stop.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    02/13/2016    Ben Wojtowicz    Using memcpy instead of a typed cast for
+                                   parsing the IP packet header (thanks to
+                                   Damian Jarek for finding this).
 
 *******************************************************************************/
 
@@ -287,7 +290,7 @@ void* LTE_fdd_enb_gw::receive_thread(void *inputs)
     LTE_fdd_enb_user_mgr                       *user_mgr  = LTE_fdd_enb_user_mgr::get_instance();
     LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG_STRUCT  pdcp_data_sdu;
     LIBLTE_BYTE_MSG_STRUCT                      msg;
-    struct iphdr                               *ip_pkt;
+    struct iphdr                                ip_pkt;
     uint32                                      idx = 0;
     int32                                       N_bytes;
 
@@ -298,13 +301,13 @@ void* LTE_fdd_enb_gw::receive_thread(void *inputs)
         if(N_bytes > 0)
         {
             msg.N_bytes = idx + N_bytes;
-            ip_pkt      = (struct iphdr*)msg.msg;
+            memcpy(&ip_pkt, msg.msg, sizeof(iphdr));
 
             // Check if entire packet was received
-            if(ntohs(ip_pkt->tot_len) == msg.N_bytes)
+            if(ntohs(ip_pkt.tot_len) == msg.N_bytes)
             {
                 // Find user and rb
-                if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(ntohl(ip_pkt->daddr), &pdcp_data_sdu.user) &&
+                if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(ntohl(ip_pkt.daddr), &pdcp_data_sdu.user) &&
                    LTE_FDD_ENB_ERROR_NONE == pdcp_data_sdu.user->get_drb(LTE_FDD_ENB_RB_DRB1, &pdcp_data_sdu.rb))
                 {
                     gw->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,

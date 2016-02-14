@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -46,6 +46,8 @@
     07/25/2015    Ben Wojtowicz    Moved QoS structure to the user class and
                                    fixed RLC AM TX and RX buffers.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
+    02/13/2016    Ben Wojtowicz    Added a wait for RRC connection
+                                   reestablishment complete RRC state.
 
 *******************************************************************************/
 
@@ -149,12 +151,14 @@ typedef enum{
     LTE_FDD_ENB_RRC_STATE_SRB1_SETUP,
     LTE_FDD_ENB_RRC_STATE_WAIT_FOR_CON_SETUP_COMPLETE,
     LTE_FDD_ENB_RRC_STATE_RRC_CONNECTED,
+    LTE_FDD_ENB_RRC_STATE_WAIT_FOR_CON_REEST_COMPLETE,
     LTE_FDD_ENB_RRC_STATE_N_ITEMS,
 }LTE_FDD_ENB_RRC_STATE_ENUM;
 static const char LTE_fdd_enb_rrc_state_text[LTE_FDD_ENB_RRC_STATE_N_ITEMS][100] = {"IDLE",
                                                                                     "SRB1 SETUP",
                                                                                     "WAIT FOR CON SETUP COMPLETE",
-                                                                                    "RRC CONNECTED"};
+                                                                                    "RRC CONNECTED",
+                                                                                    "WAIT FOR CON REEST COMPLETE"};
 
 typedef enum{
     LTE_FDD_ENB_PDCP_CONFIG_N_A = 0,

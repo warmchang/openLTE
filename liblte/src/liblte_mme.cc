@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -40,6 +40,9 @@
                                    indicator for eps_mobile_id.  Thanks to Paul
                                    Sutton for finding this.
     12/06/2015    Ben Wojtowicz    Added all ID types for Mobile Identity IE.
+    02/13/2016    Ben Wojtowicz    Properly setting id for IMEISV for Mobile
+                                   Identity IE.  Thanks to Mikhail Gudkov for
+                                   finding this.
 
 *******************************************************************************/
 
@@ -332,6 +335,7 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_mobile_id_ie(LIBLTE_MME_MOBILE_ID_STRUCT  *mob
         }else if(LIBLTE_MME_MOBILE_ID_TYPE_IMEISV == mobile_id->type_of_id){
             **ie_ptr  = 9; // Length
             *ie_ptr  += 1;
+            id        = mobile_id->imeisv;
             **ie_ptr  = (id[0] << 4) | mobile_id->type_of_id;
             *ie_ptr  += 1;
             for(i=0; i<7; i++)

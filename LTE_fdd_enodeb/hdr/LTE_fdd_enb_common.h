@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2015 Ben Wojtowicz
+    Copyright 2015-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -24,6 +24,7 @@
     Revision History
     ----------    -------------    --------------------------------------------
     02/15/2015    Ben Wojtowicz    Created file
+    03/12/2016    Ben Wojtowicz    Added error for H-ARQ info not found.
 
 *******************************************************************************/
 
@@ -73,6 +74,7 @@ typedef enum{
     LTE_FDD_ENB_ERROR_CANT_REASSEMBLE_SDU,
     LTE_FDD_ENB_ERROR_DUPLICATE_ENTRY,
     LTE_FDD_ENB_ERROR_READ_ONLY,
+    LTE_FDD_ENB_ERROR_HARQ_INFO_NOT_FOUND,
     LTE_FDD_ENB_ERROR_N_ITEMS,
 }LTE_FDD_ENB_ERROR_ENUM;
 static const char LTE_fdd_enb_error_text[LTE_FDD_ENB_ERROR_N_ITEMS][100] = {"none",
@@ -97,7 +99,8 @@ static const char LTE_fdd_enb_error_text[LTE_FDD_ENB_ERROR_N_ITEMS][100] = {"non
                                                                             "timer not found",
                                                                             "cant reassemble SDU",
                                                                             "duplicate entry",
-                                                                            "read only"};
+                                                                            "read only",
+                                                                            "HARQ info not found"};
 
 /*******************************************************************************
                               CLASS DECLARATIONS

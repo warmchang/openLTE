@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_phy.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -47,6 +47,7 @@
                                    new radio interface.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    03/12/2016    Ben Wojtowicz    Added PUCCH support.
 
 *******************************************************************************/
 
@@ -182,7 +183,9 @@ void LTE_fdd_enb_phy::start(LTE_fdd_enb_msgq      *from_mac,
                            sys_info.sib2.rr_config_common_sib.pusch_cnfg.ul_rs.group_hopping_enabled,
                            sys_info.sib2.rr_config_common_sib.pusch_cnfg.ul_rs.sequence_hopping_enabled,
                            sys_info.sib2.rr_config_common_sib.pusch_cnfg.ul_rs.cyclic_shift,
-                           0);
+                           0,
+                           sys_info.sib2.rr_config_common_sib.pucch_cnfg.n_cs_an,
+                           sys_info.sib2.rr_config_common_sib.pucch_cnfg.delta_pucch_shift);
 
         // Downlink
         for(i=0; i<10; i++)
@@ -736,12 +739,13 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
 /****************/
 void LTE_fdd_enb_phy::process_ul(LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf)
 {
-    uint32 N_skipped_subfrs = 0;
-    uint32 sfn;
-    uint32 i;
-    uint32 I_prb_ra;
-    uint32 n_group_phich;
-    uint32 n_seq_phich;
+    LIBLTE_ERROR_ENUM subfr_err;
+    uint32            N_skipped_subfrs = 0;
+    uint32            sfn;
+    uint32            i;
+    uint32            I_prb_ra;
+    uint32            n_group_phich;
+    uint32            n_seq_phich;
 
     // Check the received current_tti
     if(rx_buf->current_tti != ul_current_tti)
@@ -785,50 +789,75 @@ void LTE_fdd_enb_phy::process_ul(LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf)
         }
     }
 
+    sem_wait(&ul_sched_sem);
+    if(ul_schedule[ul_subframe.num].pucch.decode ||
+       0 != ul_schedule[ul_subframe.num].decodes.N_alloc)
+    {
+        subfr_err = liblte_phy_get_ul_subframe(phy_struct,
+                                               rx_buf->i_buf,
+                                               rx_buf->q_buf,
+                                               &ul_subframe);
+    }
+
     // Handle PUCCH
-    // FIXME
+    if(LIBLTE_SUCCESS == subfr_err &&
+       ul_schedule[ul_subframe.num].pucch.decode)
+    {
+        pucch_decode.current_tti = ul_current_tti;
+        pucch_decode.rnti        = ul_schedule[ul_subframe.num].pucch.rnti;
+        if(LIBLTE_SUCCESS == liblte_phy_pucch_channel_decode(phy_struct,
+                                                             &ul_subframe,
+                                                             sys_info.N_id_cell,
+                                                             sys_info.N_ant,
+                                                             0)) // FIXME: N_1_p_pucch
+        {
+            pucch_decode.ack = true;
+        }else{
+            pucch_decode.ack = false;
+        }
+        msgq_to_mac->send(LTE_FDD_ENB_MESSAGE_TYPE_PUCCH_DECODE,
+                          LTE_FDD_ENB_DEST_LAYER_MAC,
+                          (LTE_FDD_ENB_MESSAGE_UNION *)&pucch_decode,
+                          sizeof(LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT));
+    }
+    ul_schedule[ul_subframe.num].pucch.decode = false;
+    ul_schedule[ul_subframe.num].pucch.rnti   = LIBLTE_MAC_INVALID_RNTI;
 
     // Handle PUSCH
-    sem_wait(&ul_sched_sem);
-    if(0 != ul_schedule[ul_subframe.num].decodes.N_alloc)
+    if(LIBLTE_SUCCESS == subfr_err &&
+       0              != ul_schedule[ul_subframe.num].decodes.N_alloc)
     {
-        if(LIBLTE_SUCCESS == liblte_phy_get_ul_subframe(phy_struct,
-                                                        rx_buf->i_buf,
-                                                        rx_buf->q_buf,
-                                                        &ul_subframe))
+        for(i=0; i<ul_schedule[ul_subframe.num].decodes.N_alloc; i++)
         {
-            for(i=0; i<ul_schedule[ul_subframe.num].decodes.N_alloc; i++)
+            // Determine PHICH indecies
+            I_prb_ra      = ul_schedule[ul_subframe.num].decodes.alloc[i].prb[0][0];
+            n_group_phich = I_prb_ra % phy_struct->N_group_phich;
+            n_seq_phich   = (I_prb_ra/phy_struct->N_group_phich) % (2*phy_struct->N_sf_phich);
+
+            // Attempt decode
+            if(LIBLTE_SUCCESS == liblte_phy_pusch_channel_decode(phy_struct,
+                                                                 &ul_subframe,
+                                                                 &ul_schedule[ul_subframe.num].decodes.alloc[i],
+                                                                 sys_info.N_id_cell,
+                                                                 1,
+                                                                 pusch_decode.msg.msg,
+                                                                 &pusch_decode.msg.N_bits))
             {
-                // Determine PHICH indecies
-                I_prb_ra      = ul_schedule[ul_subframe.num].decodes.alloc[i].prb[0][0];
-                n_group_phich = I_prb_ra % phy_struct->N_group_phich;
-                n_seq_phich   = (I_prb_ra/phy_struct->N_group_phich) % (2*phy_struct->N_sf_phich);
+                pusch_decode.current_tti = ul_current_tti;
+                pusch_decode.rnti        = ul_schedule[ul_subframe.num].decodes.alloc[i].rnti;
 
-                // Attempt decode
-                if(LIBLTE_SUCCESS == liblte_phy_pusch_channel_decode(phy_struct,
-                                                                     &ul_subframe,
-                                                                     &ul_schedule[ul_subframe.num].decodes.alloc[i],
-                                                                     sys_info.N_id_cell,
-                                                                     1,
-                                                                     pusch_decode.msg.msg,
-                                                                     &pusch_decode.msg.N_bits))
-                {
-                    pusch_decode.current_tti = ul_current_tti;
-                    pusch_decode.rnti        = ul_schedule[ul_subframe.num].decodes.alloc[i].rnti;
+                msgq_to_mac->send(LTE_FDD_ENB_MESSAGE_TYPE_PUSCH_DECODE,
+                                  LTE_FDD_ENB_DEST_LAYER_MAC,
+                                  (LTE_FDD_ENB_MESSAGE_UNION *)&pusch_decode,
+                                  sizeof(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT));
 
-                    msgq_to_mac->send(LTE_FDD_ENB_MESSAGE_TYPE_PUSCH_DECODE,
-                                      LTE_FDD_ENB_DEST_LAYER_MAC,
-                                      (LTE_FDD_ENB_MESSAGE_UNION *)&pusch_decode,
-                                      sizeof(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT));
-
-                    // Add ACK to PHICH
-                    phich[(ul_subframe.num + 4) % 10].present[n_group_phich][n_seq_phich] = true;
-                    phich[(ul_subframe.num + 4) % 10].b[n_group_phich][n_seq_phich]       = 1;
-                }else{
-                    // Add NACK to PHICH
-                    phich[(ul_subframe.num + 4) % 10].present[n_group_phich][n_seq_phich] = true;
-                    phich[(ul_subframe.num + 4) % 10].b[n_group_phich][n_seq_phich]       = 0;
-                }
+                // Add ACK to PHICH
+                phich[(ul_subframe.num + 4) % 10].present[n_group_phich][n_seq_phich] = true;
+                phich[(ul_subframe.num + 4) % 10].b[n_group_phich][n_seq_phich]       = 1;
+            }else{
+                // Add NACK to PHICH
+                phich[(ul_subframe.num + 4) % 10].present[n_group_phich][n_seq_phich] = true;
+                phich[(ul_subframe.num + 4) % 10].b[n_group_phich][n_seq_phich]       = 0;
             }
         }
     }

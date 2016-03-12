@@ -41,6 +41,7 @@
     12/06/2015    Ben Wojtowicz    Changed the deletion and C-RNTI release
                                    procedures.
     02/13/2016    Ben Wojtowicz    Added an inactivity timer.
+    03/12/2016    Ben Wojtowicz    Added H-ARQ support.
 
 *******************************************************************************/
 
@@ -52,6 +53,7 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_rb.h"
+#include "liblte_phy.h"
 #include "liblte_mac.h"
 #include "liblte_mme.h"
 #include "typedefs.h"
@@ -108,6 +110,11 @@ typedef struct{
     uint32               ul_bytes_per_subfn;
     uint32               dl_bytes_per_subfn;
 }LTE_FDD_ENB_QOS_STRUCT;
+
+typedef struct{
+    LIBLTE_MAC_PDU_STRUCT        mac_pdu;
+    LIBLTE_PHY_ALLOCATION_STRUCT alloc;
+}LTE_FDD_ENB_HARQ_INFO_STRUCT;
 
 /*******************************************************************************
                               CLASS DECLARATIONS
@@ -203,6 +210,9 @@ public:
     void flip_ul_ndi(void);
     void start_ul_sched_timer(uint32 m_seconds);
     void stop_ul_sched_timer(void);
+    void store_harq_info(uint32 pucch_tti, LIBLTE_MAC_PDU_STRUCT *mac_pdu, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
+    void clear_harq_info(uint32 pucch_tti);
+    LTE_FDD_ENB_ERROR_ENUM get_harq_info(uint32 pucch_tti, LIBLTE_MAC_PDU_STRUCT *mac_pdu, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
 
     // Generic
     void set_N_del_ticks(uint32 N_ticks);
@@ -259,10 +269,12 @@ private:
     bool                                      eit_flag;
 
     // MAC
-    uint32 ul_sched_timer_m_seconds;
-    uint32 ul_sched_timer_id;
-    bool   dl_ndi;
-    bool   ul_ndi;
+    sem_t                                           harq_buffer_sem;
+    std::map<uint32, LTE_FDD_ENB_HARQ_INFO_STRUCT*> harq_buffer;
+    uint32                                          ul_sched_timer_m_seconds;
+    uint32                                          ul_sched_timer_id;
+    bool                                            dl_ndi;
+    bool                                            ul_ndi;
 
     // Generic
     void handle_timer_expiry(uint32 timer_id);

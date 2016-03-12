@@ -119,6 +119,7 @@
                                    globally available routines to support unit
                                    tests and incorporated changes from Ziming
                                    He for better PBCH detection.
+    03/12/2016    Ben Wojtowicz    Added PUCCH channel decode support.
 
 *******************************************************************************/
 
@@ -144,6 +145,11 @@
 /*******************************************************************************
                               GLOBAL VARIABLES
 *******************************************************************************/
+
+// Orthogonal sequences for PUCCH from 3GPP TS 36.211 v10.1.0 table 5.4.1-2
+int32 W_5_4_1_2[3][4] = {{ 1,  1,  1,  1},
+                         { 1, -1,  1, -1},
+                         { 1, -1, -1,  1}};
 
 // UL reference signal phi value for M_sc_rs = N_sc_rb_ul from 3GPP TS 36.211 v10.1.0 table 5.5.1.2-1
 int32 UL_RS_5_5_1_2_1[30][12] = {{-1, 1, 3,-3, 3, 3, 1, 1, 3, 1,-3, 3},
@@ -265,6 +271,11 @@ int32 W_1_5_5_2_1_1_1[8][4] = {{ 1, 1,-1,-1},
 
 // N_1_DMRS table from 3GPP TS 36.211 v10.1.0 table 5.5.2.1.1-2
 uint32 N_1_DMRS_5_5_2_1_1_2[8] = {0,2,3,4,6,8,9,10};
+
+// W table from 3GPP TS 36.211 v10.1.0 table 5.5.2.2.1-2
+float W_5_5_2_2_1_2_phase[3][3] = {{0, 0, 0},
+                                   {0, 2*M_PI/3, 4*M_PI/3},
+                                   {0, 4*M_PI/3, 2*M_PI/3}};
 
 // PRACH N_cs unrestricted set values from 3GPP TS 36.211 v10.1.0 table 5.7.2-2
 uint32 PRACH_5_7_2_2_URS[16] = {0,13,15,18,22,26,32,38,46,59,76,93,119,167,279,419};
@@ -914,6 +925,33 @@ void generate_dmrs_pusch(LIBLTE_PHY_STRUCT *phy_struct,
                          uint32             layer,
                          bool               group_hopping_enabled,
                          bool               sequence_hopping_enabled,
+                         float             *dmrs_0_re,
+                         float             *dmrs_0_im,
+                         float             *dmrs_1_re,
+                         float             *dmrs_1_im);
+
+/*********************************************************************
+    Name: generate_dmrs_pucch
+
+    Description: Generates demodulation reference signals for the
+                 uplink control channel
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.5.2
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void generate_dmrs_pucch(LIBLTE_PHY_STRUCT *phy_struct,
+                         uint32             N_subfr,
+                         uint32             N_id_cell,
+                         uint32             delta_ss,
+                         bool               group_hopping_enabled,
+                         bool               sequence_hopping_enabled,
+                         uint8              N_cs_1,
+                         uint8              N_1_p_pucch,
+                         uint8              delta_pucch_shift,
+                         uint8              N_ant,
                          float             *dmrs_0_re,
                          float             *dmrs_0_im,
                          float             *dmrs_1_re,
@@ -2050,9 +2088,10 @@ LIBLTE_ERROR_ENUM cfi_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
                                      uint32            *cfi);
 
 /*********************************************************************
-    Name: get_ul_ce
+    Name: get_ulsch_ce
 
-    Description: Resolves channel estimates for the uplink
+    Description: Resolves channel estimates for the uplink shared
+                 channel
 
     Document Reference: N/A
 *********************************************************************/
@@ -2060,15 +2099,37 @@ LIBLTE_ERROR_ENUM cfi_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
 // Enums
 // Structs
 // Functions
-void get_ul_ce(LIBLTE_PHY_STRUCT *phy_struct,
-               float             *c_est_0_re,
-               float             *c_est_0_im,
-               float             *c_est_1_re,
-               float             *c_est_1_im,
-               uint32             N_prb,
-               uint32             N_subfr,
-               float             *c_est_re,
-               float             *c_est_im);
+void get_ulsch_ce(LIBLTE_PHY_STRUCT *phy_struct,
+                  float             *c_est_0_re,
+                  float             *c_est_0_im,
+                  float             *c_est_1_re,
+                  float             *c_est_1_im,
+                  uint32             N_prb,
+                  uint32             N_subfr,
+                  float             *c_est_re,
+                  float             *c_est_im);
+
+/*********************************************************************
+    Name: get_ulcch_ce
+
+    Description: Resolves channel estimates for the uplink control
+                 channel
+
+    Document Reference: N/A
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void get_ulcch_ce(LIBLTE_PHY_STRUCT *phy_struct,
+                  float             *c_est_0_re,
+                  float             *c_est_0_im,
+                  float             *c_est_1_re,
+                  float             *c_est_1_im,
+                  uint32             N_subfr,
+                  uint32             N_1_p_pucch,
+                  float             *c_est_re,
+                  float             *c_est_im);
 
 /*********************************************************************
     Name: get_soft_decision
@@ -2203,6 +2264,7 @@ LIBLTE_ERROR_ENUM liblte_phy_init(LIBLTE_PHY_STRUCT  **phy_struct,
         (*phy_struct)->N_sc_rb_dl = N_sc_rb_dl;
         (*phy_struct)->N_sc_rb_ul = LIBLTE_PHY_N_SC_RB_UL;
         liblte_phy_update_n_rb_dl((*phy_struct), N_rb_dl);
+        (*phy_struct)->N_ant   = N_ant;
         (*phy_struct)->ul_init = false;
 
         // PHICH
@@ -2271,7 +2333,9 @@ LIBLTE_ERROR_ENUM liblte_phy_ul_init(LIBLTE_PHY_STRUCT *phy_struct,
                                      bool               group_hopping_enabled,
                                      bool               sequence_hopping_enabled,
                                      uint8              cyclic_shift,
-                                     uint8              cyclic_shift_dci)
+                                     uint8              cyclic_shift_dci,
+                                     uint8              N_cs_an,
+                                     uint8              delta_pucch_shift)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
@@ -2301,7 +2365,7 @@ LIBLTE_ERROR_ENUM liblte_phy_ul_init(LIBLTE_PHY_STRUCT *phy_struct,
             }
         }
 
-        // DMRS
+        // PUSCH DMRS
         for(i=0; i<LIBLTE_PHY_N_SUBFR_PER_FRAME; i++)
         {
             for(j=0; j<LIBLTE_PHY_N_RB_UL_MAX; j++)
@@ -2316,10 +2380,32 @@ LIBLTE_ERROR_ENUM liblte_phy_ul_init(LIBLTE_PHY_STRUCT *phy_struct,
                                     0,
                                     group_hopping_enabled,
                                     sequence_hopping_enabled,
-                                    phy_struct->dmrs_0_re[i][j],
-                                    phy_struct->dmrs_0_im[i][j],
-                                    phy_struct->dmrs_1_re[i][j],
-                                    phy_struct->dmrs_1_im[i][j]);
+                                    phy_struct->pusch_dmrs_0_re[i][j],
+                                    phy_struct->pusch_dmrs_0_im[i][j],
+                                    phy_struct->pusch_dmrs_1_re[i][j],
+                                    phy_struct->pusch_dmrs_1_im[i][j]);
+            }
+        }
+
+        // PUCCH DMRS
+        for(i=0; i<LIBLTE_PHY_N_SUBFR_PER_FRAME; i++)
+        {
+            for(j=0; j<LIBLTE_PHY_N_RB_UL_MAX/2; j++)
+            {
+                generate_dmrs_pucch(phy_struct,
+                                    i,
+                                    N_id_cell,
+                                    group_assignment_pusch,
+                                    group_hopping_enabled,
+                                    sequence_hopping_enabled,
+                                    N_cs_an,
+                                    j,
+                                    delta_pucch_shift+1,
+                                    phy_struct->N_ant,
+                                    phy_struct->pucch_dmrs_0_re[i][j],
+                                    phy_struct->pucch_dmrs_0_im[i][j],
+                                    phy_struct->pucch_dmrs_1_re[i][j],
+                                    phy_struct->pucch_dmrs_1_im[i][j]);
             }
         }
 
@@ -2663,15 +2749,15 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_encode(LIBLTE_PHY_STRUCT            *
                     // DMRS 0
                     for(j=0; j<M_pusch_sc; j++)
                     {
-                        subframe->tx_symb_re[p][L][j] = phy_struct->dmrs_0_re[subframe->num][alloc->N_prb][j];
-                        subframe->tx_symb_im[p][L][j] = phy_struct->dmrs_0_im[subframe->num][alloc->N_prb][j];
+                        subframe->tx_symb_re[p][L][j] = phy_struct->pusch_dmrs_0_re[subframe->num][alloc->N_prb][j];
+                        subframe->tx_symb_im[p][L][j] = phy_struct->pusch_dmrs_0_im[subframe->num][alloc->N_prb][j];
                     }
                 }else if(10 == L){
                     // DMRS 1
                     for(j=0; j<M_pusch_sc; j++)
                     {
-                        subframe->tx_symb_re[p][L][j] = phy_struct->dmrs_1_re[subframe->num][alloc->N_prb][j];
-                        subframe->tx_symb_im[p][L][j] = phy_struct->dmrs_1_im[subframe->num][alloc->N_prb][j];
+                        subframe->tx_symb_re[p][L][j] = phy_struct->pusch_dmrs_1_re[subframe->num][alloc->N_prb][j];
+                        subframe->tx_symb_im[p][L][j] = phy_struct->pusch_dmrs_1_im[subframe->num][alloc->N_prb][j];
                     }
                 }else{
                     // PUSCH
@@ -2760,15 +2846,15 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
                 }
             }
         }
-        get_ul_ce(phy_struct,
-                  phy_struct->pusch_c_est_0_re,
-                  phy_struct->pusch_c_est_0_im,
-                  phy_struct->pusch_c_est_1_re,
-                  phy_struct->pusch_c_est_1_im,
-                  alloc->N_prb,
-                  subframe->num,
-                  phy_struct->pusch_c_est_re,
-                  phy_struct->pusch_c_est_im);
+        get_ulsch_ce(phy_struct,
+                     phy_struct->pusch_c_est_0_re,
+                     phy_struct->pusch_c_est_0_im,
+                     phy_struct->pusch_c_est_1_re,
+                     phy_struct->pusch_c_est_1_im,
+                     alloc->N_prb,
+                     subframe->num,
+                     phy_struct->pusch_c_est_re,
+                     phy_struct->pusch_c_est_im);
         pre_decoder_and_matched_filter_ul(phy_struct->pusch_z_est_re,
                                           phy_struct->pusch_z_est_im,
                                           phy_struct->pusch_c_est_re,
@@ -2831,6 +2917,173 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
                                                   N_out_bits))
         {
             err = LIBLTE_SUCCESS;
+        }
+    }
+
+    return(err);
+}
+
+/*********************************************************************
+    Name: liblte_phy_pucch_channel_encode
+
+    Description: Encodes and modulates the Physical Uplink Control
+                 Channel
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+
+    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+*********************************************************************/
+// FIXME
+
+/*********************************************************************
+    Name: liblte_phy_pucch_channel_decode
+
+    Description: Demodulates and decodes the Physical Uplink Control
+                 Channel
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+
+    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+*********************************************************************/
+LIBLTE_ERROR_ENUM liblte_phy_pucch_channel_decode(LIBLTE_PHY_STRUCT          *phy_struct,
+                                                  LIBLTE_PHY_SUBFRAME_STRUCT *subframe,
+                                                  uint32                      N_id_cell,
+                                                  uint8                       N_ant,
+                                                  uint32                      N_1_p_pucch)
+{
+    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    uint32            m_prime;
+    uint32            i;
+    uint32            j;
+    uint32            L;
+    uint32            z_idx;
+    uint32            c_idx_0;
+    uint32            c_idx_1;
+    uint32            M_layer_symb;
+    uint32            idx;
+    uint32            symb_num;
+    uint32            N_pucch_sf = 4;
+    float             s_ns_re[2];
+    float             s_ns_im[2];
+    float             s_w_re;
+    float             s_w_im;
+    float             s_w_r_re;
+    float             s_w_r_im;
+    float             denom;
+    float             d_re;
+    float             d_im;
+    float             sd;
+    float             r_u_v_re;
+    float             r_u_v_im;
+
+    if(phy_struct != NULL &&
+       subframe   != NULL)
+    {
+        // Extract resource elements and construct channel estimate
+        z_idx   = 0;
+        c_idx_0 = 0;
+        c_idx_1 = 0;
+        for(L=0; L<14; L++)
+        {
+            if(7 > L)
+            {
+                i = N_1_p_pucch;
+            }else{
+                i = phy_struct->N_rb_ul - N_1_p_pucch - 1;
+            }
+            for(j=0; j<phy_struct->N_sc_rb_ul; j++)
+            {
+                if(2 == L || 3 == L || 4 == L)
+                {
+                    phy_struct->pucch_c_est_0_re[c_idx_0] = subframe->rx_symb_re[L][i*phy_struct->N_sc_rb_ul+j];
+                    phy_struct->pucch_c_est_0_im[c_idx_0] = subframe->rx_symb_im[L][i*phy_struct->N_sc_rb_ul+j];
+                    c_idx_0++;
+                }else if(9 == L || 10 == L || 11 == L){
+                    phy_struct->pucch_c_est_1_re[c_idx_1] = subframe->rx_symb_re[L][i*phy_struct->N_sc_rb_ul+j];
+                    phy_struct->pucch_c_est_1_im[c_idx_1] = subframe->rx_symb_im[L][i*phy_struct->N_sc_rb_ul+j];
+                    c_idx_1++;
+                }else{
+                    phy_struct->pucch_z_est_re[z_idx] = subframe->rx_symb_re[L][i*phy_struct->N_sc_rb_ul+j];
+                    phy_struct->pucch_z_est_im[z_idx] = subframe->rx_symb_im[L][i*phy_struct->N_sc_rb_ul+j];
+                    z_idx++;
+                }
+            }
+        }
+
+        // Recover z using the channel estimate
+        get_ulcch_ce(phy_struct,
+                     phy_struct->pucch_c_est_0_re,
+                     phy_struct->pucch_c_est_0_im,
+                     phy_struct->pucch_c_est_1_re,
+                     phy_struct->pucch_c_est_1_im,
+                     subframe->num,
+                     N_1_p_pucch,
+                     phy_struct->pucch_c_est_re,
+                     phy_struct->pucch_c_est_im);
+        pre_decoder_and_matched_filter_ul(phy_struct->pucch_z_est_re,
+                                          phy_struct->pucch_z_est_im,
+                                          phy_struct->pucch_c_est_re,
+                                          phy_struct->pucch_c_est_im,
+                                          z_idx,
+                                          N_ant,
+                                          1,
+                                          phy_struct->pucch_z_re[0],
+                                          phy_struct->pucch_z_im[0],
+                                          &M_layer_symb);
+
+        // Calculate s_ns
+        for(m_prime=0; m_prime<2; m_prime++)
+        {
+            if((phy_struct->pucch_n_prime_p[subframe->num][N_1_p_pucch][m_prime] % 2) == 0)
+            {
+                s_ns_re[m_prime] = 1;
+                s_ns_im[m_prime] = 0;
+            }else{
+                s_ns_re[m_prime] = cos(M_PI/2);
+                s_ns_im[m_prime] = sin(M_PI/2);
+            }
+        }
+
+        // Recover the bit that was sent
+        d_re = 0;
+        d_im = 0;
+        for(m_prime=0; m_prime<2; m_prime++)
+        {
+            for(i=0; i<N_pucch_sf; i++)
+            {
+                symb_num = i;
+                if(1 < symb_num)
+                {
+                    symb_num += 3;
+                }
+                s_w_re = s_ns_re[m_prime]*W_5_4_1_2[phy_struct->pucch_n_oc_p[subframe->num][N_1_p_pucch][m_prime]][i];
+                s_w_im = s_ns_im[m_prime]*W_5_4_1_2[phy_struct->pucch_n_oc_p[subframe->num][N_1_p_pucch][m_prime]][i];
+                for(j=0; j<LIBLTE_PHY_N_SC_RB_UL; j++)
+                {
+                    r_u_v_re  = phy_struct->pucch_r_u_v_alpha_p_re[subframe->num][N_1_p_pucch][m_prime][symb_num][j];
+                    r_u_v_im  = phy_struct->pucch_r_u_v_alpha_p_im[subframe->num][N_1_p_pucch][m_prime][symb_num][j];
+                    s_w_r_re  = s_w_re*r_u_v_re - s_w_im*r_u_v_im;
+                    s_w_r_im  = s_w_re*r_u_v_im + s_w_im*r_u_v_re;
+                    idx       = m_prime*N_pucch_sf*LIBLTE_PHY_N_SC_RB_UL + i*LIBLTE_PHY_N_SC_RB_UL + j;
+                    denom     = s_w_r_re*s_w_r_re + s_w_r_im*s_w_r_im;
+                    d_re     += (1/denom)*(phy_struct->pucch_z_re[0][idx]*s_w_r_re + phy_struct->pucch_z_im[0][idx]*s_w_r_im);
+                    d_im     += (1/denom)*(-phy_struct->pucch_z_re[0][idx]*s_w_r_im + phy_struct->pucch_z_im[0][idx]*s_w_r_re);
+                }
+            }
+        }
+        d_re /= idx;
+        d_im /= idx;
+        d_re *= sqrt(N_ant);
+        d_im *= sqrt(N_ant);
+
+        // Quantify the bit that was sent
+        if(d_re < 0)
+        {
+            sd = get_soft_decision(d_re, d_im, -1, 0, 1);
+            if(sd > 0.5)
+            {
+                err = LIBLTE_SUCCESS;
+            }
         }
     }
 
@@ -6341,7 +6594,7 @@ void pre_decoder_and_matched_filter_ul(float  *z_re,
         *M_layer_symb = M_ap_symb;
         for(i=0; i<M_ap_symb; i++)
         {
-            h_norm  = sqrt(h_re[i] * h_re[i] + h_im[i] * h_im[i]);
+            h_norm  = h_re[i] * h_re[i] + h_im[i] * h_im[i];
             y_re[i] = (z_re[i]*h_re[i] + z_im[i]*h_im[i]) / h_norm;
             y_im[i] = (z_im[i]*h_re[i] - z_re[i]*h_im[i]) / h_norm;
         }
@@ -6524,15 +6777,15 @@ void generate_dmrs_pusch(LIBLTE_PHY_STRUCT *phy_struct,
     f_ss_pusch = ((N_id_cell % 30) + delta_ss) % 30;
 
     // Generate c
-    generate_prs_c(((N_id_cell/30) << 5) + f_ss_pusch, 8*N_ul_symb*20, phy_struct->dmrs_c);
+    generate_prs_c(((N_id_cell/30) << 5) + f_ss_pusch, 8*N_ul_symb*20, phy_struct->pusch_dmrs_c);
 
     // Calculate n_pn_ns
     n_pn_ns_1 = 0;
     n_pn_ns_2 = 0;
     for(i=0; i<8; i++)
     {
-        n_pn_ns_1 += phy_struct->dmrs_c[8*N_ul_symb*N_slot + i] << i;
-        n_pn_ns_2 += phy_struct->dmrs_c[8*N_ul_symb*(N_slot+1) + i] << i;
+        n_pn_ns_1 += phy_struct->pusch_dmrs_c[8*N_ul_symb*N_slot + i] << i;
+        n_pn_ns_2 += phy_struct->pusch_dmrs_c[8*N_ul_symb*(N_slot+1) + i] << i;
     }
 
     // Determine n_1_dmrs
@@ -6588,6 +6841,157 @@ void generate_dmrs_pusch(LIBLTE_PHY_STRUCT *phy_struct,
     }
 
     // FIXME: Add precoding to arrive at r_tilda
+}
+
+/*********************************************************************
+    Name: generate_dmrs_pucch
+
+    Description: Generates demodulation reference signals for the
+                 uplink control channel
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.5.2
+*********************************************************************/
+void generate_dmrs_pucch(LIBLTE_PHY_STRUCT *phy_struct,
+                         uint32             N_subfr,
+                         uint32             N_id_cell,
+                         uint32             delta_ss,
+                         bool               group_hopping_enabled,
+                         bool               sequence_hopping_enabled,
+                         uint8              N_cs_1,
+                         uint8              N_1_p_pucch,
+                         uint8              delta_pucch_shift,
+                         uint8              N_ant,
+                         float             *dmrs_0_re,
+                         float             *dmrs_0_im,
+                         float             *dmrs_1_re,
+                         float             *dmrs_1_im)
+{
+    uint32  N_slot;
+    uint32  i;
+    uint32  j;
+    uint32  k;
+    uint32  idx;
+    uint32  N_prime;
+    uint32  h_p;
+    uint32  N_ul_symb = 7; // FIXME: Only handling normal CP
+    uint32  n_cs_cell[2][N_ul_symb];
+    uint32  n_cs_p[2][N_ul_symb];
+    float   alpha_p[2][N_ul_symb];
+    float   w_re;
+    float   w_im;
+    float   alpha_re;
+    float   alpha_im;
+    float  *dmrs_re;
+    float  *dmrs_im;
+
+    // Calculate N_slot
+    N_slot = N_subfr*2;
+
+    // Calculate N_prime
+    if(N_1_p_pucch < (3*N_cs_1/delta_pucch_shift))
+    {
+        N_prime = N_cs_1;
+    }else{
+        N_prime = LIBLTE_PHY_N_SC_RB_UL;
+    }
+
+    // Calculate n_prime_p
+    // FIXME: Only supporting normal cyclic prefix
+    if(N_1_p_pucch < (3*N_cs_1/delta_pucch_shift))
+    {
+        phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][0] = N_1_p_pucch;
+        h_p                                                  = (phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][0] + 2) % (3*N_prime/delta_pucch_shift);
+        phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][1] = (h_p/3) + (h_p%3)*N_prime/delta_pucch_shift;
+    }else{
+        phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][0] = (N_1_p_pucch - 3*N_cs_1/delta_pucch_shift) % (3*LIBLTE_PHY_N_SC_RB_UL/delta_pucch_shift);
+        phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][1] = ((3*(phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][0]+1)) % (3*LIBLTE_PHY_N_SC_RB_UL/(delta_pucch_shift+1))) - 1;
+    }
+
+    // Calculate N_oc_p
+    for(i=0; i<2; i++)
+    {
+        phy_struct->pucch_n_oc_p[N_subfr][N_1_p_pucch][i] = phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][i]*delta_pucch_shift/N_prime;
+    }
+
+    // Generate c
+    generate_prs_c(N_id_cell, 8*N_ul_symb*20, phy_struct->pucch_dmrs_c);
+
+    // Calculate N_cs_cell
+    for(i=0; i<2; i++)
+    {
+        for(j=0; j<N_ul_symb; j++)
+        {
+            n_cs_cell[i][j] = 0;
+            for(idx=0; idx<8; idx++)
+            {
+                n_cs_cell[i][j] += phy_struct->pucch_dmrs_c[8*N_ul_symb*(N_slot+i) + 8*j + idx] << idx;
+            }
+        }
+    }
+
+    // Calculate N_cs_p
+    // FIXME: Only supporting normal cyclic prefix
+    for(i=0; i<2; i++)
+    {
+        for(j=0; j<N_ul_symb; j++)
+        {
+            n_cs_p[i][j] = (n_cs_cell[i][j] + ((phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][i]*delta_pucch_shift + (phy_struct->pucch_n_oc_p[N_subfr][N_1_p_pucch][i] % delta_pucch_shift)) % N_prime)) % LIBLTE_PHY_N_SC_RB_UL;
+        }
+    }
+
+    // Calculate alpha_p
+    for(i=0; i<2; i++)
+    {
+        for(j=0; j<N_ul_symb; j++)
+        {
+            alpha_p[i][j] = 2*M_PI*n_cs_p[i][j]/LIBLTE_PHY_N_SC_RB_UL;
+        }
+    }
+
+    // Generate the base reference signal
+    for(i=0; i<2; i++)
+    {
+        for(j=0; j<N_ul_symb; j++)
+        {
+            generate_ul_rs(phy_struct,
+                           N_slot + i,
+                           N_id_cell,
+                           LIBLTE_PHY_CHAN_TYPE_ULCCH,
+                           delta_ss,
+                           1,
+                           alpha_p[i][j],
+                           group_hopping_enabled,
+                           sequence_hopping_enabled,
+                           phy_struct->pucch_r_u_v_alpha_p_re[N_subfr][N_1_p_pucch][i][j],
+                           phy_struct->pucch_r_u_v_alpha_p_im[N_subfr][N_1_p_pucch][i][j]);
+        }
+    }
+
+    // Generate the PUCCH demodulation reference signal sequence
+    for(i=0; i<2; i++)
+    {
+        if(0 == i)
+        {
+            dmrs_re = dmrs_0_re;
+            dmrs_im = dmrs_0_im;
+        }else{
+            dmrs_re = dmrs_1_re;
+            dmrs_im = dmrs_1_im;
+        }
+        for(j=0; j<LIBLTE_PHY_M_PUCCH_RS; j++)
+        {
+            w_re = cos(W_5_5_2_2_1_2_phase[phy_struct->pucch_n_oc_p[N_subfr][N_1_p_pucch][i]][j]);
+            w_im = sin(W_5_5_2_2_1_2_phase[phy_struct->pucch_n_oc_p[N_subfr][N_1_p_pucch][i]][j]);
+            for(k=0; k<LIBLTE_PHY_N_SC_RB_UL; k++)
+            {
+                alpha_re = phy_struct->pucch_r_u_v_alpha_p_re[N_subfr][N_1_p_pucch][i][j+2][k];
+                alpha_im = phy_struct->pucch_r_u_v_alpha_p_im[N_subfr][N_1_p_pucch][i][j+2][k];
+                // z(m) = 1
+                dmrs_re[j*LIBLTE_PHY_N_SC_RB_UL + k] = (1/sqrt(N_ant))*(w_re*alpha_re - w_im*alpha_im);
+                dmrs_im[j*LIBLTE_PHY_N_SC_RB_UL + k] = (1/sqrt(N_ant))*(w_re*alpha_im + w_im*alpha_re);
+            }
+        }
+    }
 }
 
 /*********************************************************************
@@ -13158,21 +13562,22 @@ LIBLTE_ERROR_ENUM cfi_channel_decode(LIBLTE_PHY_STRUCT *phy_struct,
 }
 
 /*********************************************************************
-    Name: get_ul_ce
+    Name: get_ulsch_ce
 
-    Description: Resolves channel estimates for the uplink
+    Description: Resolves channel estimates for the uplink shared
+                 channel
 
     Document Reference: N/A
 *********************************************************************/
-void get_ul_ce(LIBLTE_PHY_STRUCT *phy_struct,
-               float             *c_est_0_re,
-               float             *c_est_0_im,
-               float             *c_est_1_re,
-               float             *c_est_1_im,
-               uint32             N_prb,
-               uint32             N_subfr,
-               float             *c_est_re,
-               float             *c_est_im)
+void get_ulsch_ce(LIBLTE_PHY_STRUCT *phy_struct,
+                  float             *c_est_0_re,
+                  float             *c_est_0_im,
+                  float             *c_est_1_re,
+                  float             *c_est_1_im,
+                  uint32             N_prb,
+                  uint32             N_subfr,
+                  float             *c_est_re,
+                  float             *c_est_im)
 {
     float  *dmrs_0_re;
     float  *dmrs_0_im;
@@ -13192,10 +13597,10 @@ void get_ul_ce(LIBLTE_PHY_STRUCT *phy_struct,
     uint32  L;
     uint32  M_pusch_sc = N_prb * phy_struct->N_sc_rb_ul;
 
-    dmrs_0_re = phy_struct->dmrs_0_re[N_subfr][N_prb];
-    dmrs_0_im = phy_struct->dmrs_0_im[N_subfr][N_prb];
-    dmrs_1_re = phy_struct->dmrs_1_re[N_subfr][N_prb];
-    dmrs_1_im = phy_struct->dmrs_1_im[N_subfr][N_prb];
+    dmrs_0_re = phy_struct->pusch_dmrs_0_re[N_subfr][N_prb];
+    dmrs_0_im = phy_struct->pusch_dmrs_0_im[N_subfr][N_prb];
+    dmrs_1_re = phy_struct->pusch_dmrs_1_re[N_subfr][N_prb];
+    dmrs_1_im = phy_struct->pusch_dmrs_1_im[N_subfr][N_prb];
 
     for(i=0; i<M_pusch_sc; i++)
     {
@@ -13233,6 +13638,88 @@ void get_ul_ce(LIBLTE_PHY_STRUCT *phy_struct,
         {
             c_est_re[L*M_pusch_sc + i] = ce_mag[L]*cos(ce_ang[L]);
             c_est_im[L*M_pusch_sc + i] = ce_mag[L]*sin(ce_ang[L]);
+        }
+    }
+}
+
+/*********************************************************************
+    Name: get_ulcch_ce
+
+    Description: Resolves channel estimates for the uplink control
+                 channel
+
+    Document Reference: N/A
+*********************************************************************/
+void get_ulcch_ce(LIBLTE_PHY_STRUCT *phy_struct,
+                  float             *c_est_0_re,
+                  float             *c_est_0_im,
+                  float             *c_est_1_re,
+                  float             *c_est_1_im,
+                  uint32             N_subfr,
+                  uint32             N_1_p_pucch,
+                  float             *c_est_re,
+                  float             *c_est_im)
+{
+    float  *dmrs_0_re;
+    float  *dmrs_0_im;
+    float  *dmrs_1_re;
+    float  *dmrs_1_im;
+    float   tmp_re;
+    float   tmp_im;
+    float   denom;
+    float   ave_mag_0[LIBLTE_PHY_N_SC_RB_UL];
+    float   ave_ang_0[LIBLTE_PHY_N_SC_RB_UL];
+    float   tmp_ang_0[LIBLTE_PHY_M_PUCCH_RS][LIBLTE_PHY_N_SC_RB_UL];
+    float   ave_mag_1[LIBLTE_PHY_N_SC_RB_UL];
+    float   ave_ang_1[LIBLTE_PHY_N_SC_RB_UL];
+    float   tmp_ang_1[LIBLTE_PHY_M_PUCCH_RS][LIBLTE_PHY_N_SC_RB_UL];
+    uint32  i;
+    uint32  j;
+    uint32  idx;
+
+    dmrs_0_re = phy_struct->pucch_dmrs_0_re[N_subfr][N_1_p_pucch];
+    dmrs_0_im = phy_struct->pucch_dmrs_0_im[N_subfr][N_1_p_pucch];
+    dmrs_1_re = phy_struct->pucch_dmrs_1_re[N_subfr][N_1_p_pucch];
+    dmrs_1_im = phy_struct->pucch_dmrs_1_im[N_subfr][N_1_p_pucch];
+
+    for(i=0; i<LIBLTE_PHY_N_SC_RB_UL; i++)
+    {
+        ave_mag_0[i] = 0;
+        ave_mag_1[i] = 0;
+    }
+
+    for(i=0; i<LIBLTE_PHY_M_PUCCH_RS; i++)
+    {
+        for(j=0; j<LIBLTE_PHY_N_SC_RB_UL; j++)
+        {
+            idx              = i*LIBLTE_PHY_N_SC_RB_UL + j;
+            denom            = dmrs_0_re[idx]*dmrs_0_re[idx] + dmrs_0_im[idx]*dmrs_0_im[idx];
+            tmp_re           = (1/denom)*(c_est_0_re[idx]*dmrs_0_re[idx] + c_est_0_im[idx]*dmrs_0_im[idx]);
+            tmp_im           = (1/denom)*(c_est_0_im[idx]*dmrs_0_re[idx] - c_est_0_re[idx]*dmrs_0_im[idx]);
+            ave_mag_0[j]    += sqrt(tmp_re*tmp_re + tmp_im*tmp_im) / LIBLTE_PHY_M_PUCCH_RS;
+            tmp_ang_0[i][j]  = atan2f(tmp_im, tmp_re);
+            denom            = dmrs_1_re[idx]*dmrs_1_re[idx] + dmrs_1_im[idx]*dmrs_1_im[idx];
+            tmp_re           = (1/denom)*(c_est_1_re[idx]*dmrs_1_re[idx] + c_est_1_im[idx]*dmrs_1_im[idx]);
+            tmp_im           = (1/denom)*(c_est_1_im[idx]*dmrs_1_re[idx] - c_est_1_re[idx]*dmrs_1_im[idx]);
+            ave_mag_1[j]    += sqrt(tmp_re*tmp_re + tmp_im*tmp_im) / LIBLTE_PHY_M_PUCCH_RS;
+            tmp_ang_1[i][j]  = atan2f(tmp_im, tmp_re);
+        }
+    }
+
+    for(j=0; j<LIBLTE_PHY_N_SC_RB_UL; j++)
+    {
+        ave_ang_0[j] = tmp_ang_0[0][j];
+        ave_ang_1[j] = tmp_ang_1[0][j];
+    }
+
+    for(i=0; i<4; i++)
+    {
+        for(j=0; j<LIBLTE_PHY_N_SC_RB_UL; j++)
+        {
+            c_est_re[i*LIBLTE_PHY_N_SC_RB_UL + j]     = ave_mag_0[j]*cos(ave_ang_0[j]);
+            c_est_im[i*LIBLTE_PHY_N_SC_RB_UL + j]     = ave_mag_0[j]*sin(ave_ang_0[j]);
+            c_est_re[(4+i)*LIBLTE_PHY_N_SC_RB_UL + j] = ave_mag_1[j]*cos(ave_ang_1[j]);
+            c_est_im[(4+i)*LIBLTE_PHY_N_SC_RB_UL + j] = ave_mag_1[j]*sin(ave_ang_1[j]);
         }
     }
 }

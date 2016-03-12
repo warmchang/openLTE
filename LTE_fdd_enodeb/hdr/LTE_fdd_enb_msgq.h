@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -43,6 +43,7 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex and
                                    boost::interprocess::interprocess_semaphore
                                    to sem_t.
+    03/12/2016    Ben Wojtowicz    Added PUCCH support.
 
 *******************************************************************************/
 
@@ -177,11 +178,16 @@ typedef struct{
     uint32                  current_tti;
 }LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT;
 typedef struct{
-    LIBLTE_PHY_PDCCH_STRUCT decodes;
-    uint32                  N_avail_prbs;
-    uint32                  N_sched_prbs;
-    uint32                  current_tti;
-    uint8                   next_prb;
+    uint16 rnti;
+    bool   decode;
+}LTE_FDD_ENB_PUCCH_STRUCT;
+typedef struct{
+    LIBLTE_PHY_PDCCH_STRUCT  decodes;
+    LTE_FDD_ENB_PUCCH_STRUCT pucch;
+    uint32                   N_avail_prbs;
+    uint32                   N_sched_prbs;
+    uint32                   current_tti;
+    uint8                    next_prb;
 }LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT;
 typedef struct{
     LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT dl_sched;
@@ -202,6 +208,8 @@ typedef struct{
 }LTE_FDD_ENB_PRACH_DECODE_MSG_STRUCT;
 typedef struct{
     uint32 current_tti;
+    uint16 rnti;
+    bool   ack;
 }LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT;
 typedef struct{
     LIBLTE_BIT_MSG_STRUCT msg;

@@ -59,6 +59,7 @@
                                    structure (thanks to Markus Grab for finding
                                    this).
     02/13/2016    Ben Wojtowicz    Added a user inactivity timer.
+    03/12/2016    Ben Wojtowicz    Added PUCCH and H-ARQ support.
 
 *******************************************************************************/
 
@@ -184,6 +185,8 @@ void LTE_fdd_enb_mac::start(LTE_fdd_enb_msgq      *from_phy,
             sched_ul_subfr[i].N_sched_prbs    = 0;
             sched_ul_subfr[i].current_tti     = i;
             sched_ul_subfr[i].next_prb        = 0;
+            sched_ul_subfr[i].pucch.decode    = false;
+            sched_ul_subfr[i].pucch.rnti      = LIBLTE_MAC_INVALID_RNTI;
         }
         sched_dl_subfr[0].current_tti = 10;
         sched_dl_subfr[1].current_tti = 11;
@@ -363,6 +366,8 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
             sched_ul_subfr[sched_cur_ul_subfn].decodes.N_alloc        = 0;
             sched_ul_subfr[sched_cur_ul_subfn].N_sched_prbs           = 0;
             sched_ul_subfr[sched_cur_ul_subfn].next_prb               = 0;
+            sched_ul_subfr[sched_cur_ul_subfn].pucch.decode           = false;
+            sched_ul_subfr[sched_cur_ul_subfn].pucch.rnti             = LIBLTE_MAC_INVALID_RNTI;
             sem_post(&sys_info_sem);
 
             // Advance the subframe numbers
@@ -388,6 +393,8 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
         sched_ul_subfr[sched_cur_ul_subfn].decodes.N_alloc        = 0;
         sched_ul_subfr[sched_cur_ul_subfn].N_sched_prbs           = 0;
         sched_ul_subfr[sched_cur_ul_subfn].next_prb               = 0;
+        sched_ul_subfr[sched_cur_ul_subfn].pucch.decode           = false;
+        sched_ul_subfr[sched_cur_ul_subfn].pucch.rnti             = LIBLTE_MAC_INVALID_RNTI;
         sem_post(&sys_info_sem);
 
         // Advance the subframe numbers
@@ -411,11 +418,77 @@ void LTE_fdd_enb_mac::handle_prach_decode(LTE_FDD_ENB_PRACH_DECODE_MSG_STRUCT *p
 }
 void LTE_fdd_enb_mac::handle_pucch_decode(LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT *pucch_decode)
 {
-    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+    LTE_fdd_enb_user_mgr         *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_user             *user;
+    LIBLTE_MAC_PDU_STRUCT         mac_pdu;
+    LIBLTE_PHY_ALLOCATION_STRUCT  alloc;
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_MAC,
                               __FILE__,
                               __LINE__,
-                              "Not handling PUCCH_DECODE");
+                              "PUCCH decode received %u for %u",
+                              pucch_decode->ack,
+                              pucch_decode->current_tti);
+
+    if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(pucch_decode->rnti, &user))
+    {
+        if(pucch_decode->ack)
+        {
+            user->clear_harq_info(pucch_decode->current_tti);
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Clearing HARQ info RNTI=%u TTI=%u",
+                                      pucch_decode->rnti,
+                                      pucch_decode->current_tti);
+        }else{
+            if(LTE_FDD_ENB_ERROR_NONE == user->get_harq_info(pucch_decode->current_tti,
+                                                             &mac_pdu,
+                                                             &alloc))
+            {
+                alloc.ndi = user->get_dl_ndi();
+                if(LTE_FDD_ENB_ERROR_NONE == add_to_dl_sched_queue(add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti,
+                                                                              4),
+                                                                   &mac_pdu,
+                                                                   &alloc))
+                {
+                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                              __FILE__,
+                                              __LINE__,
+                                              "Resending HARQ info RNTI=%u TTI=%u",
+                                              pucch_decode->rnti,
+                                              pucch_decode->current_tti);
+                }else{
+                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                              __FILE__,
+                                              __LINE__,
+                                              "Failed to resend HARQ info RNTI=%u TTI=%u",
+                                              pucch_decode->rnti,
+                                              pucch_decode->current_tti);
+                }
+            }else{
+                interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                          LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                          __FILE__,
+                                          __LINE__,
+                                          "Failed to find HARQ info RNTI=%u TTI=%u",
+                                          pucch_decode->rnti,
+                                          pucch_decode->current_tti);
+            }
+        }
+    }else{
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                  __FILE__,
+                                  __LINE__,
+                                  "Failed to find PUCCH user RNTI=%u TTI=%u",
+                                  pucch_decode->rnti,
+                                  pucch_decode->current_tti);
+    }
 }
 void LTE_fdd_enb_mac::handle_pusch_decode(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT *pusch_decode)
 {
@@ -881,7 +954,9 @@ void LTE_fdd_enb_mac::construct_random_access_response(uint8  preamble,
 void LTE_fdd_enb_mac::scheduler(void)
 {
     libtools_scoped_lock                lock(sys_info_sem);
-    LTE_fdd_enb_phy                    *phy = LTE_fdd_enb_phy::get_instance();
+    LTE_fdd_enb_phy                    *phy      = LTE_fdd_enb_phy::get_instance();
+    LTE_fdd_enb_user_mgr               *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_user                   *user;
     LTE_FDD_ENB_RAR_SCHED_QUEUE_STRUCT *rar_sched;
     LTE_FDD_ENB_DL_SCHED_QUEUE_STRUCT  *dl_sched;
     LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT  *ul_sched;
@@ -1122,6 +1197,14 @@ void LTE_fdd_enb_mac::scheduler(void)
                        &dl_sched->alloc,
                        sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
                 sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc++;
+
+                // Schedule PUCCH 4 subframes from now and store the DL allocation for potential H-ARQ retransmission
+                sched_ul_subfr[(sched_cur_dl_subfn+4)%10].pucch.decode = true;
+                sched_ul_subfr[(sched_cur_dl_subfn+4)%10].pucch.rnti   = dl_sched->alloc.rnti;
+                if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(dl_sched->alloc.rnti, &user))
+                {
+                    user->store_harq_info(sched_ul_subfr[(sched_cur_dl_subfn+4)%10].current_tti, &dl_sched->mac_pdu, &dl_sched->alloc);
+                }
 
                 // Remove DL schedule from queue
                 dl_sched_queue.pop_front();

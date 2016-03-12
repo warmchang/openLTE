@@ -71,6 +71,7 @@
                                    code block segmentation/desegmentation to
                                    globally available routines to support unit
                                    tests.
+    03/12/2016    Ben Wojtowicz    Added PUCCH channel decode support.
 
 *******************************************************************************/
 
@@ -117,6 +118,10 @@
 // N_sc_rb
 #define LIBLTE_PHY_N_SC_RB_UL           12
 #define LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP 12
+// FIXME: Add Extended CP
+
+// M_pucch_rs
+#define LIBLTE_PHY_M_PUCCH_RS 3
 // FIXME: Add Extended CP
 
 // N_ant
@@ -202,6 +207,7 @@ typedef enum{
     LIBLTE_PHY_CHAN_TYPE_DLSCH = 0,
     LIBLTE_PHY_CHAN_TYPE_PCH,
     LIBLTE_PHY_CHAN_TYPE_ULSCH,
+    LIBLTE_PHY_CHAN_TYPE_ULCCH,
 }LIBLTE_PHY_CHAN_TYPE_ENUM;
 
 typedef struct{
@@ -262,6 +268,18 @@ typedef struct{
     uint8          pusch_scramb_bits[28800];
     int8           pusch_soft_bits[28800];
 
+    // PUCCH
+    float pucch_z_est_re[LIBLTE_PHY_N_SC_RB_UL*14];
+    float pucch_z_est_im[LIBLTE_PHY_N_SC_RB_UL*14];
+    float pucch_c_est_0_re[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float pucch_c_est_0_im[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float pucch_c_est_1_re[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float pucch_c_est_1_im[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float pucch_c_est_re[LIBLTE_PHY_N_SC_RB_UL*14];
+    float pucch_c_est_im[LIBLTE_PHY_N_SC_RB_UL*14];
+    float pucch_z_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_N_SC_RB_UL*14];
+    float pucch_z_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_N_SC_RB_UL*14];
+
     // UL Reference Signals
     float  ulrs_x_q_re[2048];
     float  ulrs_x_q_im[2048];
@@ -270,11 +288,20 @@ typedef struct{
     uint32 ulrs_c[160];
 
     // DMRS
-    float  dmrs_0_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float  dmrs_0_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float  dmrs_1_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float  dmrs_1_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    uint32 dmrs_c[1120];
+    float  pusch_dmrs_0_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    float  pusch_dmrs_0_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    float  pusch_dmrs_1_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    float  pusch_dmrs_1_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    float  pucch_dmrs_0_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float  pucch_dmrs_0_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float  pucch_dmrs_1_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float  pucch_dmrs_1_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    float  pucch_r_u_v_alpha_p_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2][7][LIBLTE_PHY_N_SC_RB_UL];
+    float  pucch_r_u_v_alpha_p_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2][7][LIBLTE_PHY_N_SC_RB_UL];
+    uint32 pusch_dmrs_c[1120];
+    uint32 pucch_dmrs_c[1120];
+    uint32 pucch_n_prime_p[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2];
+    uint32 pucch_n_oc_p[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2];
 
     // PRACH
     fftwf_complex *prach_dft_in;
@@ -560,6 +587,7 @@ typedef struct{
     uint32 N_sc_rb_ul;
     uint32 FFT_pad_size;
     uint32 FFT_size;
+    uint8  N_ant;
     bool   ul_init;
 }LIBLTE_PHY_STRUCT;
 // Functions
@@ -580,7 +608,9 @@ LIBLTE_ERROR_ENUM liblte_phy_ul_init(LIBLTE_PHY_STRUCT *phy_struct,
                                      bool               group_hopping_enabled,
                                      bool               sequence_hopping_enabled,
                                      uint8              cyclic_shift,
-                                     uint8              cyclic_shift_dci);
+                                     uint8              cyclic_shift_dci,
+                                     uint8              N_cs_an,
+                                     uint8              delta_pucch_shift);
 
 /*********************************************************************
     Name: liblte_phy_cleanup
@@ -682,6 +712,42 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
                                                   uint8                         N_ant,
                                                   uint8                        *out_bits,
                                                   uint32                       *N_out_bits);
+
+/*********************************************************************
+    Name: liblte_phy_pucch_channel_encode
+
+    Description: Encodes and modulates the Physical Uplink Control
+                 Channel
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+
+    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+// FIXME
+
+/*********************************************************************
+    Name: liblte_phy_pucch_channel_decode
+
+    Description: Demodulates and decodes the Physical Uplink Control
+                 Channel
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+
+    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+LIBLTE_ERROR_ENUM liblte_phy_pucch_channel_decode(LIBLTE_PHY_STRUCT          *phy_struct,
+                                                  LIBLTE_PHY_SUBFRAME_STRUCT *subframe,
+                                                  uint32                      N_id_cell,
+                                                  uint8                       N_ant,
+                                                  uint32                      N_1_p_pucch);
 
 /*********************************************************************
     Name: liblte_phy_generate_prach

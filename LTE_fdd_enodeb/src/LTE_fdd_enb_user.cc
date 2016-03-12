@@ -42,6 +42,8 @@
                                    procedures and changed the QoS parameters
                                    for default data.
     02/13/2016    Ben Wojtowicz    Added an inactivity timer.
+    03/12/2016    Ben Wojtowicz    Added H-ARQ support and properly cleaning
+                                   up inactivity timer.
 
 *******************************************************************************/
 
@@ -55,6 +57,7 @@
 #include "LTE_fdd_enb_mac.h"
 #include "LTE_fdd_enb_rrc.h"
 #include "liblte_mme.h"
+#include "libtools_scoped_lock.h"
 #include <boost/lexical_cast.hpp>
 
 /*******************************************************************************
@@ -125,6 +128,8 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
     protocol_cnfg_opts.N_opts = 0;
 
     // MAC
+    sem_init(&harq_buffer_sem, 0, 1);
+    harq_buffer.clear();
     ul_sched_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
     dl_ndi            = false;
     ul_ndi            = false;
@@ -139,8 +144,17 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
 }
 LTE_fdd_enb_user::~LTE_fdd_enb_user()
 {
-    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-    uint32                 i;
+    LTE_fdd_enb_timer_mgr                                     *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
+    std::map<uint32, LTE_FDD_ENB_HARQ_INFO_STRUCT*>::iterator  iter;
+    uint32                                                     i;
+
+    // MAC
+    sem_wait(&harq_buffer_sem);
+    for(iter=harq_buffer.begin(); iter!=harq_buffer.end(); iter++)
+    {
+        delete (*iter).second;
+    }
+    sem_destroy(&harq_buffer_sem);
 
     // Radio Bearers
     for(i=0; i<8; i++)
@@ -154,6 +168,10 @@ LTE_fdd_enb_user::~LTE_fdd_enb_user()
     if(LTE_FDD_ENB_INVALID_TIMER_ID != ul_sched_timer_id)
     {
         timer_mgr->stop_timer(ul_sched_timer_id);
+    }
+    if(LTE_FDD_ENB_INVALID_TIMER_ID != inactivity_timer_id)
+    {
+        timer_mgr->stop_timer(inactivity_timer_id);
     }
 }
 
@@ -643,6 +661,55 @@ void LTE_fdd_enb_user::stop_ul_sched_timer(void)
 
     timer_mgr->stop_timer(ul_sched_timer_id);
     ul_sched_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
+}
+void LTE_fdd_enb_user::store_harq_info(uint32                        pucch_tti,
+                                       LIBLTE_MAC_PDU_STRUCT        *mac_pdu,
+                                       LIBLTE_PHY_ALLOCATION_STRUCT *alloc)
+{
+    LTE_FDD_ENB_HARQ_INFO_STRUCT *harq_info = NULL;
+
+    harq_info = new LTE_FDD_ENB_HARQ_INFO_STRUCT;
+
+    if(NULL != harq_info)
+    {
+        memcpy(&harq_info->mac_pdu, mac_pdu, sizeof(LIBLTE_MAC_PDU_STRUCT));
+        memcpy(&harq_info->alloc, alloc, sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
+        sem_wait(&harq_buffer_sem);
+        harq_buffer[pucch_tti] = harq_info;
+        sem_post(&harq_buffer_sem);
+    }
+}
+void LTE_fdd_enb_user::clear_harq_info(uint32 pucch_tti)
+{
+    libtools_scoped_lock                                      lock(harq_buffer_sem);
+    std::map<uint32, LTE_FDD_ENB_HARQ_INFO_STRUCT*>::iterator iter;
+
+    iter = harq_buffer.find(pucch_tti);
+    if(harq_buffer.end() != iter)
+    {
+        delete (*iter).second;
+        harq_buffer.erase(iter);
+    }
+}
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user::get_harq_info(uint32                        pucch_tti,
+                                                       LIBLTE_MAC_PDU_STRUCT        *mac_pdu,
+                                                       LIBLTE_PHY_ALLOCATION_STRUCT *alloc)
+{
+    libtools_scoped_lock                                      lock(harq_buffer_sem);
+    std::map<uint32, LTE_FDD_ENB_HARQ_INFO_STRUCT*>::iterator iter;
+    LTE_FDD_ENB_ERROR_ENUM                                    err = LTE_FDD_ENB_ERROR_HARQ_INFO_NOT_FOUND;
+
+    iter = harq_buffer.find(pucch_tti);
+    if(harq_buffer.end() != iter)
+    {
+        memcpy(mac_pdu, &(*iter).second->mac_pdu, sizeof(LIBLTE_MAC_PDU_STRUCT));
+        memcpy(alloc, &(*iter).second->alloc, sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
+        delete (*iter).second;
+        harq_buffer.erase(iter);
+        err = LTE_FDD_ENB_ERROR_NONE;
+    }
+
+    return(err);
 }
 
 /*****************/

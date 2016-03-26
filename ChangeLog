@@ -225,3 +225,4 @@ v00.19.02     Pulled in unit tests for the turbo decoder from Ziming He, optimiz
 v00.19.03     Added support for PUCCH decode in liblte, added support for H-ARQ and
               PUCCH in LTE_fdd_enodeb, and fixed a bug related to improper cleanup
               of the inactivity timer in LTE_fdd_enodeb
+v00.19.04     Fixed the calculation of n_prime_p in generate_dmrs_pucch.

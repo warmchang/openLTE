@@ -120,6 +120,8 @@
                                    tests and incorporated changes from Ziming
                                    He for better PBCH detection.
     03/12/2016    Ben Wojtowicz    Added PUCCH channel decode support.
+    03/26/2016    Ben Wojtowicz    Fixed the calculation of n_prime_p in
+                                   generate_dmrs_pucch.
 
 *******************************************************************************/
 
@@ -6904,7 +6906,7 @@ void generate_dmrs_pucch(LIBLTE_PHY_STRUCT *phy_struct,
         phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][1] = (h_p/3) + (h_p%3)*N_prime/delta_pucch_shift;
     }else{
         phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][0] = (N_1_p_pucch - 3*N_cs_1/delta_pucch_shift) % (3*LIBLTE_PHY_N_SC_RB_UL/delta_pucch_shift);
-        phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][1] = ((3*(phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][0]+1)) % (3*LIBLTE_PHY_N_SC_RB_UL/(delta_pucch_shift+1))) - 1;
+        phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][1] = ((3*(phy_struct->pucch_n_prime_p[N_subfr][N_1_p_pucch][0]+1)) % ((3*LIBLTE_PHY_N_SC_RB_UL/delta_pucch_shift)+1)) - 1;
     }
 
     // Calculate N_oc_p

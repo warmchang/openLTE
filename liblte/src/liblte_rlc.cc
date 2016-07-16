@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -33,6 +33,7 @@
     03/11/2015    Ben Wojtowicz    Added header extension handling to AMD.
     12/06/2015    Ben Wojtowicz    Added a return to unpack status PDU, thanks
                                    to Mikhail Gudkov for reporting this.
+    07/03/2016    Ben Wojtowicz    Added AMD PDU segment support.
 
 *******************************************************************************/
 
@@ -348,6 +349,13 @@ LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd,
         pdu_ptr++;
         *pdu_ptr = amd->hdr.sn & 0xFF;
         pdu_ptr++;
+        if(LIBLTE_RLC_RF_FIELD_AMD_PDU_SEGMENT == amd->hdr.rf)
+        {
+            *pdu_ptr  = (amd->hdr.lsf & 0x01) << 7;
+            *pdu_ptr |= (amd->hdr.so & 0x7F00) >> 8;
+            pdu_ptr++;
+            *pdu_ptr = amd->hdr.so & 0xFF;
+        }
 
         // Data
         memcpy(pdu_ptr, data->msg, data->N_bytes);
@@ -387,12 +395,12 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_amd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
             pdu_ptr++;
             amd->hdr.sn |= *pdu_ptr;
             pdu_ptr++;
-
             if(LIBLTE_RLC_RF_FIELD_AMD_PDU_SEGMENT == amd->hdr.rf)
             {
-                // FIXME
-                printf("Not handling AMD PDU SEGMENTS\n");
-                return(err);
+                amd->hdr.lsf = (LIBLTE_RLC_LSF_FIELD_ENUM)((*pdu_ptr >> 7) & 0x01);
+                amd->hdr.so  = (*pdu_ptr & 0x7F) << 8;
+                pdu_ptr++;
+                amd->hdr.so |= *pdu_ptr;
             }
 
             amd->N_data = 0;

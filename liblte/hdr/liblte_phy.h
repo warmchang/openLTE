@@ -72,6 +72,7 @@
                                    globally available routines to support unit
                                    tests.
     03/12/2016    Ben Wojtowicz    Added PUCCH channel decode support.
+    07/03/2016    Ben Wojtowicz    Added PDCCH size defines.
 
 *******************************************************************************/
 
@@ -175,6 +176,13 @@
 
 // Rate matching
 #define LIBLTE_PHY_N_COLUMNS_RATE_MATCH 32
+
+// PDCCH
+#define LIBLTE_PHY_PDCCH_N_REGS_MAX 787
+#define LIBLTE_PHY_PDCCH_N_REG_CCE  9
+#define LIBLTE_PHY_PDCCH_N_RE_CCE   (LIBLTE_PHY_PDCCH_N_REG_CCE * 4)
+#define LIBLTE_PHY_PDCCH_N_CCE_MAX  (LIBLTE_PHY_PDCCH_N_REGS_MAX / LIBLTE_PHY_PDCCH_N_REG_CCE)
+#define LIBLTE_PHY_PDCCH_N_BITS_MAX 576
 
 /*******************************************************************************
                               TYPEDEFS
@@ -371,51 +379,50 @@ typedef struct{
     int8   bch_soft_bits[480];
 
     // PDCCH
-    // FIXME: Sizes
-    float  pdcch_reg_y_est_re[550][4];
-    float  pdcch_reg_y_est_im[550][4];
-    float  pdcch_reg_c_est_re[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_reg_c_est_im[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_shift_y_est_re[550][4];
-    float  pdcch_shift_y_est_im[550][4];
-    float  pdcch_shift_c_est_re[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_shift_c_est_im[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_perm_y_est_re[550][4];
-    float  pdcch_perm_y_est_im[550][4];
-    float  pdcch_perm_c_est_re[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_perm_c_est_im[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_cce_y_est_re[50][576];
-    float  pdcch_cce_y_est_im[50][576];
-    float  pdcch_cce_c_est_re[LIBLTE_PHY_N_ANT_MAX][50][576];
-    float  pdcch_cce_c_est_im[LIBLTE_PHY_N_ANT_MAX][50][576];
-    float  pdcch_y_est_re[576];
-    float  pdcch_y_est_im[576];
-    float  pdcch_c_est_re[LIBLTE_PHY_N_ANT_MAX][576];
-    float  pdcch_c_est_im[LIBLTE_PHY_N_ANT_MAX][576];
-    float  pdcch_y_re[LIBLTE_PHY_N_ANT_MAX][576];
-    float  pdcch_y_im[LIBLTE_PHY_N_ANT_MAX][576];
-    float  pdcch_cce_re[LIBLTE_PHY_N_ANT_MAX][50][576];
-    float  pdcch_cce_im[LIBLTE_PHY_N_ANT_MAX][50][576];
-    float  pdcch_reg_re[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_reg_im[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_perm_re[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_perm_im[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_shift_re[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_shift_im[LIBLTE_PHY_N_ANT_MAX][550][4];
-    float  pdcch_x_re[576];
-    float  pdcch_x_im[576];
-    float  pdcch_d_re[576];
-    float  pdcch_d_im[576];
-    float  pdcch_descramb_bits[576];
-    uint32 pdcch_c[1152];
-    uint32 pdcch_permute_map[550][550];
-    uint16 pdcch_reg_vec[550];
-    uint16 pdcch_reg_perm_vec[550];
-    uint8  pdcch_dci[100]; // FIXME: This is a guess at worst case
-    uint8  pdcch_encode_bits[576];
-    uint8  pdcch_scramb_bits[576];
-    int8   pdcch_soft_bits[576];
-    bool   pdcch_cce_used[50];
+    float  pdcch_reg_y_est_re[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_reg_y_est_im[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_reg_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_reg_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_shift_y_est_re[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_shift_y_est_im[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_shift_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_shift_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_perm_y_est_re[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_perm_y_est_im[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_perm_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_perm_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_cce_y_est_re[LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    float  pdcch_cce_y_est_im[LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    float  pdcch_cce_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    float  pdcch_cce_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    float  pdcch_y_est_re[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_y_est_im[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_y_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_y_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_cce_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    float  pdcch_cce_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    float  pdcch_reg_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_reg_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_perm_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_perm_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_shift_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_shift_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    float  pdcch_x_re[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_x_im[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_d_re[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_d_im[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float  pdcch_descramb_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    uint32 pdcch_c[LIBLTE_PHY_PDCCH_N_BITS_MAX * 2];
+    uint32 pdcch_permute_map[LIBLTE_PHY_PDCCH_N_REGS_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX];
+    uint16 pdcch_reg_vec[LIBLTE_PHY_PDCCH_N_REGS_MAX];
+    uint16 pdcch_reg_perm_vec[LIBLTE_PHY_PDCCH_N_REGS_MAX];
+    uint8  pdcch_dci[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    uint8  pdcch_encode_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    uint8  pdcch_scramb_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    int8   pdcch_soft_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    bool   pdcch_cce_used[LIBLTE_PHY_PDCCH_N_CCE_MAX];
 
     // PHICH
     uint32 N_group_phich;
@@ -685,6 +692,7 @@ typedef struct{
     uint8                           mcs;
     uint8                           tpc;
     bool                            ndi;
+    bool                            dl_alloc;
 }LIBLTE_PHY_ALLOCATION_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_encode(LIBLTE_PHY_STRUCT            *phy_struct,
@@ -794,7 +802,7 @@ LIBLTE_ERROR_ENUM liblte_phy_detect_prach(LIBLTE_PHY_STRUCT *phy_struct,
     Document Reference: 3GPP TS 36.211 v10.1.0 sections 6.3 and 6.4
 *********************************************************************/
 // Defines
-#define LIBLTE_PHY_PDCCH_MAX_ALLOC 10
+#define LIBLTE_PHY_PDCCH_MAX_ALLOC 6
 // Enums
 // Structs
 typedef struct{

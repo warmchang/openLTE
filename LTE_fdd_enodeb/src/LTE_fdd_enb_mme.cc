@@ -51,6 +51,9 @@
                                    the packet filter evaluation precedence in
                                    activate dedicated EPS bearer context (thanks
                                    to Pedro Batista for reporting this).
+    07/03/2016    Ben Wojtowicz    Fixed a bug when receiving a service request
+                                   message for a non-existent user.  Thanks to
+                                   Peter Nguyen for finding this.
 
 *******************************************************************************/
 
@@ -1041,15 +1044,24 @@ void LTE_fdd_enb_mme::parse_service_request(LIBLTE_BYTE_MSG_STRUCT *msg,
             // Resolve sequence number mismatch
             auth_vec->nas_count_ul = service_req.ksi_and_seq_num.seq_num;
             hss_auth_vec           = hss->regenerate_enb_security_data(user->get_id(), auth_vec->nas_count_ul);
-            for(i=0; i<32; i++)
+            if(NULL != hss_auth_vec)
             {
-                auth_vec->k_rrc_enc[i] = hss_auth_vec->k_rrc_enc[i];
-                auth_vec->k_rrc_int[i] = hss_auth_vec->k_rrc_int[i];
+                for(i=0; i<32; i++)
+                {
+                    auth_vec->k_rrc_enc[i] = hss_auth_vec->k_rrc_enc[i];
+                    auth_vec->k_rrc_int[i] = hss_auth_vec->k_rrc_int[i];
+                }
             }
         }
 
         // Set the state
-        rb->set_mme_state(LTE_FDD_ENB_MME_STATE_RRC_SECURITY);
+        if(NULL != hss_auth_vec)
+        {
+            rb->set_mme_state(LTE_FDD_ENB_MME_STATE_RRC_SECURITY);
+        }else{
+            send_service_reject(user, rb, LIBLTE_MME_EMM_CAUSE_IMPLICITLY_DETACHED);
+            rb->set_mme_state(LTE_FDD_ENB_MME_STATE_RELEASE);
+        }
     }
 }
 void LTE_fdd_enb_mme::parse_activate_default_eps_bearer_context_accept(LIBLTE_BYTE_MSG_STRUCT *msg,

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -35,8 +35,10 @@
     07/25/2015    Ben Wojtowicz    Removed rb_id from pack routines as
                                    33.401 section 8.1.1 specifies 0 as the
                                    input to the security routines (credit goes
-                                   to Przemek for finding this).
+                                   to Przemek Bereski for finding this).
     12/06/2015    Ben Wojtowicz    Added all ID types for Mobile Identity IE.
+    07/03/2016    Ben Wojtowicz    Added classmark 3 IE and tracking area
+                                   update request message parsing.
 
 *******************************************************************************/
 
@@ -282,7 +284,117 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_mobile_station_classmark_2_ie(uint8         
 // Enums
 // Structs
 typedef struct{
-    // FIXME
+    uint8 assoc_radio_cap_2;
+    uint8 assoc_radio_cap_1;
+    bool  pgsm_support;
+    bool  e_rgsm_support;
+    bool  gsm_1800_support;
+    bool  a5_7;
+    bool  a5_6;
+    bool  a5_5;
+    bool  a5_4;
+}LIBLTE_MME_MULTI_BAND_SUPPORT_STRUCT;
+typedef struct{
+    uint8 sms_value;
+    uint8 sm_value;
+}LIBLTE_MME_MS_MEASUREMENT_CAPABILITY_STRUCT;
+typedef struct{
+    uint8 eight_psk_rf_power_cap_1;
+    uint8 eight_psk_rf_power_cap_2;
+    bool  modulation_cap;
+    bool  eight_psk_rf_power_cap_1_present;
+    bool  eight_psk_rf_power_cap_2_present;
+}LIBLTE_MME_8PSK_STRUCT;
+typedef struct{
+    uint8 assoc_radio_cap;
+    bool  gsm450_support;
+    bool  gsm480_support;
+}LIBLTE_MME_GSM400_SUPPORT_STRUCT;
+typedef struct{
+    uint8 dtm_gprs_multi_slot_class;
+    uint8 dtm_egprs_multi_slot_class;
+    bool  single_slot_dtm;
+    bool  dtm_egprs_multi_slot_class_present;
+}LIBLTE_MME_DUAL_TRANSFER_MODE_STRUCT;
+typedef struct{
+    uint8 extended_dtm_gprs_multi_slot_class;
+    uint8 extended_dtm_egprs_multi_slot_class;
+}LIBLTE_MME_EXTENDED_DUAL_TRANSFER_MODE_STRUCT;
+typedef struct{
+    bool flo_iu_cap;
+}LIBLTE_MME_GERAN_IU_MODE_CAPABILITIES_STRUCT;
+typedef struct{
+    uint8 assoc_radio_cap;
+    bool  tgsm_410_support;
+    bool  tgsm_380_support;
+}LIBLTE_MME_TGSM400_SUPPORT_STRUCT;
+typedef struct{
+    uint8 dtm_gprs_high_multi_slot_class;
+    uint8 dtm_egprs_high_multi_slot_class;
+    bool  offset_required;
+    bool  dtm_egprs_high_multi_slot_class_present;
+}LIBLTE_MME_DUAL_TRANSFER_MODE_HIGH_MULTI_SLOT_STRUCT;
+typedef struct{
+    LIBLTE_MME_MULTI_BAND_SUPPORT_STRUCT                 multi_band_support;
+    LIBLTE_MME_MS_MEASUREMENT_CAPABILITY_STRUCT          ms_meas_cap;
+    LIBLTE_MME_8PSK_STRUCT                               eight_psk;
+    LIBLTE_MME_GSM400_SUPPORT_STRUCT                     gsm400_support;
+    LIBLTE_MME_DUAL_TRANSFER_MODE_STRUCT                 dtm;
+    LIBLTE_MME_EXTENDED_DUAL_TRANSFER_MODE_STRUCT        ext_dtm;
+    LIBLTE_MME_GERAN_IU_MODE_CAPABILITIES_STRUCT         geran_iu_mode_cap;
+    LIBLTE_MME_TGSM400_SUPPORT_STRUCT                    tgsm400_support;
+    LIBLTE_MME_DUAL_TRANSFER_MODE_HIGH_MULTI_SLOT_STRUCT dtm_high_multi_slot;
+    uint8                                                r_support;
+    uint8                                                hscsd_multi_slot_cap;
+    uint8                                                ms_pos_method_cap;
+    uint8                                                ecsd_multi_slot_cap;
+    uint8                                                gsm850_assoc_radio_cap;
+    uint8                                                gsm1900_assoc_radio_cap;
+    uint8                                                single_band_support;
+    uint8                                                gsm750_assoc_radio_cap;
+    uint8                                                high_multi_slot_cap;
+    uint8                                                gmsk_multi_slot_power_profile;
+    uint8                                                eight_psk_multi_slot_power_profile;
+    uint8                                                darp;
+    uint8                                                gsm710_assoc_radio_cap;
+    uint8                                                tgsm810_assoc_radio_cap;
+    uint8                                                vamos_level;
+    bool                                                 r_support_present;
+    bool                                                 hscsd_multi_slot_cap_present;
+    bool                                                 ucs2_treatment;
+    bool                                                 ext_meas_cap;
+    bool                                                 ms_meas_cap_present;
+    bool                                                 ms_pos_method_cap_present;
+    bool                                                 ecsd_multi_slot_cap_present;
+    bool                                                 eight_psk_present;
+    bool                                                 gsm400_support_present;
+    bool                                                 gsm850_assoc_radio_cap_present;
+    bool                                                 gsm1900_assoc_radio_cap_present;
+    bool                                                 umts_fdd_rat_cap;
+    bool                                                 umts_3_84_mcps_tdd_rat_cap;
+    bool                                                 cdma2000_rat_cap;
+    bool                                                 dtm_present;
+    bool                                                 single_band_support_present;
+    bool                                                 gsm750_assoc_radio_cap_present;
+    bool                                                 umts_1_28_mcps_tdd_rat_cap;
+    bool                                                 geran_feature_package;
+    bool                                                 ext_dtm_present;
+    bool                                                 high_multi_slot_cap_present;
+    bool                                                 geran_iu_mode_cap_present;
+    bool                                                 geran_feature_package_2;
+    bool                                                 tgsm400_support_present;
+    bool                                                 dtm_enhancements_cap;
+    bool                                                 dtm_high_multi_slot_present;
+    bool                                                 repeated_acch_cap;
+    bool                                                 gsm710_assoc_radio_cap_present;
+    bool                                                 tgsm810_assoc_radio_cap_present;
+    bool                                                 ciphering_mode_setting_cap;
+    bool                                                 additional_pos_cap;
+    bool                                                 eutra_fdd_support;
+    bool                                                 eutra_tdd_support;
+    bool                                                 eutra_meas_and_reporting_support;
+    bool                                                 prio_based_reselection_support;
+    bool                                                 utra_csg_cells_reporting;
 }LIBLTE_MME_MOBILE_STATION_CLASSMARK_3_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mme_pack_mobile_station_classmark_3_ie(LIBLTE_MME_MOBILE_STATION_CLASSMARK_3_STRUCT  *ms_cm3,
@@ -3359,10 +3471,68 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_tracking_area_update_reject_msg(LIBLTE_BYTE_
     Document Reference: 24.301 v10.2.0 Section 8.2.29
 *********************************************************************/
 // Defines
+#define LIBLTE_MME_NAS_KEY_SET_IDENTIFIER_IEI                         0xB
+#define LIBLTE_MME_CIPHERING_KEY_SEQUENCE_NUMBER_IEI                  0x8
+#define LIBLTE_MME_NONCE_UE_IEI                                       0x55
+#define LIBLTE_MME_UE_NETWORK_CAPABILITY_IEI                          0x58
+#define LIBLTE_MME_UE_RADIO_CAPABILITY_INFORMATION_UPDATE_NEEDED_IEI  0xA
+#define LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_DEVICE_PROPERTIES_IEI 0xD
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_MME_EPS_UPDATE_TYPE_STRUCT                        eps_update_type;
+    LIBLTE_MME_NAS_KEY_SET_ID_STRUCT                         nas_ksi;
+    LIBLTE_MME_EPS_MOBILE_ID_STRUCT                          old_guti;
+    LIBLTE_MME_NAS_KEY_SET_ID_STRUCT                         non_current_native_nas_ksi;
+    LIBLTE_MME_EPS_MOBILE_ID_STRUCT                          additional_guti;
+    LIBLTE_MME_UE_NETWORK_CAPABILITY_STRUCT                  ue_network_cap;
+    LIBLTE_MME_TRACKING_AREA_ID_STRUCT                       last_visited_registered_tai;
+    LIBLTE_MME_DRX_PARAMETER_STRUCT                          drx_param;
+    LIBLTE_MME_EPS_BEARER_CONTEXT_STATUS_STRUCT              eps_bearer_context_status;
+    LIBLTE_MME_MS_NETWORK_CAPABILITY_STRUCT                  ms_network_cap;
+    LIBLTE_MME_LOCATION_AREA_ID_STRUCT                       old_lai;
+    LIBLTE_MME_MOBILE_STATION_CLASSMARK_2_STRUCT             ms_cm2;
+    LIBLTE_MME_MOBILE_STATION_CLASSMARK_3_STRUCT             ms_cm3;
+    LIBLTE_MME_SUPPORTED_CODEC_LIST_STRUCT                   supported_codecs;
+    LIBLTE_MME_VOICE_DOMAIN_PREF_AND_UE_USAGE_SETTING_STRUCT voice_domain_pref_and_ue_usage_setting;
+    LIBLTE_MME_TMSI_STATUS_ENUM                              tmsi_status;
+    LIBLTE_MME_ADDITIONAL_UPDATE_TYPE_ENUM                   additional_update_type;
+    LIBLTE_MME_GUTI_TYPE_ENUM                                old_guti_type;
+    LIBLTE_MME_DEVICE_PROPERTIES_ENUM                        device_properties;
+    uint32                                                   old_p_tmsi_signature;
+    uint32                                                   nonce_ue;
+    uint8                                                    gprs_ciphering_ksn;
+    uint8                                                    ue_radio_cap_update_needed;
+    bool                                                     non_current_native_nas_ksi_present;
+    bool                                                     gprs_ciphering_ksn_present;
+    bool                                                     old_p_tmsi_signature_present;
+    bool                                                     additional_guti_present;
+    bool                                                     nonce_ue_present;
+    bool                                                     ue_network_cap_present;
+    bool                                                     last_visited_registered_tai_present;
+    bool                                                     drx_param_present;
+    bool                                                     ue_radio_cap_update_needed_present;
+    bool                                                     eps_bearer_context_status_present;
+    bool                                                     ms_network_cap_present;
+    bool                                                     old_lai_present;
+    bool                                                     tmsi_status_present;
+    bool                                                     ms_cm2_present;
+    bool                                                     ms_cm3_present;
+    bool                                                     supported_codecs_present;
+    bool                                                     additional_update_type_present;
+    bool                                                     voice_domain_pref_and_ue_usage_setting_present;
+    bool                                                     old_guti_type_present;
+    bool                                                     device_properties_present;
+}LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_MSG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_tracking_area_update_request_msg(LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_MSG_STRUCT *ta_update_req,
+                                                                   uint8                                               sec_hdr_type,
+                                                                   uint8                                              *key_256,
+                                                                   uint32                                              count,
+                                                                   uint8                                               direction,
+                                                                   LIBLTE_BYTE_MSG_STRUCT                             *msg);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_tracking_area_update_request_msg(LIBLTE_BYTE_MSG_STRUCT                             *msg,
+                                                                     LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_MSG_STRUCT *ta_update_req);
 
 /*********************************************************************
     Message Name: Uplink NAS Transport

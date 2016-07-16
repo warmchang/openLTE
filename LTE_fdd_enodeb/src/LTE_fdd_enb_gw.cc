@@ -34,6 +34,7 @@
     02/13/2016    Ben Wojtowicz    Using memcpy instead of a typed cast for
                                    parsing the IP packet header (thanks to
                                    Damian Jarek for finding this).
+    07/03/2016    Ben Wojtowicz    Setting processor affinity.
 
 *******************************************************************************/
 
@@ -291,8 +292,14 @@ void* LTE_fdd_enb_gw::receive_thread(void *inputs)
     LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG_STRUCT  pdcp_data_sdu;
     LIBLTE_BYTE_MSG_STRUCT                      msg;
     struct iphdr                                ip_pkt;
+    cpu_set_t                                   af_mask;
     uint32                                      idx = 0;
     int32                                       N_bytes;
+
+    // Set affinity to not the last core (last core is for PHY/Radio)
+    pthread_getaffinity_np(gw->rx_thread, sizeof(af_mask), &af_mask);
+    CPU_CLR(sysconf(_SC_NPROCESSORS_ONLN)-1, &af_mask);
+    pthread_setaffinity_np(gw->rx_thread, sizeof(af_mask), &af_mask);
 
     while(gw->is_started())
     {

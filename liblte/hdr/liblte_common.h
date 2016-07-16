@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2015 Ben Wojtowicz
+    Copyright 2012-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,7 @@
                                    bits_2_value.
     07/14/2015    Ben Wojtowicz    Added an error code for DCIs with invalid
                                    contents.
+    07/03/2016    Ben Wojtowicz    Increased the maximum message size.
 
 *******************************************************************************/
 
@@ -50,7 +51,7 @@
 *******************************************************************************/
 
 // FIXME: This was chosen arbitrarily
-#define LIBLTE_MAX_MSG_SIZE 4096
+#define LIBLTE_MAX_MSG_SIZE 5512
 
 /*******************************************************************************
                               TYPEDEFS

@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_hss.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -36,6 +36,8 @@
                                    in del_user.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    07/03/2016    Ben Wojtowicz    Fixed a bug in print_all_users.  Thanks to
+                                   Sultan Qasim Khan for finding this.
 
 *******************************************************************************/
 
@@ -257,6 +259,7 @@ std::string LTE_fdd_enb_hss::print_all_users(void)
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
         output += "\n";
+        tmp_ss.seekp(0);
         tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->id.imsi;
         output += "imsi=" + tmp_ss.str();
         tmp_ss.seekp(0);

@@ -39,6 +39,7 @@
                                    to sem_t and properly initializing priority.
     02/13/2016    Ben Wojtowicz    Moved the buffer empty log from ERROR to
                                    WARNING.
+    07/03/2016    Ben Wojtowicz    Setting processor affinity.
 
 *******************************************************************************/
 
@@ -184,6 +185,7 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
     LTE_fdd_enb_msgq           *msgq      = (LTE_fdd_enb_msgq *)inputs;
     LTE_FDD_ENB_MESSAGE_STRUCT  msg;
     struct sched_param          priority;
+    cpu_set_t                   af_mask;
     bool                        not_done = true;
 
     // Set priority
@@ -193,6 +195,11 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
         priority.sched_priority = msgq->prio;
         pthread_setschedparam(msgq->rx_thread, SCHED_FIFO, &priority);
     }
+
+    // Set affinity to not the last core (last core is for PHY/Radio)
+    pthread_getaffinity_np(msgq->rx_thread, sizeof(af_mask), &af_mask);
+    CPU_CLR(sysconf(_SC_NPROCESSORS_ONLN)-1, &af_mask);
+    pthread_setaffinity_np(msgq->rx_thread, sizeof(af_mask), &af_mask);
 
     while(not_done)
     {

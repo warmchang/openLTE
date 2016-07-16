@@ -60,6 +60,7 @@
                                    this).
     02/13/2016    Ben Wojtowicz    Added a user inactivity timer.
     03/12/2016    Ben Wojtowicz    Added PUCCH and H-ARQ support.
+    07/03/2016    Ben Wojtowicz    Fixed memcpy lengths.
 
 *******************************************************************************/
 
@@ -525,6 +526,7 @@ void LTE_fdd_enb_mac::handle_pusch_decode(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT *p
 
         // Unpack MAC PDU
         liblte_mac_unpack_mac_pdu(&pusch_decode->msg,
+                                  false, // Simultaneous PUCCH/PUSCH
                                   &mac_pdu);
 
         for(i=0; i<mac_pdu.N_subheaders; i++)
@@ -613,12 +615,12 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
             mac_pdu.subheader[0].lcid                     = LIBLTE_MAC_DLSCH_UE_CONTENTION_RESOLUTION_ID_LCID;
             mac_pdu.subheader[0].payload.ue_con_res_id.id = sdu_ready->rb->get_con_res_id();
             mac_pdu.subheader[1].lcid                     = sdu_ready->rb->get_rb_id();
-            memcpy(&mac_pdu.subheader[1].payload.sdu, sdu, sizeof(LIBLTE_BIT_MSG_STRUCT));
+            memcpy(&mac_pdu.subheader[1].payload.sdu, sdu, sizeof(LIBLTE_BYTE_MSG_STRUCT));
             sdu_ready->rb->set_send_con_res_id(false);
         }else{
             mac_pdu.N_subheaders      = 1;
             mac_pdu.subheader[0].lcid = sdu_ready->rb->get_rb_id();
-            memcpy(&mac_pdu.subheader[0].payload.sdu, sdu, sizeof(LIBLTE_BIT_MSG_STRUCT));
+            memcpy(&mac_pdu.subheader[0].payload.sdu, sdu, sizeof(LIBLTE_BYTE_MSG_STRUCT));
         }
 
         // Determine the current_tti

@@ -46,6 +46,9 @@
                                    timer, and properly updating the iterator
                                    after erasing a user from the user list
                                    (thanks to Damian Jarek for reporting this).
+    07/03/2016    Ben Wojtowicz    Added logic to use the C-RNTI instead of
+                                   IMSI/IMEI when printing a user that doesn't
+                                   have IMSI/IMEI set.
 
 *******************************************************************************/
 
@@ -587,11 +590,16 @@ std::string LTE_fdd_enb_user_mgr::print_all_users(void)
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
         output += "\n";
-        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imsi_str();
-        output += "imsi=" + tmp_ss.str();
-        tmp_ss.seekp(0);
-        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imei_str();
-        output += " imei=" + tmp_ss.str();
+        if((*iter)->is_id_set())
+        {
+            tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imsi_str();
+            output += "imsi=" + tmp_ss.str();
+            tmp_ss.seekp(0);
+            tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imei_str();
+            output += " imei=" + tmp_ss.str();
+        }else{
+            output += "c-rnti=" + boost::lexical_cast<std::string>((*iter)->get_c_rnti());
+        }
         if((*iter)->is_guti_set())
         {
             guti    = (*iter)->get_guti();

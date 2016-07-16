@@ -122,6 +122,9 @@
     03/12/2016    Ben Wojtowicz    Added PUCCH channel decode support.
     03/26/2016    Ben Wojtowicz    Fixed the calculation of n_prime_p in
                                    generate_dmrs_pucch.
+    07/03/2016    Ben Wojtowicz    Added an error return to dci_1c_unpack, using
+                                   new PDCCH size defines, and clearing
+                                   punctured turbo decode bits before decoding.
 
 *******************************************************************************/
 
@@ -2049,12 +2052,12 @@ LIBLTE_ERROR_ENUM dci_1a_unpack(uint8                           *in_bits,
 // Enums
 // Structs
 // Functions
-void dci_1c_unpack(uint8                        *in_bits,
-                   uint32                        N_in_bits,
-                   uint16                        rnti,
-                   uint32                        N_rb_dl,
-                   uint8                         N_ant,
-                   LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
+LIBLTE_ERROR_ENUM dci_1c_unpack(uint8                        *in_bits,
+                                uint32                        N_in_bits,
+                                uint16                        rnti,
+                                uint32                        N_rb_dl,
+                                uint8                         N_ant,
+                                LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
 
 /*********************************************************************
     Name: cfi_channel_encode
@@ -4017,7 +4020,6 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
     uint32            N_reg_rb;
     uint32            N_reg_pdcch;
     uint32            N_cce_pdcch;
-    uint32            N_reg_cce;
     uint32            dci_size;
     uint32            N_dummy;
     uint32            C_cc_sb;
@@ -4055,21 +4057,20 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
             }
             // Calculate resources, 3GPP TS 36.211 v10.1.0 section 6.8.1
             N_reg_rb    = 3;
-            N_reg_cce   = 9;
             N_reg_pdcch = pdcch->N_symbs*(phy_struct->N_rb_dl*N_reg_rb) - phy_struct->N_rb_dl - pcfich->N_reg - phich->N_reg;
             if(N_ant == 4)
             {
                 // Remove CRS
                 N_reg_pdcch -= phy_struct->N_rb_dl;
             }
-            N_cce_pdcch = N_reg_pdcch/N_reg_cce;
+            N_cce_pdcch = N_reg_pdcch/LIBLTE_PHY_PDCCH_N_REG_CCE;
 
             // Initialize the search space
             for(p=0; p<N_ant; p++)
             {
                 for(i=0; i<N_cce_pdcch; i++)
                 {
-                    for(j=0; j<4*N_reg_cce; j++)
+                    for(j=0; j<4*LIBLTE_PHY_PDCCH_N_REG_CCE; j++)
                     {
                         phy_struct->pdcch_cce_re[p][i][j] = 0;
                         phy_struct->pdcch_cce_im[p][i][j] = 0;
@@ -4080,7 +4081,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
 
             // Generate the scrambling sequence
             c_init = (subframe->num << 9) + N_id_cell;
-            generate_prs_c(c_init, 1152, phy_struct->pdcch_c);
+            generate_prs_c(c_init, LIBLTE_PHY_PDCCH_N_BITS_MAX * 2, phy_struct->pdcch_c);
 
             // Add the DCIs
             for(a_idx=0; a_idx<pdcch->N_alloc; a_idx++)
@@ -4128,7 +4129,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
                         {
                             for(i=0; i<N_bits; i++)
                             {
-                                phy_struct->pdcch_scramb_bits[i] = phy_struct->pdcch_encode_bits[i] ^ phy_struct->pdcch_c[4*css_idx*N_reg_cce*4*2 + i];
+                                phy_struct->pdcch_scramb_bits[i] = phy_struct->pdcch_encode_bits[i] ^ phy_struct->pdcch_c[4*css_idx*LIBLTE_PHY_PDCCH_N_REG_CCE*4*2 + i];
                             }
                             modulation_mapper(phy_struct->pdcch_scramb_bits,
                                               N_bits,
@@ -4159,7 +4160,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
                                 idx = 0;
                                 for(i=0; i<4; i++)
                                 {
-                                    for(j=0; j<(4*N_reg_cce); j++)
+                                    for(j=0; j<(4*LIBLTE_PHY_PDCCH_N_REG_CCE); j++)
                                     {
                                         phy_struct->pdcch_cce_re[p][4*css_idx+i][j] = phy_struct->pdcch_y_re[p][idx];
                                         phy_struct->pdcch_cce_im[p][4*css_idx+i][j] = phy_struct->pdcch_y_im[p][idx];
@@ -4189,7 +4190,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
 //                        {
 //                            for(i=0; i<N_bits; i++)
 //                            {
-//                                phy_struct->pdcch_scramb_bits[i] = phy_struct->pdcch_encode_bits[i] ^ phy_struct->pdcch_c[4*actual_idx*N_reg_cce*4*2 + i];
+//                                phy_struct->pdcch_scramb_bits[i] = phy_struct->pdcch_encode_bits[i] ^ phy_struct->pdcch_c[4*actual_idx*LIBLTE_PHY_PDCCH_N_REG_CCE*4*2 + i];
 //                            }
 //                            modulation_mapper(phy_struct->pdcch_scramb_bits,
 //                                              N_bits,
@@ -4220,7 +4221,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
 //                                idx = 0;
 //                                for(i=0; i<4; i++)
 //                                {
-//                                    for(j=0; j<(4*N_reg_cce); j++)
+//                                    for(j=0; j<(4*LIBLTE_PHY_PDCCH_N_REG_CCE); j++)
 //                                    {
 //                                        phy_struct->pdcch_cce_re[p][actual_idx+i][j] = phy_struct->pdcch_y_re[p][idx];
 //                                        phy_struct->pdcch_cce_im[p][actual_idx+i][j] = phy_struct->pdcch_y_im[p][idx];
@@ -4239,12 +4240,12 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
             {
                 for(i=0; i<N_cce_pdcch; i++)
                 {
-                    for(j=0; j<N_reg_cce; j++)
+                    for(j=0; j<LIBLTE_PHY_PDCCH_N_REG_CCE; j++)
                     {
                         for(k=0; k<4; k++)
                         {
-                            phy_struct->pdcch_reg_re[p][i*N_reg_cce+j][k] = phy_struct->pdcch_cce_re[p][i][j*4+k];
-                            phy_struct->pdcch_reg_im[p][i*N_reg_cce+j][k] = phy_struct->pdcch_cce_im[p][i][j*4+k];
+                            phy_struct->pdcch_reg_re[p][i*LIBLTE_PHY_PDCCH_N_REG_CCE+j][k] = phy_struct->pdcch_cce_re[p][i][j*4+k];
+                            phy_struct->pdcch_reg_im[p][i*LIBLTE_PHY_PDCCH_N_REG_CCE+j][k] = phy_struct->pdcch_cce_im[p][i][j*4+k];
                         }
                     }
                 }
@@ -4430,7 +4431,6 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
     uint32            N_dummy;
     uint32            N_reg_pdcch;
     uint32            N_cce_pdcch;
-    uint32            N_reg_cce;
     uint16            rnti = 0;
     bool              valid_reg;
 
@@ -4705,19 +4705,18 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
             }
         }
         // Construct CCEs
-        N_reg_cce = 9;
         for(i=0; i<N_cce_pdcch; i++)
         {
-            for(j=0; j<N_reg_cce; j++)
+            for(j=0; j<LIBLTE_PHY_PDCCH_N_REG_CCE; j++)
             {
                 for(k=0; k<4; k++)
                 {
-                    phy_struct->pdcch_cce_y_est_re[i][j*4+k] = phy_struct->pdcch_perm_y_est_re[i*N_reg_cce+j][k];
-                    phy_struct->pdcch_cce_y_est_im[i][j*4+k] = phy_struct->pdcch_perm_y_est_im[i*N_reg_cce+j][k];
+                    phy_struct->pdcch_cce_y_est_re[i][j*4+k] = phy_struct->pdcch_perm_y_est_re[i*LIBLTE_PHY_PDCCH_N_REG_CCE+j][k];
+                    phy_struct->pdcch_cce_y_est_im[i][j*4+k] = phy_struct->pdcch_perm_y_est_im[i*LIBLTE_PHY_PDCCH_N_REG_CCE+j][k];
                     for(p=0; p<N_ant; p++)
                     {
-                        phy_struct->pdcch_cce_c_est_re[p][i][j*4+k] = phy_struct->pdcch_perm_c_est_re[p][i*N_reg_cce+j][k];
-                        phy_struct->pdcch_cce_c_est_im[p][i][j*4+k] = phy_struct->pdcch_perm_c_est_im[p][i*N_reg_cce+j][k];
+                        phy_struct->pdcch_cce_c_est_re[p][i][j*4+k] = phy_struct->pdcch_perm_c_est_re[p][i*LIBLTE_PHY_PDCCH_N_REG_CCE+j][k];
+                        phy_struct->pdcch_cce_c_est_im[p][i][j*4+k] = phy_struct->pdcch_perm_c_est_im[p][i*LIBLTE_PHY_PDCCH_N_REG_CCE+j][k];
                     }
                 }
             }
@@ -4725,7 +4724,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
 
         // Generate the scrambling sequence
         c_init = (subframe->num << 9) + N_id_cell;
-        generate_prs_c(c_init, 1152, phy_struct->pdcch_c);
+        generate_prs_c(c_init, LIBLTE_PHY_PDCCH_N_BITS_MAX * 2, phy_struct->pdcch_c);
 
         // Determine the size of DCI 1A and 1C FIXME: Clean this up
         if(phy_struct->N_rb_dl == 6)
@@ -4834,7 +4833,11 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
                                     rnti,
                                     phy_struct->N_rb_dl,
                                     N_ant,
-                                    &pdcch->alloc[pdcch->N_alloc++]);
+                                    &pdcch->alloc[pdcch->N_alloc]);
+                if(LIBLTE_SUCCESS == err)
+                {
+                    pdcch->N_alloc++;
+                }
             }
             if(pdcch->N_alloc  <  LIBLTE_PHY_PDCCH_MAX_ALLOC &&
                (LIBLTE_SUCCESS == dci_channel_decode(phy_struct,
@@ -4865,13 +4868,16 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
                                                      dci_1c_size,
                                                      &rnti)))
             {
-                err = LIBLTE_SUCCESS;
-                dci_1c_unpack(phy_struct->pdcch_dci,
-                              dci_1c_size,
-                              rnti,
-                              phy_struct->N_rb_dl,
-                              N_ant,
-                              &pdcch->alloc[pdcch->N_alloc++]);
+                err = dci_1c_unpack(phy_struct->pdcch_dci,
+                                    dci_1c_size,
+                                    rnti,
+                                    phy_struct->N_rb_dl,
+                                    N_ant,
+                                    &pdcch->alloc[pdcch->N_alloc]);
+                if(LIBLTE_SUCCESS == err)
+                {
+                    pdcch->N_alloc++;
+                }
             }
         }
         for(i=0; i<2; i++)
@@ -4957,7 +4963,11 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
                                     rnti,
                                     phy_struct->N_rb_dl,
                                     N_ant,
-                                    &pdcch->alloc[pdcch->N_alloc++]);
+                                    &pdcch->alloc[pdcch->N_alloc]);
+                if(LIBLTE_SUCCESS == err)
+                {
+                    pdcch->N_alloc++;
+                }
             }
             if(pdcch->N_alloc  <  LIBLTE_PHY_PDCCH_MAX_ALLOC &&
                (LIBLTE_SUCCESS == dci_channel_decode(phy_struct,
@@ -4988,13 +4998,16 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT             
                                                      dci_1c_size,
                                                      &rnti)))
             {
-                err = LIBLTE_SUCCESS;
-                dci_1c_unpack(phy_struct->pdcch_dci,
-                              dci_1c_size,
-                              rnti,
-                              phy_struct->N_rb_dl,
-                              N_ant,
-                              &pdcch->alloc[pdcch->N_alloc++]);
+                err = dci_1c_unpack(phy_struct->pdcch_dci,
+                                    dci_1c_size,
+                                    rnti,
+                                    phy_struct->N_rb_dl,
+                                    N_ant,
+                                    &pdcch->alloc[pdcch->N_alloc]);
+                if(LIBLTE_SUCCESS == err)
+                {
+                    pdcch->N_alloc++;
+                }
             }
         }
     }
@@ -6353,7 +6366,6 @@ LIBLTE_ERROR_ENUM liblte_phy_get_n_cce(LIBLTE_PHY_STRUCT *phy_struct,
     uint32 N_reg_pcfich = 4;
     uint32 N_reg_rb     = 3;
     uint32 N_reg_pdcch;
-    uint32 N_reg_cce = 9;
 
     N_reg_phich = phy_struct->N_group_phich*3;
     N_reg_pdcch = N_pdcch_symbs*(phy_struct->N_rb_dl*N_reg_rb) - phy_struct->N_rb_dl - N_reg_pcfich - N_reg_phich;
@@ -6362,7 +6374,7 @@ LIBLTE_ERROR_ENUM liblte_phy_get_n_cce(LIBLTE_PHY_STRUCT *phy_struct,
         N_reg_pdcch -= phy_struct->N_rb_dl;
     }
 
-    *N_cce = N_reg_pdcch/N_reg_cce;
+    *N_cce = N_reg_pdcch/LIBLTE_PHY_PDCCH_N_REG_CCE;
 
     return(LIBLTE_SUCCESS);
 }
@@ -10502,6 +10514,15 @@ void turbo_decode(LIBLTE_PHY_STRUCT *phy_struct,
     uint32 g_1           = 03; // Numbers are in octal
     uint32 g_2[2]        = {015, 013}; // Numbers are in octal
 
+    // Step 0: Clear punctured bits
+    for(i=0; i<N_d_bits; i++)
+    {
+        if(RX_NULL_BIT == d_bits[i])
+        {
+            d_bits[i] = 0;
+        }
+    }
+
     // Step 1: Calculate in_act_1 using d0 and d1
     for(i=0; i<N_branch_bits-4; i++)
     {
@@ -13220,13 +13241,9 @@ LIBLTE_ERROR_ENUM dci_1a_unpack(uint8                           *in_bits,
             alloc->tx_mode = 2;
         }
         alloc->N_codewords = 1;
-        if(9 >= alloc->mcs)
+        if(27 > alloc->mcs)
         {
             alloc->tbs = TBS_71721[alloc->mcs][N_prb_1a-1];
-        }else if(16 >= alloc->mcs){
-            alloc->tbs = TBS_71721[alloc->mcs-1][N_prb_1a-1];
-        }else if(28 >= alloc->mcs){
-            alloc->tbs = TBS_71721[alloc->mcs-2][N_prb_1a-1];
         }else{
             err = LIBLTE_ERROR_INVALID_CONTENTS;
         }
@@ -13262,41 +13279,42 @@ LIBLTE_ERROR_ENUM dci_1a_unpack(uint8                           *in_bits,
 
     Notes: Currently only handling SI-RNTI, P-RNTI, and RA-RNTI
 *********************************************************************/
-void dci_1c_unpack(uint8                        *in_bits,
-                   uint32                        N_in_bits,
-                   uint16                        rnti,
-                   uint32                        N_rb_dl,
-                   uint8                         N_ant,
-                   LIBLTE_PHY_ALLOCATION_STRUCT *alloc)
+LIBLTE_ERROR_ENUM dci_1c_unpack(uint8                        *in_bits,
+                                uint32                        N_in_bits,
+                                uint16                        rnti,
+                                uint32                        N_rb_dl,
+                                uint8                         N_ant,
+                                LIBLTE_PHY_ALLOCATION_STRUCT *alloc)
 {
-    uint32  RB_start = 0;
-    uint32  RIV;
-    uint32  RIV_length;
-    uint32  i;
-    uint32  idash;
-    uint32  j;
-    uint32  jdash;
-    uint32  gap_ind;
-    uint32  N_gap;
-    uint32  N_vrb_gap1_dl;
-    uint32  N_vrb_gap2_dl;
-    uint32  N_vrb_dl;
-    uint32  Ndash_vrb_dl;
-    uint32  N_rb_step;
-    uint32  Ntilde_vrb_dl;
-    uint32  P;
-    uint32  N_row;
-    uint32  N_col;
-    uint32  N_null;
-    uint32  n_vrb;
-    uint32  ntilde_vrb;
-    uint32  ntildedash_prb;
-    uint32  ntildedashdash_prb;
-    uint32  ntilde_prb_even;
-    uint32  ntilde_prb_odd;
-    uint32  n_prb_even;
-    uint32  n_prb_odd;
-    uint8  *dci = in_bits;
+    LIBLTE_ERROR_ENUM  err      = LIBLTE_SUCCESS;
+    uint32             RB_start = 0;
+    uint32             RIV;
+    uint32             RIV_length;
+    uint32             i;
+    uint32             idash;
+    uint32             j;
+    uint32             jdash;
+    uint32             gap_ind;
+    uint32             N_gap;
+    uint32             N_vrb_gap1_dl;
+    uint32             N_vrb_gap2_dl;
+    uint32             N_vrb_dl;
+    uint32             Ndash_vrb_dl;
+    uint32             N_rb_step;
+    uint32             Ntilde_vrb_dl;
+    uint32             P;
+    uint32             N_row;
+    uint32             N_col;
+    uint32             N_null;
+    uint32             n_vrb;
+    uint32             ntilde_vrb;
+    uint32             ntildedash_prb;
+    uint32             ntildedashdash_prb;
+    uint32             ntilde_prb_even;
+    uint32             ntilde_prb_odd;
+    uint32             n_prb_even;
+    uint32             n_prb_odd;
+    uint8             *dci = in_bits;
 
     if(N_rb_dl < 50)
     {
@@ -13455,11 +13473,19 @@ void dci_1c_unpack(uint8                        *in_bits,
             alloc->tx_mode = 2;
         }
         alloc->N_codewords = 1;
-        alloc->tbs         = TBS_71723[alloc->mcs];
-        alloc->rnti        = rnti;
+        if(32 > alloc->mcs)
+        {
+            alloc->tbs = TBS_71723[alloc->mcs];
+        }else{
+            err = LIBLTE_ERROR_INVALID_CONTENTS;
+        }
+        alloc->rnti = rnti;
     }else{
         printf("ERROR: Not handling DCI 1Cs for C-RNTI\n");
+        err = LIBLTE_ERROR_INVALID_CONTENTS;
     }
+
+    return(err);
 }
 
 /*********************************************************************

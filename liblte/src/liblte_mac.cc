@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -35,6 +35,7 @@
     02/15/2015    Ben Wojtowicz    Removed FIXMEs for transparent mode and mcs.
     03/11/2015    Ben Wojtowicz    Fixed long BSR CE and added extended power
                                    headroom CE support.
+    07/03/2016    Ben Wojtowicz    Fixed extended power headroom CE.
 
 *******************************************************************************/
 
@@ -434,15 +435,29 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_ext_power_headroom_ce(LIBLTE_MAC_EXT_POWER_HEA
         }
         liblte_value_2_bits(0, ce_ptr, 1); // R
 
-        // PCell
-        liblte_value_2_bits(ext_power_headroom->pcell.p,  ce_ptr, 1);
-        liblte_value_2_bits(ext_power_headroom->pcell.v,  ce_ptr, 1);
-        liblte_value_2_bits(ext_power_headroom->pcell.ph, ce_ptr, 6);
-        if(!ext_power_headroom->pcell.v)
+        // PCell Type 2
+        if(ext_power_headroom->pcell_type_2_present)
         {
-            liblte_value_2_bits(0,                                ce_ptr, 1); // R
-            liblte_value_2_bits(0,                                ce_ptr, 1); // R
-            liblte_value_2_bits(ext_power_headroom->pcell.p_cmax, ce_ptr, 6);
+            liblte_value_2_bits(ext_power_headroom->pcell_type_2.p,  ce_ptr, 1);
+            liblte_value_2_bits(ext_power_headroom->pcell_type_2.v,  ce_ptr, 1);
+            liblte_value_2_bits(ext_power_headroom->pcell_type_2.ph, ce_ptr, 6);
+            if(!ext_power_headroom->pcell_type_2.v)
+            {
+                liblte_value_2_bits(0,                                       ce_ptr, 1); // R
+                liblte_value_2_bits(0,                                       ce_ptr, 1); // R
+                liblte_value_2_bits(ext_power_headroom->pcell_type_2.p_cmax, ce_ptr, 6);
+            }
+        }
+
+        // PCell Type 1
+        liblte_value_2_bits(ext_power_headroom->pcell_type_1.p,  ce_ptr, 1);
+        liblte_value_2_bits(ext_power_headroom->pcell_type_1.v,  ce_ptr, 1);
+        liblte_value_2_bits(ext_power_headroom->pcell_type_1.ph, ce_ptr, 6);
+        if(!ext_power_headroom->pcell_type_1.v)
+        {
+            liblte_value_2_bits(0,                                       ce_ptr, 1); // R
+            liblte_value_2_bits(0,                                       ce_ptr, 1); // R
+            liblte_value_2_bits(ext_power_headroom->pcell_type_1.p_cmax, ce_ptr, 6);
         }
 
         // SCell
@@ -468,6 +483,7 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_ext_power_headroom_ce(LIBLTE_MAC_EXT_POWER_HEA
     return(err);
 }
 LIBLTE_ERROR_ENUM liblte_mac_unpack_ext_power_headroom_ce(uint8                                   **ce_ptr,
+                                                          bool                                      simultaneous_pucch_pusch,
                                                           LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT  *ext_power_headroom)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
@@ -483,15 +499,31 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_ext_power_headroom_ce(uint8                 
         }
         liblte_bits_2_value(ce_ptr, 1); // R
 
-        // PCell
-        ext_power_headroom->pcell.p  = liblte_bits_2_value(ce_ptr, 1);
-        ext_power_headroom->pcell.v  = liblte_bits_2_value(ce_ptr, 1);
-        ext_power_headroom->pcell.ph = liblte_bits_2_value(ce_ptr, 6);
-        if(!ext_power_headroom->pcell.v)
+        // PCell Type 2
+        ext_power_headroom->pcell_type_2_present = false;
+        if(simultaneous_pucch_pusch)
+        {
+            ext_power_headroom->pcell_type_2_present = true;
+            ext_power_headroom->pcell_type_2.p       = liblte_bits_2_value(ce_ptr, 1);
+            ext_power_headroom->pcell_type_2.v       = liblte_bits_2_value(ce_ptr, 1);
+            ext_power_headroom->pcell_type_2.ph      = liblte_bits_2_value(ce_ptr, 6);
+            if(!ext_power_headroom->pcell_type_2.v)
+            {
+                liblte_bits_2_value(ce_ptr, 1); // R
+                liblte_bits_2_value(ce_ptr, 1); // R
+                ext_power_headroom->pcell_type_2.p_cmax = liblte_bits_2_value(ce_ptr, 6);
+            }
+        }
+
+        // PCell Type 1
+        ext_power_headroom->pcell_type_1.p  = liblte_bits_2_value(ce_ptr, 1);
+        ext_power_headroom->pcell_type_1.v  = liblte_bits_2_value(ce_ptr, 1);
+        ext_power_headroom->pcell_type_1.ph = liblte_bits_2_value(ce_ptr, 6);
+        if(!ext_power_headroom->pcell_type_1.v)
         {
             liblte_bits_2_value(ce_ptr, 1); // R
             liblte_bits_2_value(ce_ptr, 1); // R
-            ext_power_headroom->pcell.p_cmax = liblte_bits_2_value(ce_ptr, 6);
+            ext_power_headroom->pcell_type_1.p_cmax = liblte_bits_2_value(ce_ptr, 6);
         }
 
         // SCell
@@ -638,6 +670,7 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_mac_pdu(LIBLTE_MAC_PDU_STRUCT *pdu,
     uint8             *msg_ptr = msg->msg;
     uint32             i;
     uint32             j;
+    uint32             length;
 
     if(pdu != NULL &&
        msg != NULL)
@@ -677,7 +710,43 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_mac_pdu(LIBLTE_MAC_PDU_STRUCT *pdu,
             }else if(LIBLTE_MAC_CHAN_TYPE_ULSCH == pdu->chan_type){
                 if(LIBLTE_MAC_ULSCH_EXT_POWER_HEADROOM_REPORT_LCID == pdu->subheader[i].lcid)
                 {
-                    // FIXME
+                    // SCell presence byte is always present
+                    length = 1;
+                    if(pdu->subheader[i].payload.ext_power_headroom.pcell_type_2_present)
+                    {
+                        length++;
+                        if(!pdu->subheader[i].payload.ext_power_headroom.pcell_type_2.v)
+                        {
+                            length++;
+                        }
+                    }
+                    length++;
+                    if(!pdu->subheader[i].payload.ext_power_headroom.pcell_type_1.v)
+                    {
+                        length++;
+                    }
+                    for(j=0; j<7; j++)
+                    {
+                        if(pdu->subheader[i].payload.ext_power_headroom.scell_present[j])
+                        {
+                            length++;
+                            if(!pdu->subheader[i].payload.ext_power_headroom.scell[j].v)
+                            {
+                                length++;
+                            }
+                        }
+                    }
+                    if(i != (pdu->N_subheaders-1))
+                    {
+                        if(length < 128)
+                        {
+                            liblte_value_2_bits(0,      &msg_ptr, 1); // F
+                            liblte_value_2_bits(length, &msg_ptr, 7);
+                        }else{
+                            liblte_value_2_bits(1,      &msg_ptr,  1); // F
+                            liblte_value_2_bits(length, &msg_ptr, 15);
+                        }
+                    }
                 }else if(!(LIBLTE_MAC_ULSCH_POWER_HEADROOM_REPORT_LCID == pdu->subheader[i].lcid ||
                            LIBLTE_MAC_ULSCH_C_RNTI_LCID                == pdu->subheader[i].lcid ||
                            LIBLTE_MAC_ULSCH_TRUNCATED_BSR_LCID         == pdu->subheader[i].lcid ||
@@ -788,6 +857,7 @@ LIBLTE_ERROR_ENUM liblte_mac_pack_mac_pdu(LIBLTE_MAC_PDU_STRUCT *pdu,
     return(err);
 }
 LIBLTE_ERROR_ENUM liblte_mac_unpack_mac_pdu(LIBLTE_BIT_MSG_STRUCT *msg,
+                                            bool                   simultaneous_pucch_pusch,
                                             LIBLTE_MAC_PDU_STRUCT *pdu)
 {
     LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
@@ -830,7 +900,16 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_mac_pdu(LIBLTE_BIT_MSG_STRUCT *msg,
             }else if(LIBLTE_MAC_CHAN_TYPE_ULSCH == pdu->chan_type){
                 if(LIBLTE_MAC_ULSCH_EXT_POWER_HEADROOM_REPORT_LCID == pdu->subheader[pdu->N_subheaders].lcid)
                 {
-                    // FIXME
+                    // Skip over length fields
+                    if(e_bit)
+                    {
+                        if(liblte_bits_2_value(&msg_ptr, 1)) // F
+                        {
+                            liblte_bits_2_value(&msg_ptr, 15);
+                        }else{
+                            liblte_bits_2_value(&msg_ptr, 7);
+                        }
+                    }
                 }else if(!(LIBLTE_MAC_ULSCH_POWER_HEADROOM_REPORT_LCID == pdu->subheader[pdu->N_subheaders].lcid ||
                            LIBLTE_MAC_ULSCH_C_RNTI_LCID                == pdu->subheader[pdu->N_subheaders].lcid ||
                            LIBLTE_MAC_ULSCH_TRUNCATED_BSR_LCID         == pdu->subheader[pdu->N_subheaders].lcid ||
@@ -909,7 +988,7 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_mac_pdu(LIBLTE_BIT_MSG_STRUCT *msg,
             }else if(LIBLTE_MAC_CHAN_TYPE_ULSCH == pdu->chan_type){
                 if(LIBLTE_MAC_ULSCH_EXT_POWER_HEADROOM_REPORT_LCID == pdu->subheader[i].lcid)
                 {
-                    liblte_mac_unpack_ext_power_headroom_ce(&msg_ptr, &pdu->subheader[i].payload.ext_power_headroom);
+                    liblte_mac_unpack_ext_power_headroom_ce(&msg_ptr, simultaneous_pucch_pusch, &pdu->subheader[i].payload.ext_power_headroom);
                 }else if(LIBLTE_MAC_ULSCH_POWER_HEADROOM_REPORT_LCID == pdu->subheader[i].lcid){
                     liblte_mac_unpack_power_headroom_ce(&msg_ptr, &pdu->subheader[i].payload.power_headroom);
                 }else if(LIBLTE_MAC_ULSCH_C_RNTI_LCID == pdu->subheader[i].lcid){

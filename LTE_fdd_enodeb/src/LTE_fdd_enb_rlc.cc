@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_rlc.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -43,6 +43,7 @@
     07/25/2015    Ben Wojtowicz    Using the new user QoS structure.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    07/03/2016    Ben Wojtowicz    Added error log for AMD PDU segments.
 
 *******************************************************************************/
 
@@ -463,83 +464,93 @@ void LTE_fdd_enb_rlc::handle_am_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
         {
             handle_status_pdu(pdu, user, rb);
         }else{
-            if(vrr        <= amd.hdr.sn &&
-               amd.hdr.sn <  vrmr)
+            if(LIBLTE_RLC_RF_FIELD_AMD_PDU_SEGMENT == amd.hdr.rf)
             {
-                interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                           LTE_FDD_ENB_DEBUG_LEVEL_RLC,
                                           __FILE__,
                                           __LINE__,
                                           &amd.data[0],
-                                          "Received AMD PDU for RNTI=%u, RB=%s, VR(R)=%u, SN=%u, VR(MR)=%u, VR(H)=%u, RF=%s, P=%s, FI=%s",
-                                          user->get_c_rnti(),
-                                          LTE_fdd_enb_rb_text[rb->get_rb_id()],
-                                          vrr,
-                                          amd.hdr.sn,
-                                          vrmr,
-                                          vrh,
-                                          liblte_rlc_rf_field_text[amd.hdr.rf],
-                                          liblte_rlc_p_field_text[amd.hdr.p],
-                                          liblte_rlc_fi_field_text[amd.hdr.fi]);
-
-                // Place RLC data PDU in reception buffer
-                rb->rlc_add_to_am_reception_buffer(&amd);
-
-                // Update VR(H)
-                if(amd.hdr.sn >= vrh)
-                {
-                    rb->set_rlc_vrh(amd.hdr.sn + 1);
-                }
-
-                // Update VR(MS)
-                // FIXME
-
-                // Update VR(R)/VR(MR) and reassemble
-                if(amd.hdr.sn == vrr)
-                {
-                    rb->update_rlc_vrr();
-                    // FIXME: Handle AMD PDU Segments
-
-                    if(LTE_FDD_ENB_ERROR_NONE == rb->rlc_am_reassemble(&pdcp_pdu))
-                    {
-                        // Queue the SDU for PDCP
-                        rb->queue_pdcp_pdu(&pdcp_pdu);
-
-                        // Signal PDCP
-                        pdcp_pdu_ready.user = user;
-                        pdcp_pdu_ready.rb   = rb;
-                        msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_PDU_READY,
-                                           LTE_FDD_ENB_DEST_LAYER_PDCP,
-                                           (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_pdu_ready,
-                                           sizeof(LTE_FDD_ENB_PDCP_PDU_READY_MSG_STRUCT));
-                    }
-                }
-
-                if(amd.hdr.p)
-                {
-                    // Send a STATUS PDU to ACK/NACK SNs
-                    rb->rlc_get_am_reception_buffer_status(&status);
-                    send_status_pdu(&status, user, rb);
-                }
+                                          "Not handling AMD PDU segments");
             }else{
-                interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                          LTE_FDD_ENB_DEBUG_LEVEL_RLC,
-                                          __FILE__,
-                                          __LINE__,
-                                          &amd.data[0],
-                                          "Received AMD PDU for RNTI=%u, RB=%s, that is outside of the receiving window (%u <= %u < %u), P=%s",
-                                          user->get_c_rnti(),
-                                          LTE_fdd_enb_rb_text[rb->get_rb_id()],
-                                          vrr,
-                                          amd.hdr.sn,
-                                          vrmr,
-                                          liblte_rlc_p_field_text[amd.hdr.p]);
-
-                if(amd.hdr.p)
+                if(vrr        <= amd.hdr.sn &&
+                   amd.hdr.sn <  vrmr)
                 {
-                    // Send a STATUS PDU to ACK/NACK SNs
-                    rb->rlc_get_am_reception_buffer_status(&status);
-                    send_status_pdu(&status, user, rb);
+                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                              LTE_FDD_ENB_DEBUG_LEVEL_RLC,
+                                              __FILE__,
+                                              __LINE__,
+                                              &amd.data[0],
+                                              "Received AMD PDU for RNTI=%u, RB=%s, VR(R)=%u, SN=%u, VR(MR)=%u, VR(H)=%u, RF=%s, P=%s, FI=%s",
+                                              user->get_c_rnti(),
+                                              LTE_fdd_enb_rb_text[rb->get_rb_id()],
+                                              vrr,
+                                              amd.hdr.sn,
+                                              vrmr,
+                                              vrh,
+                                              liblte_rlc_rf_field_text[amd.hdr.rf],
+                                              liblte_rlc_p_field_text[amd.hdr.p],
+                                              liblte_rlc_fi_field_text[amd.hdr.fi]);
+
+                    // Place RLC data PDU in reception buffer
+                    rb->rlc_add_to_am_reception_buffer(&amd);
+
+                    // Update VR(H)
+                    if(amd.hdr.sn >= vrh)
+                    {
+                        rb->set_rlc_vrh(amd.hdr.sn + 1);
+                    }
+
+                    // Update VR(MS)
+                    // FIXME
+
+                    // Update VR(R)/VR(MR) and reassemble
+                    if(amd.hdr.sn == vrr)
+                    {
+                        rb->update_rlc_vrr();
+                        // FIXME: Handle AMD PDU Segments
+
+                        if(LTE_FDD_ENB_ERROR_NONE == rb->rlc_am_reassemble(&pdcp_pdu))
+                        {
+                            // Queue the SDU for PDCP
+                            rb->queue_pdcp_pdu(&pdcp_pdu);
+
+                            // Signal PDCP
+                            pdcp_pdu_ready.user = user;
+                            pdcp_pdu_ready.rb   = rb;
+                            msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_PDU_READY,
+                                               LTE_FDD_ENB_DEST_LAYER_PDCP,
+                                               (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_pdu_ready,
+                                               sizeof(LTE_FDD_ENB_PDCP_PDU_READY_MSG_STRUCT));
+                        }
+                    }
+
+                    if(amd.hdr.p)
+                    {
+                        // Send a STATUS PDU to ACK/NACK SNs
+                        rb->rlc_get_am_reception_buffer_status(&status);
+                        send_status_pdu(&status, user, rb);
+                    }
+                }else{
+                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                              LTE_FDD_ENB_DEBUG_LEVEL_RLC,
+                                              __FILE__,
+                                              __LINE__,
+                                              &amd.data[0],
+                                              "Received AMD PDU for RNTI=%u, RB=%s, that is outside of the receiving window (%u <= %u < %u), P=%s",
+                                              user->get_c_rnti(),
+                                              LTE_fdd_enb_rb_text[rb->get_rb_id()],
+                                              vrr,
+                                              amd.hdr.sn,
+                                              vrmr,
+                                              liblte_rlc_p_field_text[amd.hdr.p]);
+
+                    if(amd.hdr.p)
+                    {
+                        // Send a STATUS PDU to ACK/NACK SNs
+                        rb->rlc_get_am_reception_buffer_status(&status);
+                        send_status_pdu(&status, user, rb);
+                    }
                 }
             }
         }

@@ -36,13 +36,23 @@
     07/25/2015    Ben Wojtowicz    Removed rb_id from pack routines as
                                    33.401 section 8.1.1 specifies 0 as the
                                    input to the security routines.  Thanks to
-                                   Przemek for finding this.  Added the length
-                                   indicator for eps_mobile_id.  Thanks to Paul
-                                   Sutton for finding this.
+                                   Przemek Bereski for finding this.  Added the
+                                   length indicator for eps_mobile_id.  Thanks
+                                   to Paul Sutton for finding this.
     12/06/2015    Ben Wojtowicz    Added all ID types for Mobile Identity IE.
     02/13/2016    Ben Wojtowicz    Properly setting id for IMEISV for Mobile
                                    Identity IE.  Thanks to Mikhail Gudkov for
                                    finding this.
+    07/03/2016    Ben Wojtowicz    Fixed fill bits in packing mobile ID IE for
+                                   IMEISV (thanks to Przemek Bereski for finding
+                                   this), added classmark 3 IE parsing, fixed
+                                   length in unpacking UE security capabilities
+                                   IE (thanks to Przemek Bereski for finding
+                                   this), allow NULL to be passed for key_256 in
+                                   service reject message packing (thanks to
+                                   Przemek Bereski and Peter Nguyen for finding
+                                   this), and added tracking area update request
+                                   message parsing.
 
 *******************************************************************************/
 
@@ -343,7 +353,7 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_mobile_id_ie(LIBLTE_MME_MOBILE_ID_STRUCT  *mob
                 (*ie_ptr)[i] = (id[i*2+2] << 4) | id[i*2+1];
             }
             *ie_ptr  += 7;
-            **ie_ptr  = id[i*2+1];
+            **ie_ptr  = 0xF0 | id[i*2+1];
             *ie_ptr  += 1;
 
             err = LIBLTE_SUCCESS;
@@ -600,12 +610,326 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_mobile_station_classmark_2_ie(uint8         
 LIBLTE_ERROR_ENUM liblte_mme_pack_mobile_station_classmark_3_ie(LIBLTE_MME_MOBILE_STATION_CLASSMARK_3_STRUCT  *ms_cm3,
                                                                 uint8                                        **ie_ptr)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    LIBLTE_ERROR_ENUM      err = LIBLTE_ERROR_INVALID_INPUTS;
+    LIBLTE_BIT_MSG_STRUCT  bit_msg;
+    uint8                 *msg_ptr = bit_msg.msg;
+    uint32                 i;
 
     if(ms_cm3 != NULL &&
        ie_ptr != NULL)
     {
-        // FIXME
+        // Multi Band Support
+        liblte_value_2_bits(ms_cm3->multi_band_support.pgsm_support, &msg_ptr, 1);
+        liblte_value_2_bits(ms_cm3->multi_band_support.e_rgsm_support, &msg_ptr, 1);
+        liblte_value_2_bits(ms_cm3->multi_band_support.gsm_1800_support, &msg_ptr, 1);
+        liblte_value_2_bits(ms_cm3->multi_band_support.a5_7, &msg_ptr, 1);
+        liblte_value_2_bits(ms_cm3->multi_band_support.a5_6, &msg_ptr, 1);
+        liblte_value_2_bits(ms_cm3->multi_band_support.a5_5, &msg_ptr, 1);
+        liblte_value_2_bits(ms_cm3->multi_band_support.a5_4, &msg_ptr, 1);
+        if(ms_cm3->multi_band_support.pgsm_support    &&
+           (ms_cm3->multi_band_support.e_rgsm_support ||
+            ms_cm3->multi_band_support.gsm_1800_support))
+        {
+            liblte_value_2_bits(ms_cm3->multi_band_support.assoc_radio_cap_2, &msg_ptr, 4);
+            liblte_value_2_bits(ms_cm3->multi_band_support.assoc_radio_cap_1, &msg_ptr, 4);
+        }else if(ms_cm3->multi_band_support.pgsm_support   ||
+                 ms_cm3->multi_band_support.e_rgsm_support ||
+                 ms_cm3->multi_band_support.gsm_1800_support){
+            liblte_value_2_bits(0, &msg_ptr, 4);
+            liblte_value_2_bits(ms_cm3->multi_band_support.assoc_radio_cap_1, &msg_ptr, 4);
+        }
+
+        // R Support
+        if(ms_cm3->r_support_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->r_support, &msg_ptr, 3);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // HSCSD Multi Slot Capability
+        if(ms_cm3->hscsd_multi_slot_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->hscsd_multi_slot_cap, &msg_ptr, 5);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // UCS2 Treatment
+        liblte_value_2_bits(ms_cm3->ucs2_treatment, &msg_ptr, 1);
+
+        // Extended Measurement Capability
+        liblte_value_2_bits(ms_cm3->ext_meas_cap, &msg_ptr, 1);
+
+        // MS Measurement Capability
+        if(ms_cm3->ms_meas_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->ms_meas_cap.sms_value, &msg_ptr, 4);
+            liblte_value_2_bits(ms_cm3->ms_meas_cap.sm_value, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // MS Positioning Method Capability
+        if(ms_cm3->ms_pos_method_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->ms_pos_method_cap, &msg_ptr, 5);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // ECSD Multi Slot Capability
+        if(ms_cm3->ecsd_multi_slot_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->ecsd_multi_slot_cap, &msg_ptr, 5);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // 8-PSK Struct
+        if(ms_cm3->eight_psk_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->eight_psk.modulation_cap, &msg_ptr, 1);
+            if(ms_cm3->eight_psk.eight_psk_rf_power_cap_1_present)
+            {
+                liblte_value_2_bits(1, &msg_ptr, 1);
+                liblte_value_2_bits(ms_cm3->eight_psk.eight_psk_rf_power_cap_1, &msg_ptr, 2);
+            }else{
+                liblte_value_2_bits(0, &msg_ptr, 1);
+            }
+            if(ms_cm3->eight_psk.eight_psk_rf_power_cap_2_present)
+            {
+                liblte_value_2_bits(1, &msg_ptr, 1);
+                liblte_value_2_bits(ms_cm3->eight_psk.eight_psk_rf_power_cap_2, &msg_ptr, 2);
+            }else{
+                liblte_value_2_bits(0, &msg_ptr, 1);
+            }
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // GSM 400
+        if(ms_cm3->gsm400_support_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->gsm400_support.gsm450_support, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->gsm400_support.gsm480_support, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->gsm400_support.assoc_radio_cap, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // GSM 850 Associated Radio Capability
+        if(ms_cm3->gsm850_assoc_radio_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->gsm850_assoc_radio_cap, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // GSM 1900 Associated Radio Capability
+        if(ms_cm3->gsm1900_assoc_radio_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->gsm1900_assoc_radio_cap, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // UMTS FDD Radio Access Technology Capability
+        liblte_value_2_bits(ms_cm3->umts_fdd_rat_cap, &msg_ptr, 1);
+
+        // UMTS 3.84 Mcps TDD Radio Access Technology Capability
+        liblte_value_2_bits(ms_cm3->umts_3_84_mcps_tdd_rat_cap, &msg_ptr, 1);
+
+        // CDMA 2000 Radio Access Technology Capability
+        liblte_value_2_bits(ms_cm3->cdma2000_rat_cap, &msg_ptr, 1);
+
+        // Dual Transfer Mode
+        if(ms_cm3->dtm_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->dtm.dtm_gprs_multi_slot_class, &msg_ptr, 2);
+            liblte_value_2_bits(ms_cm3->dtm.single_slot_dtm, &msg_ptr, 1);
+            if(ms_cm3->dtm.dtm_egprs_multi_slot_class_present)
+            {
+                liblte_value_2_bits(1, &msg_ptr, 1);
+                liblte_value_2_bits(ms_cm3->dtm.dtm_egprs_multi_slot_class, &msg_ptr, 2);
+            }else{
+                liblte_value_2_bits(0, &msg_ptr, 1);
+            }
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // Single Band Support
+        if(ms_cm3->single_band_support_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->single_band_support, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // GSM 750 Associated Radio Capability
+        if(ms_cm3->gsm750_assoc_radio_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->gsm750_assoc_radio_cap, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // UMTS 1.28 Mcps TDD Radio Access Technology Capability
+        liblte_value_2_bits(ms_cm3->umts_1_28_mcps_tdd_rat_cap, &msg_ptr, 1);
+
+        // GERAN Feature Package
+        liblte_value_2_bits(ms_cm3->geran_feature_package, &msg_ptr, 1);
+
+        // Extended Dual Transfer Mode
+        if(ms_cm3->ext_dtm_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->ext_dtm.extended_dtm_gprs_multi_slot_class, &msg_ptr, 2);
+            liblte_value_2_bits(ms_cm3->ext_dtm.extended_dtm_egprs_multi_slot_class, &msg_ptr, 2);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // High Multislot Capability
+        if(ms_cm3->high_multi_slot_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->high_multi_slot_cap, &msg_ptr, 2);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // GERAN Iu Mode Capabilities
+        if(ms_cm3->geran_iu_mode_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->geran_iu_mode_cap.flo_iu_cap, &msg_ptr, 1);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // GERAN Feature Package 2
+        liblte_value_2_bits(ms_cm3->geran_feature_package_2, &msg_ptr, 1);
+
+        // GMSK Multi Slot Power Profile
+        liblte_value_2_bits(ms_cm3->gmsk_multi_slot_power_profile, &msg_ptr, 2);
+
+        // 8-PSK Multi Slot Power Profile
+        liblte_value_2_bits(ms_cm3->eight_psk_multi_slot_power_profile, &msg_ptr, 2);
+
+        // T-GSM 400 Support
+        if(ms_cm3->tgsm400_support_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->tgsm400_support.tgsm_410_support, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->tgsm400_support.tgsm_380_support, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->tgsm400_support.assoc_radio_cap, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // -0-
+        liblte_value_2_bits(0, &msg_ptr, 1);
+
+        // Downlink Advanced Receiver Performance
+        liblte_value_2_bits(ms_cm3->darp, &msg_ptr, 2);
+
+        // DTM Enhancements Capability
+        liblte_value_2_bits(ms_cm3->dtm_enhancements_cap, &msg_ptr, 1);
+
+        // DTM High Multi Slot
+        if(ms_cm3->dtm_high_multi_slot_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->dtm_high_multi_slot.dtm_gprs_high_multi_slot_class, &msg_ptr, 3);
+            liblte_value_2_bits(ms_cm3->dtm_high_multi_slot.offset_required, &msg_ptr, 1);
+            if(ms_cm3->dtm_high_multi_slot.dtm_egprs_high_multi_slot_class_present)
+            {
+                liblte_value_2_bits(1, &msg_ptr, 1);
+                liblte_value_2_bits(ms_cm3->dtm_high_multi_slot.dtm_egprs_high_multi_slot_class, &msg_ptr, 3);
+            }else{
+                liblte_value_2_bits(0, &msg_ptr, 1);
+            }
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // Repeated ACCH Capability
+        liblte_value_2_bits(ms_cm3->repeated_acch_cap, &msg_ptr, 1);
+
+        // GSM 710 Associated Radio Capability
+        if(ms_cm3->gsm710_assoc_radio_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->gsm710_assoc_radio_cap, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // T-GSM 810 Associated Radio Capability
+        if(ms_cm3->tgsm810_assoc_radio_cap_present)
+        {
+            liblte_value_2_bits(1, &msg_ptr, 1);
+            liblte_value_2_bits(ms_cm3->tgsm810_assoc_radio_cap, &msg_ptr, 4);
+        }else{
+            liblte_value_2_bits(0, &msg_ptr, 1);
+        }
+
+        // Ciphering Mode Setting Capability
+        liblte_value_2_bits(ms_cm3->ciphering_mode_setting_cap, &msg_ptr, 1);
+
+        // Additional Positioning Capabilities
+        liblte_value_2_bits(ms_cm3->additional_pos_cap, &msg_ptr, 1);
+
+        // E-UTRA FDD Support
+        liblte_value_2_bits(ms_cm3->eutra_fdd_support, &msg_ptr, 1);
+
+        // E-UTRA TDD Support
+        liblte_value_2_bits(ms_cm3->eutra_tdd_support, &msg_ptr, 1);
+
+        // E-UTRA Measurement And Reporting Support
+        liblte_value_2_bits(ms_cm3->eutra_meas_and_reporting_support, &msg_ptr, 1);
+
+        // Priority-based Reselection Support
+        liblte_value_2_bits(ms_cm3->prio_based_reselection_support, &msg_ptr, 1);
+
+        // UTRA CSG Cells Reporting
+        liblte_value_2_bits(ms_cm3->utra_csg_cells_reporting, &msg_ptr, 1);
+
+        // VAMOS Level
+        liblte_value_2_bits(ms_cm3->vamos_level, &msg_ptr, 2);
+
+        // Fill in the number of bits used
+        bit_msg.N_bits = msg_ptr - bit_msg.msg;
+
+        // Pad to an octet boundry
+        if((bit_msg.N_bits % 8) != 0)
+        {
+            liblte_value_2_bits(0, &msg_ptr, 8 - (bit_msg.N_bits % 8));
+            bit_msg.N_bits += 8 - (bit_msg.N_bits % 8);
+        }
+
+        // Pack into byte message
+        msg_ptr = bit_msg.msg;
+        for(i=0; i<bit_msg.N_bits/8; i++)
+        {
+            (*ie_ptr)[i] = liblte_bits_2_value(&msg_ptr, 8);
+        }
+        *ie_ptr += bit_msg.N_bits/8;
 
         err = LIBLTE_SUCCESS;
     }
@@ -615,12 +939,280 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_mobile_station_classmark_3_ie(LIBLTE_MME_MOBIL
 LIBLTE_ERROR_ENUM liblte_mme_unpack_mobile_station_classmark_3_ie(uint8                                        **ie_ptr,
                                                                   LIBLTE_MME_MOBILE_STATION_CLASSMARK_3_STRUCT  *ms_cm3)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    LIBLTE_ERROR_ENUM      err = LIBLTE_ERROR_INVALID_INPUTS;
+    LIBLTE_BIT_MSG_STRUCT  bit_msg;
+    uint8                 *msg_ptr = bit_msg.msg;
+    uint32                 i;
+    uint8                  length;
 
     if(ie_ptr != NULL &&
        ms_cm3 != NULL)
     {
-        // FIXME
+        // Pack into bit message
+        for(i=0; i<LIBLTE_MAX_MSG_SIZE/8; i++)
+        {
+            liblte_value_2_bits((*ie_ptr)[i], &msg_ptr, 8);
+        }
+        msg_ptr = bit_msg.msg;
+
+        // Multi Band Support
+        ms_cm3->multi_band_support.pgsm_support     = liblte_bits_2_value(&msg_ptr, 1);
+        ms_cm3->multi_band_support.e_rgsm_support   = liblte_bits_2_value(&msg_ptr, 1);
+        ms_cm3->multi_band_support.gsm_1800_support = liblte_bits_2_value(&msg_ptr, 1);
+        ms_cm3->multi_band_support.a5_7             = liblte_bits_2_value(&msg_ptr, 1);
+        ms_cm3->multi_band_support.a5_6             = liblte_bits_2_value(&msg_ptr, 1);
+        ms_cm3->multi_band_support.a5_5             = liblte_bits_2_value(&msg_ptr, 1);
+        ms_cm3->multi_band_support.a5_4             = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->multi_band_support.pgsm_support    &&
+           (ms_cm3->multi_band_support.e_rgsm_support ||
+            ms_cm3->multi_band_support.gsm_1800_support))
+        {
+            ms_cm3->multi_band_support.assoc_radio_cap_2 = liblte_bits_2_value(&msg_ptr, 4);
+            ms_cm3->multi_band_support.assoc_radio_cap_1 = liblte_bits_2_value(&msg_ptr, 4);
+        }else if(ms_cm3->multi_band_support.pgsm_support   ||
+                 ms_cm3->multi_band_support.e_rgsm_support ||
+                 ms_cm3->multi_band_support.gsm_1800_support){
+            liblte_bits_2_value(&msg_ptr, 4);
+            ms_cm3->multi_band_support.assoc_radio_cap_1 = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // R Support
+        ms_cm3->r_support_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->r_support_present)
+        {
+            ms_cm3->r_support = liblte_bits_2_value(&msg_ptr, 3);
+        }
+
+        // HSCSD Multi Slot Capability
+        ms_cm3->hscsd_multi_slot_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->hscsd_multi_slot_cap_present)
+        {
+            ms_cm3->hscsd_multi_slot_cap = liblte_bits_2_value(&msg_ptr, 5);
+        }
+
+        // UCS2 Treatment
+        ms_cm3->ucs2_treatment = liblte_bits_2_value(&msg_ptr, 1);
+
+        // Extended Measurement Capability
+        ms_cm3->ext_meas_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // MS Measurement Capability
+        ms_cm3->ms_meas_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->ms_meas_cap_present)
+        {
+            ms_cm3->ms_meas_cap.sms_value = liblte_bits_2_value(&msg_ptr, 4);
+            ms_cm3->ms_meas_cap.sm_value  = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // MS Positioning Method Capability
+        ms_cm3->ms_pos_method_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->ms_pos_method_cap_present)
+        {
+            ms_cm3->ms_pos_method_cap = liblte_bits_2_value(&msg_ptr, 5);
+        }
+
+        // ECSD Multi Slot Capability
+        ms_cm3->ecsd_multi_slot_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->ecsd_multi_slot_cap_present)
+        {
+            ms_cm3->ecsd_multi_slot_cap = liblte_bits_2_value(&msg_ptr, 5);
+        }
+
+        // 8-PSK Struct
+        ms_cm3->eight_psk_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->eight_psk_present)
+        {
+            ms_cm3->eight_psk.modulation_cap                   = liblte_bits_2_value(&msg_ptr, 1);
+            ms_cm3->eight_psk.eight_psk_rf_power_cap_1_present = liblte_bits_2_value(&msg_ptr, 1);
+            if(ms_cm3->eight_psk.eight_psk_rf_power_cap_1_present)
+            {
+                ms_cm3->eight_psk.eight_psk_rf_power_cap_1 = liblte_bits_2_value(&msg_ptr, 2);
+            }
+            ms_cm3->eight_psk.eight_psk_rf_power_cap_2_present = liblte_bits_2_value(&msg_ptr, 1);
+            if(ms_cm3->eight_psk.eight_psk_rf_power_cap_2_present)
+            {
+                ms_cm3->eight_psk.eight_psk_rf_power_cap_2 = liblte_bits_2_value(&msg_ptr, 2);
+            }
+        }
+
+        // GSM 400
+        ms_cm3->gsm400_support_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->gsm400_support_present)
+        {
+            ms_cm3->gsm400_support.gsm450_support  = liblte_bits_2_value(&msg_ptr, 1);
+            ms_cm3->gsm400_support.gsm480_support  = liblte_bits_2_value(&msg_ptr, 1);
+            ms_cm3->gsm400_support.assoc_radio_cap = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // GSM 850 Associated Radio Capability
+        ms_cm3->gsm850_assoc_radio_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->gsm850_assoc_radio_cap_present)
+        {
+            ms_cm3->gsm850_assoc_radio_cap = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // GSM 1900 Associated Radio Capability
+        ms_cm3->gsm1900_assoc_radio_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->gsm1900_assoc_radio_cap_present)
+        {
+            ms_cm3->gsm1900_assoc_radio_cap = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // UMTS FDD Radio Access Technology Capability
+        ms_cm3->umts_fdd_rat_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // UMTS 3.84 Mcps TDD Radio Access Technology Capability
+        ms_cm3->umts_3_84_mcps_tdd_rat_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // CDMA 2000 Radio Access Technology Capability
+        ms_cm3->cdma2000_rat_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // Dual Transfer Mode
+        ms_cm3->dtm_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->dtm_present)
+        {
+            ms_cm3->dtm.dtm_gprs_multi_slot_class          = liblte_bits_2_value(&msg_ptr, 2);
+            ms_cm3->dtm.single_slot_dtm                    = liblte_bits_2_value(&msg_ptr, 1);
+            ms_cm3->dtm.dtm_egprs_multi_slot_class_present = liblte_bits_2_value(&msg_ptr, 1);
+            if(ms_cm3->dtm.dtm_egprs_multi_slot_class_present)
+            {
+                ms_cm3->dtm.dtm_egprs_multi_slot_class = liblte_bits_2_value(&msg_ptr, 2);
+            }
+        }
+
+        // Single Band Support
+        ms_cm3->single_band_support_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->single_band_support_present)
+        {
+            ms_cm3->single_band_support = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // GSM 750 Associated Radio Capability
+        ms_cm3->gsm750_assoc_radio_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->gsm750_assoc_radio_cap_present)
+        {
+            ms_cm3->gsm750_assoc_radio_cap = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // UMTS 1.28 Mcps TDD Radio Access Technology Capability
+        ms_cm3->umts_1_28_mcps_tdd_rat_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // GERAN Feature Package
+        ms_cm3->geran_feature_package = liblte_bits_2_value(&msg_ptr, 1);
+
+        // Extended Dual Transfer Mode
+        ms_cm3->ext_dtm_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->ext_dtm_present)
+        {
+            ms_cm3->ext_dtm.extended_dtm_gprs_multi_slot_class  = liblte_bits_2_value(&msg_ptr, 2);
+            ms_cm3->ext_dtm.extended_dtm_egprs_multi_slot_class = liblte_bits_2_value(&msg_ptr, 2);
+        }
+
+        // High Multislot Capability
+        ms_cm3->high_multi_slot_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->high_multi_slot_cap_present)
+        {
+            ms_cm3->high_multi_slot_cap = liblte_bits_2_value(&msg_ptr, 2);
+        }
+
+        // GERAN Iu Mode Capabilities
+        ms_cm3->geran_iu_mode_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->geran_iu_mode_cap_present)
+        {
+            length                               = liblte_bits_2_value(&msg_ptr, 4);
+            ms_cm3->geran_iu_mode_cap.flo_iu_cap = liblte_bits_2_value(&msg_ptr, 1);
+            liblte_bits_2_value(&msg_ptr, length - 1);
+        }
+
+        // GERAN Feature Package 2
+        ms_cm3->geran_feature_package_2 = liblte_bits_2_value(&msg_ptr, 1);
+
+        // GMSK Multi Slot Power Profile
+        ms_cm3->gmsk_multi_slot_power_profile = liblte_bits_2_value(&msg_ptr, 2);
+
+        // 8-PSK Multi Slot Power Profile
+        ms_cm3->eight_psk_multi_slot_power_profile = liblte_bits_2_value(&msg_ptr, 2);
+
+        // T-GSM 400 Support
+        ms_cm3->tgsm400_support_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->tgsm400_support_present)
+        {
+            ms_cm3->tgsm400_support.tgsm_410_support = liblte_bits_2_value(&msg_ptr, 1);
+            ms_cm3->tgsm400_support.tgsm_380_support = liblte_bits_2_value(&msg_ptr, 1);
+            ms_cm3->tgsm400_support.assoc_radio_cap  = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // -0-
+        liblte_bits_2_value(&msg_ptr, 1);
+
+        // Downlink Advanced Receiver Performance
+        ms_cm3->darp = liblte_bits_2_value(&msg_ptr, 2);
+
+        // DTM Enhancements Capability
+        ms_cm3->dtm_enhancements_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // DTM High Multi Slot
+        ms_cm3->dtm_high_multi_slot_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->dtm_high_multi_slot_present)
+        {
+            ms_cm3->dtm_high_multi_slot.dtm_gprs_high_multi_slot_class          = liblte_bits_2_value(&msg_ptr, 3);
+            ms_cm3->dtm_high_multi_slot.offset_required                         = liblte_bits_2_value(&msg_ptr, 1);
+            ms_cm3->dtm_high_multi_slot.dtm_egprs_high_multi_slot_class_present = liblte_bits_2_value(&msg_ptr, 1);
+            if(ms_cm3->dtm_high_multi_slot.dtm_egprs_high_multi_slot_class_present)
+            {
+                ms_cm3->dtm_high_multi_slot.dtm_egprs_high_multi_slot_class = liblte_bits_2_value(&msg_ptr, 3);
+            }
+        }
+
+        // Repeated ACCH Capability
+        ms_cm3->repeated_acch_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // GSM 710 Associated Radio Capability
+        ms_cm3->gsm710_assoc_radio_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->gsm710_assoc_radio_cap_present)
+        {
+            ms_cm3->gsm710_assoc_radio_cap = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // T-GSM 810 Associated Radio Capability
+        ms_cm3->tgsm810_assoc_radio_cap_present = liblte_bits_2_value(&msg_ptr, 1);
+        if(ms_cm3->tgsm810_assoc_radio_cap_present)
+        {
+            ms_cm3->tgsm810_assoc_radio_cap = liblte_bits_2_value(&msg_ptr, 4);
+        }
+
+        // Ciphering Mode Setting Capability
+        ms_cm3->ciphering_mode_setting_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // Additional Positioning Capabilities
+        ms_cm3->additional_pos_cap = liblte_bits_2_value(&msg_ptr, 1);
+
+        // E-UTRA FDD Support
+        ms_cm3->eutra_fdd_support = liblte_bits_2_value(&msg_ptr, 1);
+
+        // E-UTRA TDD Support
+        ms_cm3->eutra_tdd_support = liblte_bits_2_value(&msg_ptr, 1);
+
+        // E-UTRA Measurement And Reporting Support
+        ms_cm3->eutra_meas_and_reporting_support = liblte_bits_2_value(&msg_ptr, 1);
+
+        // Priority-based Reselection Support
+        ms_cm3->prio_based_reselection_support = liblte_bits_2_value(&msg_ptr, 1);
+
+        // UTRA CSG Cells Reporting
+        ms_cm3->utra_csg_cells_reporting = liblte_bits_2_value(&msg_ptr, 1);
+
+        // VAMOS Level
+        ms_cm3->vamos_level = liblte_bits_2_value(&msg_ptr, 2);
+
+        // Fill in the number of bits used
+        bit_msg.N_bits = msg_ptr - bit_msg.msg;
+        if((bit_msg.N_bits % 8) != 0)
+        {
+            bit_msg.N_bits += 8 - (bit_msg.N_bits % 8);
+        }
+
+        *ie_ptr += bit_msg.N_bits/8;
 
         err = LIBLTE_SUCCESS;
     }
@@ -3439,7 +4031,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_ue_security_capabilities_ie(uint8           
         }else{
             ue_sec_cap->gea_present = false;
         }
-        *ie_ptr += length;
+        *ie_ptr += length + 1;
 
         err = LIBLTE_SUCCESS;
     }
@@ -7765,7 +8357,6 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_service_reject_msg(LIBLTE_MME_SERVICE_REJECT_M
     uint8             *msg_ptr = msg->msg;
 
     if(service_rej != NULL &&
-       key_256     != NULL &&
        msg         != NULL)
     {
         if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS != sec_hdr_type)
@@ -7812,7 +8403,8 @@ LIBLTE_ERROR_ENUM liblte_mme_pack_service_reject_msg(LIBLTE_MME_SERVICE_REJECT_M
         // Fill in the number of bytes used
         msg->N_bytes = msg_ptr - msg->msg;
 
-        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS != sec_hdr_type)
+        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS != sec_hdr_type &&
+           NULL                                   != key_256)
         {
             // Calculate MAC
             liblte_security_128_eia2(&key_256[16],
@@ -8511,7 +9103,466 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_tracking_area_update_reject_msg(LIBLTE_BYTE_
 
     Document Reference: 24.301 v10.2.0 Section 8.2.29
 *********************************************************************/
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_tracking_area_update_request_msg(LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_MSG_STRUCT *ta_update_req,
+                                                                   uint8                                               sec_hdr_type,
+                                                                   uint8                                              *key_256,
+                                                                   uint32                                              count,
+                                                                   uint8                                               direction,
+                                                                   LIBLTE_BYTE_MSG_STRUCT                             *msg)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+
+    if(ta_update_req != NULL &&
+       key_256       != NULL &&
+       msg           != NULL)
+    {
+        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS != sec_hdr_type)
+        {
+            // Protocol Discriminator and Security Header Type
+            *msg_ptr = (sec_hdr_type << 4) | (LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT);
+            msg_ptr++;
+
+            // MAC will be filled in later
+            msg_ptr += 4;
+
+            // Sequence Number
+            *msg_ptr = count & 0xFF;
+            msg_ptr++;
+        }
+
+        // Protocol Discriminator and Security Header Type
+        *msg_ptr = (LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS << 4) | (LIBLTE_MME_PD_EPS_MOBILITY_MANAGEMENT);
+        msg_ptr++;
+
+        // Message Type
+        *msg_ptr = LIBLTE_MME_MSG_TYPE_TRACKING_AREA_UPDATE_REQUEST;
+        msg_ptr++;
+
+        // EPS Update Type & NAS Key Set Identifier
+        *msg_ptr = 0;
+        liblte_mme_pack_eps_update_type_ie(&ta_update_req->eps_update_type, 0, &msg_ptr);
+        liblte_mme_pack_nas_key_set_id_ie(&ta_update_req->nas_ksi, 4, &msg_ptr);
+        msg_ptr++;
+
+        // Old GUTI
+        liblte_mme_pack_eps_mobile_id_ie(&ta_update_req->old_guti, &msg_ptr);
+
+        // Non-current Native NAS Key Set Identifier
+        if(ta_update_req->non_current_native_nas_ksi_present)
+        {
+            *msg_ptr = LIBLTE_MME_NAS_KEY_SET_IDENTIFIER_IEI << 4;
+            liblte_mme_pack_nas_key_set_id_ie(&ta_update_req->non_current_native_nas_ksi, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // GPRS Ciphering Key Sequence Number
+        if(ta_update_req->gprs_ciphering_ksn_present)
+        {
+            *msg_ptr = LIBLTE_MME_CIPHERING_KEY_SEQUENCE_NUMBER_IEI << 4;
+            liblte_mme_pack_ciphering_key_sequence_number_ie(ta_update_req->gprs_ciphering_ksn, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Old P-TMSI Signature
+        if(ta_update_req->old_p_tmsi_signature_present)
+        {
+            *msg_ptr = LIBLTE_MME_P_TMSI_SIGNATURE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_p_tmsi_signature_ie(ta_update_req->old_p_tmsi_signature, &msg_ptr);
+        }
+
+        // Additional GUTI
+        if(ta_update_req->additional_guti_present)
+        {
+            *msg_ptr = LIBLTE_MME_ADDITIONAL_GUTI_IEI;
+            msg_ptr++;
+            liblte_mme_pack_eps_mobile_id_ie(&ta_update_req->additional_guti, &msg_ptr);
+        }
+
+        // NONCE UE
+        if(ta_update_req->nonce_ue_present)
+        {
+            *msg_ptr = LIBLTE_MME_NONCE_UE_IEI;
+            msg_ptr++;
+            liblte_mme_pack_nonce_ie(ta_update_req->nonce_ue, &msg_ptr);
+        }
+
+        // UE Network Capability
+        if(ta_update_req->ue_network_cap_present)
+        {
+            *msg_ptr = LIBLTE_MME_UE_NETWORK_CAPABILITY_IEI;
+            msg_ptr++;
+            liblte_mme_pack_ue_network_capability_ie(&ta_update_req->ue_network_cap, &msg_ptr);
+        }
+
+        // Last Visited Registered TAI
+        if(ta_update_req->last_visited_registered_tai_present)
+        {
+            *msg_ptr = LIBLTE_MME_LAST_VISITED_REGISTERED_TAI_IEI;
+            msg_ptr++;
+            liblte_mme_pack_tracking_area_id_ie(&ta_update_req->last_visited_registered_tai, &msg_ptr);
+        }
+
+        // DRX Parameter
+        if(ta_update_req->drx_param_present)
+        {
+            *msg_ptr = LIBLTE_MME_DRX_PARAMETER_IEI;
+            msg_ptr++;
+            liblte_mme_pack_drx_parameter_ie(&ta_update_req->drx_param, &msg_ptr);
+        }
+
+        // UE Radio Capability Information Update Needed
+        if(ta_update_req->ue_radio_cap_update_needed_present)
+        {
+            *msg_ptr = LIBLTE_MME_UE_RADIO_CAPABILITY_INFORMATION_UPDATE_NEEDED_IEI << 4;
+            liblte_mme_pack_ue_radio_capability_update_needed_ie(ta_update_req->ue_radio_cap_update_needed, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // EPS Bearer Context Status
+        if(ta_update_req->eps_bearer_context_status_present)
+        {
+            *msg_ptr = LIBLTE_MME_EPS_BEARER_CONTEXT_STATUS_IEI;
+            msg_ptr++;
+            liblte_mme_pack_eps_bearer_context_status_ie(&ta_update_req->eps_bearer_context_status, &msg_ptr);
+        }
+
+        // MS Network Capability
+        if(ta_update_req->ms_network_cap_present)
+        {
+            *msg_ptr = LIBLTE_MME_MS_NETWORK_CAPABILITY_IEI;
+            msg_ptr++;
+            liblte_mme_pack_ms_network_capability_ie(&ta_update_req->ms_network_cap, &msg_ptr);
+        }
+
+        // Old Location Area Identification
+        if(ta_update_req->old_lai_present)
+        {
+            *msg_ptr = LIBLTE_MME_LOCATION_AREA_IDENTIFICATION_IEI;
+            msg_ptr++;
+            liblte_mme_pack_location_area_id_ie(&ta_update_req->old_lai, &msg_ptr);
+        }
+
+        // TMSI Status
+        if(ta_update_req->tmsi_status_present)
+        {
+            *msg_ptr = LIBLTE_MME_TMSI_STATUS_IEI << 4;
+            liblte_mme_pack_tmsi_status_ie(ta_update_req->tmsi_status, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Mobile Station Classmark 2
+        if(ta_update_req->ms_cm2_present)
+        {
+            *msg_ptr = LIBLTE_MME_MS_CLASSMARK_2_IEI;
+            msg_ptr++;
+            liblte_mme_pack_mobile_station_classmark_2_ie(&ta_update_req->ms_cm2, &msg_ptr);
+        }
+
+        // Mobile Station Classmark 3
+        if(ta_update_req->ms_cm3_present)
+        {
+            *msg_ptr = LIBLTE_MME_MS_CLASSMARK_3_IEI;
+            msg_ptr++;
+            liblte_mme_pack_mobile_station_classmark_3_ie(&ta_update_req->ms_cm3, &msg_ptr);
+        }
+
+        // Supported Codecs
+        if(ta_update_req->supported_codecs_present)
+        {
+            *msg_ptr = LIBLTE_MME_SUPPORTED_CODEC_LIST_IEI;
+            msg_ptr++;
+            liblte_mme_pack_supported_codec_list_ie(&ta_update_req->supported_codecs, &msg_ptr);
+        }
+
+        // Additional Update Type
+        if(ta_update_req->additional_update_type_present)
+        {
+            *msg_ptr = LIBLTE_MME_ADDITIONAL_UPDATE_TYPE_IEI << 4;
+            liblte_mme_pack_additional_update_type_ie(ta_update_req->additional_update_type, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Voice Domain Preference and UE's Usage Setting
+        if(ta_update_req->voice_domain_pref_and_ue_usage_setting_present)
+        {
+            *msg_ptr = LIBLTE_MME_VOICE_DOMAIN_PREF_AND_UE_USAGE_SETTING_IEI;
+            msg_ptr++;
+            liblte_mme_pack_voice_domain_pref_and_ue_usage_setting_ie(&ta_update_req->voice_domain_pref_and_ue_usage_setting, &msg_ptr);
+        }
+
+        // Old GUTI Type
+        if(ta_update_req->old_guti_type_present)
+        {
+            *msg_ptr = LIBLTE_MME_GUTI_TYPE_IEI << 4;
+            liblte_mme_pack_guti_type_ie(ta_update_req->old_guti_type, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Device Properties
+        if(ta_update_req->device_properties_present)
+        {
+            *msg_ptr = LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_DEVICE_PROPERTIES_IEI << 4;
+            liblte_mme_pack_device_properties_ie(ta_update_req->device_properties, 0, &msg_ptr);
+            msg_ptr++;
+        }
+
+        // Fill in the number of bytes used
+        msg->N_bytes = msg_ptr - msg->msg;
+
+        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS != sec_hdr_type)
+        {
+            // Calculate MAC
+            liblte_security_128_eia2(&key_256[16],
+                                     count,
+                                     0,
+                                     direction,
+                                     &msg->msg[5],
+                                     msg->N_bytes-5,
+                                     &msg->msg[1]);
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
+LIBLTE_ERROR_ENUM liblte_mme_unpack_tracking_area_update_request_msg(LIBLTE_BYTE_MSG_STRUCT                             *msg,
+                                                                     LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_MSG_STRUCT *ta_update_req)
+{
+    LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
+    uint8             *msg_ptr = msg->msg;
+    uint8              sec_hdr_type;
+
+    if(msg           != NULL &&
+       ta_update_req != NULL)
+    {
+        // Security Header Type
+        sec_hdr_type = (msg->msg[0] & 0xF0) >> 4;
+        if(LIBLTE_MME_SECURITY_HDR_TYPE_PLAIN_NAS == sec_hdr_type)
+        {
+            msg_ptr++;
+        }else{
+            msg_ptr += 7;
+        }
+
+        // Skip Message Type
+        msg_ptr++;
+
+        // EPS Update Type & NAS Key Set Identifier
+        liblte_mme_unpack_eps_update_type_ie(&msg_ptr, 0, &ta_update_req->eps_update_type);
+        liblte_mme_unpack_nas_key_set_id_ie(&msg_ptr, 4, &ta_update_req->nas_ksi);
+        msg_ptr++;
+
+        // Old GUTI
+        liblte_mme_unpack_eps_mobile_id_ie(&msg_ptr, &ta_update_req->old_guti);
+
+        // Non-current Native NAS Key Set Identifier
+        if((LIBLTE_MME_NAS_KEY_SET_IDENTIFIER_IEI << 4) == (*msg_ptr & 0xF0))
+        {
+            liblte_mme_unpack_nas_key_set_id_ie(&msg_ptr, 0, &ta_update_req->non_current_native_nas_ksi);
+            msg_ptr++;
+            ta_update_req->non_current_native_nas_ksi_present = true;
+        }else{
+            ta_update_req->non_current_native_nas_ksi_present = false;
+        }
+
+        // GPRS Ciphering Key Sequence Number
+        if((LIBLTE_MME_CIPHERING_KEY_SEQUENCE_NUMBER_IEI << 4) == (*msg_ptr & 0xF0))
+        {
+            liblte_mme_unpack_ciphering_key_sequence_number_ie(&msg_ptr, 0, &ta_update_req->gprs_ciphering_ksn);
+            msg_ptr++;
+            ta_update_req->gprs_ciphering_ksn_present = true;
+        }else{
+            ta_update_req->gprs_ciphering_ksn_present = false;
+        }
+
+        // Old P-TMSI Signature
+        if(LIBLTE_MME_P_TMSI_SIGNATURE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_p_tmsi_signature_ie(&msg_ptr, &ta_update_req->old_p_tmsi_signature);
+            ta_update_req->old_p_tmsi_signature_present = true;
+        }else{
+            ta_update_req->old_p_tmsi_signature_present = false;
+        }
+
+        // Additional GUTI
+        if(LIBLTE_MME_ADDITIONAL_GUTI_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_eps_mobile_id_ie(&msg_ptr, &ta_update_req->additional_guti);
+            ta_update_req->additional_guti_present = true;
+        }else{
+            ta_update_req->additional_guti_present = false;
+        }
+
+        // NONCE UE
+        if(LIBLTE_MME_NONCE_UE_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_nonce_ie(&msg_ptr, &ta_update_req->nonce_ue);
+            ta_update_req->nonce_ue_present = true;
+        }else{
+            ta_update_req->nonce_ue_present = false;
+        }
+
+        // UE Network Capability
+        if(LIBLTE_MME_UE_NETWORK_CAPABILITY_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_ue_network_capability_ie(&msg_ptr, &ta_update_req->ue_network_cap);
+            ta_update_req->ue_network_cap_present = true;
+        }else{
+            ta_update_req->ue_network_cap_present = false;
+        }
+
+        // Last Visited Registered TAI
+        if(LIBLTE_MME_LAST_VISITED_REGISTERED_TAI_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_tracking_area_id_ie(&msg_ptr, &ta_update_req->last_visited_registered_tai);
+            ta_update_req->last_visited_registered_tai_present = true;
+        }else{
+            ta_update_req->last_visited_registered_tai_present = false;
+        }
+
+        // DRX Parameter
+        if(LIBLTE_MME_DRX_PARAMETER_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_drx_parameter_ie(&msg_ptr, &ta_update_req->drx_param);
+            ta_update_req->drx_param_present = true;
+        }else{
+            ta_update_req->drx_param_present = false;
+        }
+
+        // UE Radio Capability Information Update Needed
+        if((LIBLTE_MME_UE_RADIO_CAPABILITY_INFORMATION_UPDATE_NEEDED_IEI << 4) == (*msg_ptr & 0xF0))
+        {
+            liblte_mme_unpack_ue_radio_capability_update_needed_ie(&msg_ptr, 0, &ta_update_req->ue_radio_cap_update_needed);
+            msg_ptr++;
+            ta_update_req->ue_radio_cap_update_needed_present = true;
+        }else{
+            ta_update_req->ue_radio_cap_update_needed_present = false;
+        }
+
+        // EPS Bearer Context Status
+        if(LIBLTE_MME_EPS_BEARER_CONTEXT_STATUS_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_eps_bearer_context_status_ie(&msg_ptr, &ta_update_req->eps_bearer_context_status);
+            ta_update_req->eps_bearer_context_status_present = true;
+        }else{
+            ta_update_req->eps_bearer_context_status_present = false;
+        }
+
+        // MS Network Capability
+        if(LIBLTE_MME_MS_NETWORK_CAPABILITY_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_ms_network_capability_ie(&msg_ptr, &ta_update_req->ms_network_cap);
+            ta_update_req->ms_network_cap_present = true;
+        }else{
+            ta_update_req->ms_network_cap_present = false;
+        }
+
+        // Old Location Area Identification
+        if(LIBLTE_MME_LOCATION_AREA_IDENTIFICATION_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_location_area_id_ie(&msg_ptr, &ta_update_req->old_lai);
+            ta_update_req->old_lai_present = true;
+        }else{
+            ta_update_req->old_lai_present = false;
+        }
+
+        // TMSI Status
+        if((LIBLTE_MME_TMSI_STATUS_IEI << 4) == (*msg_ptr & 0xF0))
+        {
+            liblte_mme_unpack_tmsi_status_ie(&msg_ptr, 0, &ta_update_req->tmsi_status);
+            msg_ptr++;
+            ta_update_req->tmsi_status_present = true;
+        }else{
+            ta_update_req->tmsi_status_present = false;
+        }
+
+        // Mobile Station Classmark 2
+        if(LIBLTE_MME_MS_CLASSMARK_2_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_mobile_station_classmark_2_ie(&msg_ptr, &ta_update_req->ms_cm2);
+            ta_update_req->ms_cm2_present = true;
+        }else{
+            ta_update_req->ms_cm2_present = false;
+        }
+
+        // Mobile Station Classmark 3
+        if(LIBLTE_MME_MS_CLASSMARK_3_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_mobile_station_classmark_3_ie(&msg_ptr, &ta_update_req->ms_cm3);
+            ta_update_req->ms_cm3_present = true;
+        }else{
+            ta_update_req->ms_cm3_present = false;
+        }
+
+        // Supported Codecs
+        if(LIBLTE_MME_SUPPORTED_CODEC_LIST_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_supported_codec_list_ie(&msg_ptr, &ta_update_req->supported_codecs);
+            ta_update_req->supported_codecs_present = true;
+        }else{
+            ta_update_req->supported_codecs_present = false;
+        }
+
+        // Additional Update Type
+        if((LIBLTE_MME_ADDITIONAL_UPDATE_TYPE_IEI << 4) == (*msg_ptr & 0xF0))
+        {
+            liblte_mme_unpack_additional_update_type_ie(&msg_ptr, 0, &ta_update_req->additional_update_type);
+            msg_ptr++;
+            ta_update_req->additional_update_type_present = true;
+        }else{
+            ta_update_req->additional_update_type_present = false;
+        }
+
+        // Voice Domain Preference and UE's Usage Setting
+        if(LIBLTE_MME_VOICE_DOMAIN_PREF_AND_UE_USAGE_SETTING_IEI == *msg_ptr)
+        {
+            msg_ptr++;
+            liblte_mme_unpack_voice_domain_pref_and_ue_usage_setting_ie(&msg_ptr, &ta_update_req->voice_domain_pref_and_ue_usage_setting);
+            ta_update_req->voice_domain_pref_and_ue_usage_setting_present = true;
+        }else{
+            ta_update_req->voice_domain_pref_and_ue_usage_setting_present = false;
+        }
+
+        // Old GUTI Type
+        if((LIBLTE_MME_GUTI_TYPE_IEI << 4) == (*msg_ptr & 0xF0))
+        {
+            liblte_mme_unpack_guti_type_ie(&msg_ptr, 0, &ta_update_req->old_guti_type);
+            msg_ptr++;
+            ta_update_req->old_guti_type_present = true;
+        }else{
+            ta_update_req->old_guti_type_present = false;
+        }
+
+        // Device Properties
+        if((LIBLTE_MME_TRACKING_AREA_UPDATE_REQUEST_DEVICE_PROPERTIES_IEI << 4) == (*msg_ptr & 0xF0))
+        {
+            liblte_mme_unpack_device_properties_ie(&msg_ptr, 0, &ta_update_req->device_properties);
+            msg_ptr++;
+            ta_update_req->device_properties_present = true;
+        }else{
+            ta_update_req->device_properties_present = false;
+        }
+
+        err = LIBLTE_SUCCESS;
+    }
+
+    return(err);
+}
 
 /*********************************************************************
     Message Name: Uplink NAS Transport

@@ -2,6 +2,8 @@
 /*******************************************************************************
 
     Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2016 Przemek Bereski (UE capability information and UE capability
+                                    enquiry support)
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -49,6 +51,8 @@
                                    sem_t.
     02/13/2016    Ben Wojtowicz    Added RRC connection reestablishment state
                                    machine.
+    07/03/2016    Przemek Bereski  Added UE capability information and UE
+                                   capability enquiry support.
 
 *******************************************************************************/
 
@@ -328,6 +332,7 @@ void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
         send_rrc_con_release(cmd->user, cmd->rb);
         break;
     case LTE_FDD_ENB_RRC_CMD_SECURITY:
+        send_ue_capability_enquiry(cmd->user, cmd->rb);
         send_security_mode_command(cmd->user, cmd->rb);
         break;
     case LTE_FDD_ENB_RRC_CMD_SETUP_DEF_DRB:
@@ -512,6 +517,7 @@ void LTE_fdd_enb_rrc::dcch_sm(LIBLTE_BIT_MSG_STRUCT *msg,
 {
     switch(rb->get_rrc_procedure())
     {
+    case LTE_FDD_ENB_RRC_PROC_RRC_CON_REEST_REQ:
     case LTE_FDD_ENB_RRC_PROC_RRC_CON_REQ:
         switch(rb->get_rrc_state())
         {
@@ -698,6 +704,15 @@ void LTE_fdd_enb_rrc::parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg,
                           sizeof(LTE_FDD_ENB_MME_RRC_CMD_RESP_MSG_STRUCT));
         break;
     case LIBLTE_RRC_UL_DCCH_MSG_TYPE_RRC_CON_RECONFIG_COMPLETE:
+        break;
+    case LIBLTE_RRC_UL_DCCH_MSG_TYPE_UE_CAPABILITY_INFO:
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_RRC,
+                                  __FILE__,
+                                  __LINE__,
+                                  msg,
+                                  "UE Capability Information for RNTI=%u",
+                                  user->get_c_rnti());
         break;
     default:
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -1057,6 +1072,42 @@ void LTE_fdd_enb_rrc::send_security_mode_command(LTE_fdd_enb_user *user,
 
     // Configure PDCP for security
     rb->set_pdcp_config(LTE_FDD_ENB_PDCP_CONFIG_SECURITY);
+
+    // Queue the PDU for PDCP
+    rb->queue_pdcp_sdu(&pdcp_sdu);
+
+    // Signal PDCP
+    pdcp_sdu_ready.user = user;
+    pdcp_sdu_ready.rb   = rb;
+    msgq_to_pdcp->send(LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY,
+                       LTE_FDD_ENB_DEST_LAYER_PDCP,
+                       (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
+                       sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+}
+void LTE_fdd_enb_rrc::send_ue_capability_enquiry(LTE_fdd_enb_user *user,
+                                                 LTE_fdd_enb_rb   *rb)
+{
+    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT    pdcp_sdu_ready;
+    LIBLTE_BIT_MSG_STRUCT                    pdcp_sdu;
+    LIBLTE_RRC_UE_CAPABILITY_ENQUIRY_STRUCT *ue_cap_enquiry = &rb->dl_dcch_msg.msg.ue_cap_enquiry;
+
+    rb->dl_dcch_msg.msg_type                                            = LIBLTE_RRC_DL_DCCH_MSG_TYPE_UE_CAPABILITY_ENQUIRY;
+    ue_cap_enquiry->rrc_transaction_id                                  = (rb->get_rrc_transaction_id() + 1) % 4;
+    ue_cap_enquiry->rat_type_list_size                                  = 0;
+    ue_cap_enquiry->rat_type_list[ue_cap_enquiry->rat_type_list_size++] = LIBLTE_RRC_RAT_TYPE_EUTRA;
+    ue_cap_enquiry->rat_type_list[ue_cap_enquiry->rat_type_list_size++] = LIBLTE_RRC_RAT_TYPE_UTRA;
+    ue_cap_enquiry->rat_type_list[ue_cap_enquiry->rat_type_list_size++] = LIBLTE_RRC_RAT_TYPE_GERAN_CS;
+    ue_cap_enquiry->rat_type_list[ue_cap_enquiry->rat_type_list_size++] = LIBLTE_RRC_RAT_TYPE_GERAN_PS;
+    ue_cap_enquiry->rat_type_list[ue_cap_enquiry->rat_type_list_size++] = LIBLTE_RRC_RAT_TYPE_CDMA2000_1XRTT;
+    liblte_rrc_pack_dl_dcch_msg(&rb->dl_dcch_msg, &pdcp_sdu);
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_RRC,
+                              __FILE__,
+                              __LINE__,
+                              &pdcp_sdu,
+                              "Sending UE Capability Enquiry for RNTI=%u, RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
 
     // Queue the PDU for PDCP
     rb->queue_pdcp_sdu(&pdcp_sdu);

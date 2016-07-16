@@ -226,3 +226,24 @@ v00.19.03     Added support for PUCCH decode in liblte, added support for H-ARQ 
               PUCCH in LTE_fdd_enodeb, and fixed a bug related to improper cleanup
               of the inactivity timer in LTE_fdd_enodeb
 v00.19.04     Fixed the calculation of n_prime_p in generate_dmrs_pucch.
+v00.20.00     Increased the maximum messages size, fixed extended power headroom MAC
+              CE, added classmark3 support, added tracking area update request support,
+              fixed the fill bits in packing mobile ID IE for IMEISV and the length in
+              unpacking UE security capabilities IE (thanks to Przemek Bereski for
+              finding this), allowing NULL to be passed for key_256 in service reject
+              message packing (thanks to Przemek Bereski and Peter Nguyen for finding
+              this), added PDCCH size defines, added an error return to DCI 1C unpack,
+              clearing punctered turbo decode bits before decoding, added AMD PDU
+              segment support, padded all RRC enums to powers of 2, added support for
+              several RRC IEs and messages (with the help of Przemek Bereski) in the
+              LTE library, restructured the radio classes to ease the addition of new
+              radio types, set the processor affinity to allow the PHY/Radio to run
+              on a particular core, fixed memcpy lengths in MAC, fixed bugs in
+              print_all_users (thanks to Sultan Qasim Khan for finding this) and when
+              receiving a service request message for a non-existent user (thanks to
+              Peter Nguyen for finding this), fixed a long standing PHY bug that was
+              including UL PDCCH allocations in a check of DL PRB usage, added error
+              logging for received AMD PDU segments, increased the DL datarate for
+              default data QoS, using C-RNTI when no IMSI/IMEI are available for
+              printing an attached user, Przemek Bereski added UE capability enquiry
+              and UE capability information support and bladeRF support.

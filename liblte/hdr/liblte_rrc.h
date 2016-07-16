@@ -1,7 +1,9 @@
 /*******************************************************************************
 
-    Copyright 2012-2015 Ben Wojtowicz
+    Copyright 2012-2016 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (SIB13 unpack)
+    Copyright 2016 Przemek Bereski (UE capability RAT container list IE and
+                                    UE capability enquiry message pack/unpack)
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -53,6 +55,12 @@
                                    filter_coeff in
                                    LIBLTE_RRC_UL_POWER_CONTROL_DEDICATED_STRUCT.
                                    Thanks to Paul Sutton for finding this.
+    07/03/2016    Ben Wojtowicz    Padded all enums to nearest power of 2, added
+                                   PMCH info list, cross carrier scheduling
+                                   config, CSI RS config, and RN subframe config
+                                   IE support.
+    07/03/2016    Przemek Bereski  Added UE capability RAT container list IE and
+                                   UE capability enquiry message support.
 
 *******************************************************************************/
 
@@ -188,11 +196,13 @@ typedef enum{
     LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N8,
     LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N16,
     LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N32,
+    LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_SPARE1,
+    LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_SPARE2,
     LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N_ITEMS,
 }LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_ENUM;
-static const char liblte_rrc_radio_frame_allocation_period_text[LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N_ITEMS][20] = { "1",  "2",  "4",  "8",
-                                                                                                                         "16", "32"};
-static const uint8 liblte_rrc_radio_frame_allocation_period_num[LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N_ITEMS] = {1, 2, 4, 8, 16, 32};
+static const char liblte_rrc_radio_frame_allocation_period_text[LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N_ITEMS][20] = {     "1",      "2",      "4",      "8",
+                                                                                                                             "16",     "32", "SPARE1", "SPARE2"};
+static const uint8 liblte_rrc_radio_frame_allocation_period_num[LIBLTE_RRC_RADIO_FRAME_ALLOCATION_PERIOD_N_ITEMS] = {1, 2, 4, 8, 16, 32, 0, 0};
 typedef enum{
     LIBLTE_RRC_SUBFRAME_ALLOCATION_NUM_FRAMES_ONE = 0,
     LIBLTE_RRC_SUBFRAME_ALLOCATION_NUM_FRAMES_FOUR,
@@ -221,10 +231,65 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_mbsfn_subframe_config_ie(uint8              
     Document Reference: 36.331 v10.0.0 Section 6.3.7
 *********************************************************************/
 // Defines
+#define LIBLTE_RRC_MAX_PMCH_PER_MBSFN   15
+#define LIBLTE_RRC_MAX_SESSION_PER_PMCH 29
 // Enums
+typedef enum{
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF8 = 0,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF16,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF32,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF64,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF128,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF256,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF512,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_RF1024,
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_N_ITEMS,
+}LIBLTE_RRC_MCH_SCHEDULING_PERIOD_ENUM;
+static const char liblte_rrc_mch_scheduling_period_text[LIBLTE_RRC_MCH_SCHEDULING_PERIOD_N_ITEMS][20] = {   "rf8",   "rf16",   "rf32",   "rf64",
+                                                                                                          "rf128",  "rf256",  "rf512", "rf1024"};
+static const uint16 liblte_rrc_mch_scheduling_period_num[LIBLTE_RRC_MCH_SCHEDULING_PERIOD_N_ITEMS] = {8, 16, 32, 64, 128, 256, 512, 1024};
+typedef enum{
+    LIBLTE_RRC_PLMN_ID_CHOICE_INDEX = 0,
+    LIBLTE_RRC_PLMN_ID_CHOICE_EXPLICIT_VALUE,
+    LIBLTE_RRC_PLMN_ID_CHOICE_N_ITEMS,
+}LIBLTE_RRC_PLMN_ID_CHOICE_ENUM;
+static const char liblte_rrc_plmn_id_choice_text[LIBLTE_RRC_PLMN_ID_CHOICE_N_ITEMS][20] = {"index", "explicit value"};
 // Structs
+typedef struct{
+    uint16 mcc;
+    uint16 mnc;
+}LIBLTE_RRC_PLMN_IDENTITY_STRUCT;
+typedef struct{
+    LIBLTE_RRC_MCH_SCHEDULING_PERIOD_ENUM mch_scheduling_period;
+    uint16                                sf_alloc_end;
+    uint8                                 data_mcs;
+}LIBLTE_RRC_PMCH_CONFIG_STRUCT;
+typedef struct{
+    LIBLTE_RRC_PLMN_IDENTITY_STRUCT plmn_id;
+    LIBLTE_RRC_PLMN_ID_CHOICE_ENUM  plmn_id_choice;
+    uint8                           plmn_idx;
+    uint8                           service_id[3];
+}LIBLTE_RRC_TMGI_STRUCT;
+typedef struct{
+    LIBLTE_RRC_TMGI_STRUCT tmgi;
+    uint8                  session_id;
+    uint8                  logical_channel_id;
+    bool                   session_id_present;
+}LIBLTE_RRC_MBMS_SESSION_INFO_STRUCT;
+typedef struct{
+    LIBLTE_RRC_PMCH_CONFIG_STRUCT       pmch_config;
+    LIBLTE_RRC_MBMS_SESSION_INFO_STRUCT mbms_session_info_list[LIBLTE_RRC_MAX_SESSION_PER_PMCH];
+    uint8                               mbms_session_info_list_size;
+}LIBLTE_RRC_PMCH_INFO_STRUCT;
+typedef struct{
+    LIBLTE_RRC_PMCH_INFO_STRUCT pmch_info_list[LIBLTE_RRC_MAX_PMCH_PER_MBSFN];
+    uint8                       pmch_info_list_size;
+}LIBLTE_RRC_PMCH_INFO_LIST_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_rrc_pack_pmch_info_list_ie(LIBLTE_RRC_PMCH_INFO_LIST_STRUCT  *pmch_info_list,
+                                                    uint8                            **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_pmch_info_list_ie(uint8                            **ie_ptr,
+                                                      LIBLTE_RRC_PMCH_INFO_LIST_STRUCT  *pmch_info_list);
 
 /*********************************************************************
     IE Name: C-RNTI
@@ -482,10 +547,26 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_s_tmsi_ie(uint8                    **ie_ptr,
     Document Reference: 36.331 v10.0.0 Section 6.3.6
 *********************************************************************/
 // Defines
+#define LIBLTE_RRC_MAX_RAT_CAPABILITIES 8
 // Enums
 // Structs
+typedef struct{
+    LIBLTE_RRC_RAT_TYPE_ENUM rat_type;
+    LIBLTE_BYTE_MSG_STRUCT   ue_capability_rat_container;
+}LIBLTE_RRC_UE_CAPABILITY_RAT_CONTAINER_STRUCT;
+typedef struct{
+    LIBLTE_RRC_UE_CAPABILITY_RAT_CONTAINER_STRUCT rat_container_list[LIBLTE_RRC_MAX_RAT_CAPABILITIES];
+    uint32                                        N_rat_container;
+}LIBLTE_RRC_UE_CAPABILITY_RAT_CONTAINER_LIST_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_rrc_pack_octet_string_ie(LIBLTE_BYTE_MSG_STRUCT  *octet_string,
+                                                  uint8                  **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_octet_string_ie(uint8                  **ie_ptr,
+                                                    LIBLTE_BYTE_MSG_STRUCT  *octet_string);
+LIBLTE_ERROR_ENUM liblte_rrc_pack_ue_capability_rat_container_list_ie(LIBLTE_RRC_UE_CAPABILITY_RAT_CONTAINER_LIST_STRUCT  *ue_capability_rat_container_list,
+                                                                      uint8                                              **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_ue_capability_rat_container_list_ie(uint8                                              **ie_ptr,
+                                                                        LIBLTE_RRC_UE_CAPABILITY_RAT_CONTAINER_LIST_STRUCT  *ue_capability_rat_container_list);
 
 /*********************************************************************
     IE Name: UE EUTRA Capability
@@ -547,11 +628,12 @@ typedef enum{
     LIBLTE_RRC_T310_MS500,
     LIBLTE_RRC_T310_MS1000,
     LIBLTE_RRC_T310_MS2000,
+    LIBLTE_RRC_T310_SPARE,
     LIBLTE_RRC_T310_N_ITEMS,
 }LIBLTE_RRC_T310_ENUM;
-static const char liblte_rrc_t310_text[LIBLTE_RRC_T310_N_ITEMS][20] = {   "0",   "50",  "100",  "200",
-                                                                        "500", "1000", "2000"};
-static const uint16 liblte_rrc_t310_num[LIBLTE_RRC_T310_N_ITEMS] = {0, 50, 100, 200, 500, 1000, 2000};
+static const char liblte_rrc_t310_text[LIBLTE_RRC_T310_N_ITEMS][20] = {    "0",    "50",   "100",   "200",
+                                                                         "500",  "1000",  "2000", "SPARE"};
+static const uint16 liblte_rrc_t310_num[LIBLTE_RRC_T310_N_ITEMS] = {0, 50, 100, 200, 500, 1000, 2000, 0};
 typedef enum{
     LIBLTE_RRC_N310_N1 = 0,
     LIBLTE_RRC_N310_N2,
@@ -574,11 +656,12 @@ typedef enum{
     LIBLTE_RRC_T311_MS15000,
     LIBLTE_RRC_T311_MS20000,
     LIBLTE_RRC_T311_MS30000,
+    LIBLTE_RRC_T311_SPARE,
     LIBLTE_RRC_T311_N_ITEMS,
 }LIBLTE_RRC_T311_ENUM;
 static const char liblte_rrc_t311_text[LIBLTE_RRC_T311_N_ITEMS][20] = { "1000",  "3000",  "5000", "10000",
-                                                                       "15000", "20000", "30000"};
-static const uint16 liblte_rrc_t311_num[LIBLTE_RRC_T311_N_ITEMS] = {1000, 3000, 5000, 10000, 15000, 20000, 30000};
+                                                                       "15000", "20000", "30000", "SPARE"};
+static const uint16 liblte_rrc_t311_num[LIBLTE_RRC_T311_N_ITEMS] = {1000, 3000, 5000, 10000, 15000, 20000, 30000, 0};
 typedef enum{
     LIBLTE_RRC_N311_N1 = 0,
     LIBLTE_RRC_N311_N2,
@@ -626,11 +709,13 @@ typedef enum{
     LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_MBW50,
     LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_MBW75,
     LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_MBW100,
+    LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_SPARE1,
+    LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_SPARE2,
     LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_N_ITEMS,
 }LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_ENUM;
-static const char liblte_rrc_allowed_meas_bandwidth_text[LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_N_ITEMS][20] = {"1.4",   "3",   "5",  "10",
-                                                                                                            "15",  "20"};
-static const double liblte_rrc_allowed_meas_bandwidth_num[LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_N_ITEMS] = {1.4, 3, 5, 10, 15, 20};
+static const char liblte_rrc_allowed_meas_bandwidth_text[LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_N_ITEMS][20] = {   "1.4",      "3",      "5",     "10",
+                                                                                                               "15",     "20", "SPARE1", "SPARE2"};
+static const double liblte_rrc_allowed_meas_bandwidth_num[LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_N_ITEMS] = {1.4, 3, 5, 10, 15, 20, 0, 0};
 // Structs
 // Functions
 LIBLTE_ERROR_ENUM liblte_rrc_pack_allowed_meas_bandwidth_ie(LIBLTE_RRC_ALLOWED_MEAS_BANDWIDTH_ENUM   allowed_meas_bw,
@@ -836,18 +921,19 @@ typedef enum{
     LIBLTE_RRC_Q_OFFSET_RANGE_DB_20,
     LIBLTE_RRC_Q_OFFSET_RANGE_DB_22,
     LIBLTE_RRC_Q_OFFSET_RANGE_DB_24,
+    LIBLTE_RRC_Q_OFFSET_RANGE_SPARE,
     LIBLTE_RRC_Q_OFFSET_RANGE_N_ITEMS,
 }LIBLTE_RRC_Q_OFFSET_RANGE_ENUM;
-static const char liblte_rrc_q_offset_range_text[LIBLTE_RRC_Q_OFFSET_RANGE_N_ITEMS][20] = {"-24", "-22", "-20", "-18",
-                                                                                           "-16", "-14", "-12", "-10",
-                                                                                            "-8",  "-6",  "-5",  "-4",
-                                                                                            "-3",  "-2",  "-1",   "0",
-                                                                                             "1",   "2",   "3",   "4",
-                                                                                             "5",   "6",   "8",  "10",
-                                                                                            "12",  "14",  "16",  "18",
-                                                                                            "20",  "22",  "24"};
+static const char liblte_rrc_q_offset_range_text[LIBLTE_RRC_Q_OFFSET_RANGE_N_ITEMS][20] = {  "-24",   "-22",   "-20",   "-18",
+                                                                                             "-16",   "-14",   "-12",   "-10",
+                                                                                              "-8",    "-6",    "-5",    "-4",
+                                                                                              "-3",    "-2",    "-1",     "0",
+                                                                                               "1",     "2",     "3",     "4",
+                                                                                               "5",     "6",     "8",    "10",
+                                                                                              "12",    "14",    "16",    "18",
+                                                                                              "20",    "22",    "24", "SPARE"};
 static const int8 liblte_rrc_q_offset_range_num[LIBLTE_RRC_Q_OFFSET_RANGE_N_ITEMS] = {-24, -22, -20, -18, -16, -14, -12, -10,  -8,  -6,  -5,  -4,  -3,  -2,  -1,   0,
-                                                                                        1,   2,   3,   4,   5,   6,   8,  10,  12,  14,  16,  18,  20,  22,  24};
+                                                                                        1,   2,   3,   4,   5,   6,   8,  10,  12,  14,  16,  18,  20,  22,  24,   0};
 typedef enum{
     LIBLTE_RRC_SSSF_MEDIUM_0DOT25 = 0,
     LIBLTE_RRC_SSSF_MEDIUM_0DOT5,
@@ -2025,10 +2111,6 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_csfb_registration_param_1xrtt_v920_ie(uint8 
 // Enums
 // Structs
 typedef struct{
-    uint16 mcc;
-    uint16 mnc;
-}LIBLTE_RRC_PLMN_IDENTITY_STRUCT;
-typedef struct{
     LIBLTE_RRC_PLMN_IDENTITY_STRUCT plmn_id;
     uint32                          cell_id;
 }LIBLTE_RRC_CELL_GLOBAL_ID_EUTRA_STRUCT;
@@ -2156,10 +2238,11 @@ typedef enum{
     LIBLTE_RRC_DELTA_PUCCH_SHIFT_DS1 = 0,
     LIBLTE_RRC_DELTA_PUCCH_SHIFT_DS2,
     LIBLTE_RRC_DELTA_PUCCH_SHIFT_DS3,
+    LIBLTE_RRC_DELTA_PUCCH_SHIFT_SPARE,
     LIBLTE_RRC_DELTA_PUCCH_SHIFT_N_ITEMS,
 }LIBLTE_RRC_DELTA_PUCCH_SHIFT_ENUM;
-static const char liblte_rrc_delta_pucch_shift_text[LIBLTE_RRC_DELTA_PUCCH_SHIFT_N_ITEMS][20] = {"1", "2", "3"};
-static const uint8 liblte_rrc_delta_pucch_shift_num[LIBLTE_RRC_DELTA_PUCCH_SHIFT_N_ITEMS] = {1, 2, 3};
+static const char liblte_rrc_delta_pucch_shift_text[LIBLTE_RRC_DELTA_PUCCH_SHIFT_N_ITEMS][20] = {"1", "2", "3", "SPARE"};
+static const uint8 liblte_rrc_delta_pucch_shift_num[LIBLTE_RRC_DELTA_PUCCH_SHIFT_N_ITEMS] = {1, 2, 3, 0};
 typedef enum{
     LIBLTE_RRC_HOPPING_MODE_INTER_SUBFRAME = 0,
     LIBLTE_RRC_HOPPING_MODE_INTRA_AND_INTER_SUBFRAME,
@@ -2204,13 +2287,14 @@ typedef enum{
     LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N52,
     LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N56,
     LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N60,
+    LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_SPARE,
     LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N_ITEMS,
 }LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_ENUM;
-static const char liblte_rrc_size_of_ra_preambles_group_a_text[LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N_ITEMS][20] = { "4",  "8", "12", "16",
-                                                                                                                       "20", "24", "28", "32",
-                                                                                                                       "36", "40", "44", "48",
-                                                                                                                       "52", "56", "60"};
-static const uint8 liblte_rrc_size_of_ra_preambles_group_a_num[LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N_ITEMS] = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60};
+static const char liblte_rrc_size_of_ra_preambles_group_a_text[LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N_ITEMS][20] = {    "4",     "8",    "12",    "16",
+                                                                                                                          "20",    "24",    "28",    "32",
+                                                                                                                          "36",    "40",    "44",    "48",
+                                                                                                                          "52",    "56",    "60", "SPARE"};
+static const uint8 liblte_rrc_size_of_ra_preambles_group_a_num[LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_N_ITEMS] = {4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 0};
 typedef enum{
     LIBLTE_RRC_MESSAGE_SIZE_GROUP_A_B56 = 0,
     LIBLTE_RRC_MESSAGE_SIZE_GROUP_A_B144,
@@ -2279,12 +2363,18 @@ typedef enum{
     LIBLTE_RRC_PREAMBLE_TRANS_MAX_N50,
     LIBLTE_RRC_PREAMBLE_TRANS_MAX_N100,
     LIBLTE_RRC_PREAMBLE_TRANS_MAX_N200,
+    LIBLTE_RRC_PREAMBLE_TRANS_MAX_SPARE1,
+    LIBLTE_RRC_PREAMBLE_TRANS_MAX_SPARE2,
+    LIBLTE_RRC_PREAMBLE_TRANS_MAX_SPARE3,
+    LIBLTE_RRC_PREAMBLE_TRANS_MAX_SPARE4,
+    LIBLTE_RRC_PREAMBLE_TRANS_MAX_SPARE5,
     LIBLTE_RRC_PREAMBLE_TRANS_MAX_N_ITEMS,
 }LIBLTE_RRC_PREAMBLE_TRANS_MAX_ENUM;
-static const char liblte_rrc_preamble_trans_max_text[LIBLTE_RRC_PREAMBLE_TRANS_MAX_N_ITEMS][20] = {  "3",   "4",   "5",   "6",
-                                                                                                     "7",   "8",  "10",  "20",
-                                                                                                    "50", "100", "200"};
-static const uint8 liblte_rrc_preamble_trans_max_num[LIBLTE_RRC_PREAMBLE_TRANS_MAX_N_ITEMS] = {3, 4, 5, 6, 7, 8, 10, 20, 50, 100, 200};
+static const char liblte_rrc_preamble_trans_max_text[LIBLTE_RRC_PREAMBLE_TRANS_MAX_N_ITEMS][20] = {     "3",      "4",      "5",      "6",
+                                                                                                        "7",      "8",     "10",     "20",
+                                                                                                       "50",    "100",    "200", "SPARE1",
+                                                                                                   "SPARE2", "SPARE3", "SPARE4", "SPARE5"};
+static const uint8 liblte_rrc_preamble_trans_max_num[LIBLTE_RRC_PREAMBLE_TRANS_MAX_N_ITEMS] = {3, 4, 5, 6, 7, 8, 10, 20, 50, 100, 200, 0, 0, 0, 0, 0};
 typedef enum{
     LIBLTE_RRC_RA_RESPONSE_WINDOW_SIZE_SF2 = 0,
     LIBLTE_RRC_RA_RESPONSE_WINDOW_SIZE_SF3,
@@ -2365,11 +2455,12 @@ typedef enum{
     LIBLTE_RRC_SUBFRAME_ASSIGNMENT_4,
     LIBLTE_RRC_SUBFRAME_ASSIGNMENT_5,
     LIBLTE_RRC_SUBFRAME_ASSIGNMENT_6,
+    LIBLTE_RRC_SUBFRAME_ASSIGNMENT_SPARE,
     LIBLTE_RRC_SUBFRAME_ASSIGNMENT_N_ITEMS,
 }LIBLTE_RRC_SUBFRAME_ASSIGNMENT_ENUM;
-static const char liblte_rrc_subframe_assignment_text[LIBLTE_RRC_SUBFRAME_ASSIGNMENT_N_ITEMS][20] = {"0", "1", "2", "3",
-                                                                                                     "4", "5", "6"};
-static const uint8 liblte_rrc_subframe_assignment_num[LIBLTE_RRC_SUBFRAME_ASSIGNMENT_N_ITEMS] = {0, 1, 2, 3, 4, 5, 6};
+static const char liblte_rrc_subframe_assignment_text[LIBLTE_RRC_SUBFRAME_ASSIGNMENT_N_ITEMS][20] = {    "0",     "1",     "2",     "3",
+                                                                                                         "4",     "5",     "6", "SPARE"};
+static const uint8 liblte_rrc_subframe_assignment_num[LIBLTE_RRC_SUBFRAME_ASSIGNMENT_N_ITEMS] = {0, 1, 2, 3, 4, 5, 6, 0};
 typedef enum{
     LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_0 = 0,
     LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_1,
@@ -2380,12 +2471,20 @@ typedef enum{
     LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_6,
     LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_7,
     LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_8,
+    LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_SPARE1,
+    LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_SPARE2,
+    LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_SPARE3,
+    LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_SPARE4,
+    LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_SPARE5,
+    LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_SPARE6,
+    LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_SPARE7,
     LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_N_ITEMS,
 }LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_ENUM;
-static const char liblte_rrc_special_subframe_patterns_text[LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_N_ITEMS][20] = {"0", "1", "2", "3",
-                                                                                                                 "4", "5", "6", "7",
-                                                                                                                 "8"};
-static const uint8 liblte_rrc_special_subframe_patterns_num[LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_N_ITEMS] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+static const char liblte_rrc_special_subframe_patterns_text[LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_N_ITEMS][20] = {     "0",      "1",      "2",      "3",
+                                                                                                                      "4",      "5",      "6",      "7",
+                                                                                                                      "8", "SPARE1", "SPARE2", "SPARE3",
+                                                                                                                 "SPARE4", "SPARE5", "SPARE6", "SPARE7"};
+static const uint8 liblte_rrc_special_subframe_patterns_num[LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_N_ITEMS] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0};
 typedef enum{
     LIBLTE_RRC_UL_POWER_CONTROL_ALPHA_0 = 0,
     LIBLTE_RRC_UL_POWER_CONTROL_ALPHA_04,
@@ -2404,18 +2503,20 @@ typedef enum{
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_NEG_2 = 0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_2,
+    LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_SPARE,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_N_ITEMS,
 }LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_ENUM;
-static const char liblte_rrc_delta_f_pucch_format_1_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_N_ITEMS][20] = {"-2", "0", "2"};
-static const int8 liblte_rrc_delta_f_pucch_format_1_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_N_ITEMS] = {-2, 0, 2};
+static const char liblte_rrc_delta_f_pucch_format_1_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_N_ITEMS][20] = {"-2", "0", "2", "SPARE"};
+static const int8 liblte_rrc_delta_f_pucch_format_1_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_N_ITEMS] = {-2, 0, 2, 0};
 typedef enum{
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_1 = 0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_3,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_5,
+    LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_SPARE,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_N_ITEMS,
 }LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_ENUM;
-static const char liblte_rrc_delta_f_pucch_format_1b_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_N_ITEMS][20] = {"1", "3", "5"};
-static const uint8 liblte_rrc_delta_f_pucch_format_1b_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_N_ITEMS] = {1, 3, 5};
+static const char liblte_rrc_delta_f_pucch_format_1b_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_N_ITEMS][20] = {"1", "3", "5", "SPARE"};
+static const uint8 liblte_rrc_delta_f_pucch_format_1b_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_N_ITEMS] = {1, 3, 5, 0};
 typedef enum{
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2_NEG_2 = 0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2_0,
@@ -2429,18 +2530,20 @@ typedef enum{
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_NEG_2 = 0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_2,
+    LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_SPARE,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_N_ITEMS,
 }LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_ENUM;
-static const char liblte_rrc_delta_f_pucch_format_2a_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_N_ITEMS][20] = {"-2", "0", "2"};
-static const int8 liblte_rrc_delta_f_pucch_format_2a_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_N_ITEMS] = {-2, 0, 2};
+static const char liblte_rrc_delta_f_pucch_format_2a_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_N_ITEMS][20] = {"-2", "0", "2", "SPARE"};
+static const int8 liblte_rrc_delta_f_pucch_format_2a_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_N_ITEMS] = {-2, 0, 2, 0};
 typedef enum{
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_NEG_2 = 0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_0,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_2,
+    LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_SPARE,
     LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_N_ITEMS,
 }LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_ENUM;
-static const char liblte_rrc_delta_f_pucch_format_2b_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_N_ITEMS][20] = {"-2", "0", "2"};
-static const int8 liblte_rrc_delta_f_pucch_format_2b_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_N_ITEMS] = {-2, 0, 2};
+static const char liblte_rrc_delta_f_pucch_format_2b_text[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_N_ITEMS][20] = {"-2", "0", "2", "SPARE"};
+static const int8 liblte_rrc_delta_f_pucch_format_2b_num[LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_N_ITEMS] = {-2, 0, 2, 0};
 typedef enum{
     LIBLTE_RRC_BANDWIDTH_N6 = 0,
     LIBLTE_RRC_BANDWIDTH_N15,
@@ -2694,10 +2797,23 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_phys_cell_id_range_ie(uint8                 
     Document Reference: 36.331 v10.0.0 Section 6.3.4
 *********************************************************************/
 // Defines
+#define LIBLTE_RRC_MAX_PHYS_CELL_ID_RANGE 4
 // Enums
 // Structs
+typedef struct{
+    uint16 start;
+    uint16 range;
+    bool   range_present;
+}LIBLTE_RRC_PHYS_CELL_ID_RANGE_UTRA_FDD_STRUCT;
+typedef struct{
+    LIBLTE_RRC_PHYS_CELL_ID_RANGE_UTRA_FDD_STRUCT phys_cell_id_range_list[LIBLTE_RRC_MAX_PHYS_CELL_ID_RANGE];
+    uint8                                         phys_cell_id_range_list_size;
+}LIBLTE_RRC_PHYS_CELL_ID_RANGE_UTRA_FDD_LIST_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_rrc_pack_phys_cell_id_range_utra_fdd_list_ie(LIBLTE_RRC_PHYS_CELL_ID_RANGE_UTRA_FDD_LIST_STRUCT  *list,
+                                                                      uint8                                              **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_phys_cell_id_range_utra_fdd_list_ie(uint8                                              **ie_ptr,
+                                                                        LIBLTE_RRC_PHYS_CELL_ID_RANGE_UTRA_FDD_LIST_STRUCT  *list);
 
 /*********************************************************************
     IE Name: Phys Cell ID CDMA2000
@@ -2969,10 +3085,22 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_speed_state_scale_factors_ie(uint8          
     Document Reference: 36.331 v10.0.0 Section 6.3.4
 *********************************************************************/
 // Defines
+#define LIBLTE_RRC_MAX_GERAN_SI 10
 // Enums
 // Structs
+typedef struct{
+    uint8 system_info[23];
+    uint8 system_info_size;
+}LIBLTE_RRC_SYSTEM_INFO_GERAN_STRUCT;
+typedef struct{
+    LIBLTE_RRC_SYSTEM_INFO_GERAN_STRUCT system_info_list_geran[LIBLTE_RRC_MAX_GERAN_SI];
+    uint8                               system_info_list_geran_size;
+}LIBLTE_RRC_SYSTEM_INFO_LIST_GERAN_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_rrc_pack_system_info_list_geran_ie(LIBLTE_RRC_SYSTEM_INFO_LIST_GERAN_STRUCT  *list,
+                                                            uint8                                    **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_system_info_list_geran_ie(uint8                                    **ie_ptr,
+                                                              LIBLTE_RRC_SYSTEM_INFO_LIST_GERAN_STRUCT  *list);
 
 /*********************************************************************
     IE Name: System Time Info CDMA2000
@@ -3236,9 +3364,24 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_cqi_report_config_ie(uint8                  
 *********************************************************************/
 // Defines
 // Enums
+typedef enum{
+    LIBLTE_RRC_SCHEDULING_CONFIG_INFO_CHOICE_OWN = 0,
+    LIBLTE_RRC_SCHEDULING_CONFIG_INFO_CHOICE_OTHER,
+    LIBLTE_RRC_SCHEDULING_CONFIG_INFO_CHOICE_N_ITEMS,
+}LIBLTE_RRC_SCHEDULING_CONFIG_INFO_CHOICE_ENUM;
+static const char liblte_rrc_scheduling_config_info_choice_text[LIBLTE_RRC_SCHEDULING_CONFIG_INFO_CHOICE_N_ITEMS][20] = {"own", "other"};
 // Structs
+typedef struct{
+    LIBLTE_RRC_SCHEDULING_CONFIG_INFO_CHOICE_ENUM sched_cnfg_info_choice;
+    uint8                                         other_serv_cell_idx;
+    uint8                                         other_pdsch_start;
+    bool                                          own_cif_presence;
+}LIBLTE_RRC_CROSS_CARRIER_SCHEDULING_CONFIG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_rrc_pack_cross_carrier_scheduling_config_ie(LIBLTE_RRC_CROSS_CARRIER_SCHEDULING_CONFIG_STRUCT  *cross_carrier_sched_cnfg,
+                                                                     uint8                                             **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_cross_carrier_scheduling_config_ie(uint8                                             **ie_ptr,
+                                                                       LIBLTE_RRC_CROSS_CARRIER_SCHEDULING_CONFIG_STRUCT  *cross_carrier_sched_cnfg);
 
 /*********************************************************************
     IE Name: CSI RS Config
@@ -3250,9 +3393,35 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_cqi_report_config_ie(uint8                  
 *********************************************************************/
 // Defines
 // Enums
+typedef enum{
+    LIBLTE_RRC_CSI_RS_CONFIG_CHOICE_RELEASE = 0,
+    LIBLTE_RRC_CSI_RS_CONFIG_CHOICE_SETUP,
+    LIBLTE_RRC_CSI_RS_CONFIG_CHOICE_N_ITEMS,
+}LIBLTE_RRC_CSI_RS_CONFIG_CHOICE_ENUM;
+static const char liblte_rrc_csi_rs_config_choice_text[LIBLTE_RRC_CSI_RS_CONFIG_CHOICE_N_ITEMS][20] = {"release", "setup"};
+typedef enum{
+    LIBLTE_RRC_CSI_RS_PORTS_AN1 = 0,
+    LIBLTE_RRC_CSI_RS_PORTS_AN2,
+    LIBLTE_RRC_CSI_RS_PORTS_AN4,
+    LIBLTE_RRC_CSI_RS_PORTS_AN8,
+    LIBLTE_RRC_CSI_RS_PORTS_N_ITEMS,
+}LIBLTE_RRC_CSI_RS_PORTS_ENUM;
+static const char liblte_rrc_csi_rs_ports_text[LIBLTE_RRC_CSI_RS_PORTS_N_ITEMS][20] = {"an1", "an2", "an4", "an8"};
+static const uint8 liblte_rrc_csi_rs_ports_num[LIBLTE_RRC_CSI_RS_PORTS_N_ITEMS] = {1, 2, 4, 8};
 // Structs
+typedef struct{
+    LIBLTE_RRC_CSI_RS_CONFIG_CHOICE_ENUM choice;
+    LIBLTE_RRC_CSI_RS_PORTS_ENUM         csi_rs_ports;
+    uint16                               rho_c;
+    uint16                               csi_rs_w_zero_tx_power;
+    uint8                                location_idx;
+    uint8                                csi_rs_subfr_cnfg;
+}LIBLTE_RRC_CSI_RS_CONFIG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_rrc_pack_csi_rs_config_ie(LIBLTE_RRC_CSI_RS_CONFIG_STRUCT  *csi_rs_cnfg,
+                                                   uint8                           **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_csi_rs_config_ie(uint8                           **ie_ptr,
+                                                     LIBLTE_RRC_CSI_RS_CONFIG_STRUCT  *csi_rs_cnfg);
 
 /*********************************************************************
     IE Name: DRB Identity
@@ -4599,9 +4768,65 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rlf_timers_and_constants_ie(uint8           
 *********************************************************************/
 // Defines
 // Enums
+typedef enum{
+    LIBLTE_RRC_FRAME_STRUCTURE_TYPE_FDD = 0,
+    LIBLTE_RRC_FRAME_STRUCTURE_TYPE_TDD,
+    LIBLTE_RRC_FRAME_STRUCTURE_TYPE_N_ITEMS,
+}LIBLTE_RRC_FRAME_STRUCTURE_TYPE_ENUM;
+static const char liblte_rrc_frame_structure_type_text[LIBLTE_RRC_FRAME_STRUCTURE_TYPE_N_ITEMS][20] = {"fdd", "tdd"};
+typedef enum{
+    LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_0 = 0,
+    LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_1,
+    LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_2_LOCALIZED,
+    LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_2_DISTRIBUTED,
+    LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_N_ITEMS,
+}LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_ENUM;
+static const char liblte_rrc_resource_allocation_type_text[LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_N_ITEMS][20] = {"0", "1", "2-localized", "2-distributed"};
+typedef enum{
+    LIBLTE_RRC_RESOURCE_BLOCK_ASSIGNMENT_CHOICE_TYPE_0 = 0,
+    LIBLTE_RRC_RESOURCE_BLOCK_ASSIGNMENT_CHOICE_TYPE_1,
+    LIBLTE_RRC_RESOURCE_BLOCK_ASSIGNMENT_CHOICE_N_ITEMS,
+}LIBLTE_RRC_RESOURCE_BLOCK_ASSIGNMENT_CHOICE_ENUM;
+static const char liblte_rrc_resource_block_assignment_choice_text[LIBLTE_RRC_RESOURCE_BLOCK_ASSIGNMENT_CHOICE_N_ITEMS][20] = {"type-0", "type-1"};
+typedef enum{
+    LIBLTE_RRC_DEMODULATION_RS_CHOICE_INTERLEAVING = 0,
+    LIBLTE_RRC_DEMODULATION_RS_CHOICE_NO_INTERLEAVING,
+    LIBLTE_RRC_DEMODULATION_RS_CHOICE_N_ITEMS,
+}LIBLTE_RRC_DEMODULATION_RS_CHOICE_ENUM;
+static const char liblte_rrc_demodulation_rs_choice_text[LIBLTE_RRC_DEMODULATION_RS_CHOICE_N_ITEMS][20] = {"interleaving", "no-interleaving"};
+typedef enum{
+    LIBLTE_RRC_DEMODULATION_RS_TYPE_CRS = 0,
+    LIBLTE_RRC_DEMODULATION_RS_TYPE_DMRS,
+    LIBLTE_RRC_DEMODULATION_RS_TYPE_N_ITEMS,
+}LIBLTE_RRC_DEMODULATION_RS_TYPE_ENUM;
+static const char liblte_rrc_demodulation_rs_type_text[LIBLTE_RRC_DEMODULATION_RS_TYPE_N_ITEMS][20] = {"crs", "dmrs"};
 // Structs
+typedef struct{
+    LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_ENUM         resource_alloc_type;
+    LIBLTE_RRC_RESOURCE_BLOCK_ASSIGNMENT_CHOICE_ENUM resource_block_assignment_choice;
+    LIBLTE_RRC_DEMODULATION_RS_CHOICE_ENUM           demod_rs_choice;
+    LIBLTE_RRC_DEMODULATION_RS_TYPE_ENUM             demod_rs_type;
+    uint32                                           rba_nrb50;
+    uint32                                           rba_nrb75;
+    uint32                                           rba_nrb100;
+    uint16                                           rba_nrb25;
+    uint16                                           n1_pucch_an_port_0;
+    uint16                                           n1_pucch_an_port_1;
+    uint8                                            rba_nrb6;
+    uint8                                            rba_nrb15;
+    uint8                                            pdsch_start;
+}LIBLTE_RRC_RPDCCH_CONFIG_STRUCT;
+typedef struct{
+    LIBLTE_RRC_RPDCCH_CONFIG_STRUCT      rpdcch_cnfg;
+    LIBLTE_RRC_FRAME_STRUCTURE_TYPE_ENUM fr_struct_type;
+    uint8                                subfr_cnfg_pattern;
+    bool                                 rpdcch_cnfg_present;
+}LIBLTE_RRC_RN_SUBFRAME_CONFIG_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_rrc_pack_rn_subframe_config_ie(LIBLTE_RRC_RN_SUBFRAME_CONFIG_STRUCT  *rn_subfr_cnfg,
+                                                        uint8                                **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_rrc_unpack_rn_subframe_config_ie(uint8                                **ie_ptr,
+                                                          LIBLTE_RRC_RN_SUBFRAME_CONFIG_STRUCT  *rn_subfr_cnfg);
 
 /*********************************************************************
     IE Name: Scheduling Request Config
@@ -4829,11 +5054,13 @@ typedef enum{
     LIBLTE_RRC_UL_BW_N50,
     LIBLTE_RRC_UL_BW_N75,
     LIBLTE_RRC_UL_BW_N100,
+    LIBLTE_RRC_UL_BW_SPARE1,
+    LIBLTE_RRC_UL_BW_SPARE2,
     LIBLTE_RRC_UL_BW_N_ITEMS,
 }LIBLTE_RRC_UL_BW_ENUM;
-static const char liblte_rrc_ul_bw_text[LIBLTE_RRC_UL_BW_N_ITEMS][20] = {"1.4",   "3",   "5",  "10",
-                                                                          "15",  "20"};
-static const double liblte_rrc_ul_bw_num[LIBLTE_RRC_UL_BW_N_ITEMS] = {1.4, 3, 5, 10, 15, 20};
+static const char liblte_rrc_ul_bw_text[LIBLTE_RRC_UL_BW_N_ITEMS][20] = {   "1.4",      "3",      "5",     "10",
+                                                                             "15",     "20", "SPARE1", "SPARE2"};
+static const double liblte_rrc_ul_bw_num[LIBLTE_RRC_UL_BW_N_ITEMS] = {1.4, 3, 5, 10, 15, 20, 0, 0};
 // Structs
 typedef struct{
     LIBLTE_RRC_AC_BARRING_FACTOR_ENUM factor;
@@ -5283,11 +5510,13 @@ typedef enum{
     LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_NAS = 0,
     LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_CDMA2000_1XRTT,
     LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_CDMA2000_HRPD,
+    LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_SPARE,
     LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_N_ITEMS,
 }LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_ENUM;
 static const char liblte_rrc_ul_information_transfer_type_text[LIBLTE_RRC_UL_INFORMATION_TRANSFER_TYPE_N_ITEMS][20] = {"NAS",
                                                                                                                        "CDMA2000-1XRTT",
-                                                                                                                       "CDMA2000-HRPD"};
+                                                                                                                       "CDMA2000-HRPD",
+                                                                                                                       "SPARE"};
 // Structs
 typedef struct{
     LIBLTE_BYTE_MSG_STRUCT                       dedicated_info;
@@ -5373,7 +5602,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ue_information_request_msg(LIBLTE_BIT_MSG_ST
 // Enums
 // Structs
 typedef struct{
-    // FIXME
+    LIBLTE_RRC_UE_CAPABILITY_RAT_CONTAINER_LIST_STRUCT ue_capability_rat_container_list;
+    uint8                                              rrc_transaction_id;
 }LIBLTE_RRC_UE_CAPABILITY_INFORMATION_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_rrc_pack_ue_capability_information_msg(LIBLTE_RRC_UE_CAPABILITY_INFORMATION_STRUCT *ue_capability_info,
@@ -5393,7 +5623,9 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ue_capability_information_msg(LIBLTE_BIT_MSG
 // Enums
 // Structs
 typedef struct{
-    // FIXME
+    LIBLTE_RRC_RAT_TYPE_ENUM rat_type_list[LIBLTE_RRC_MAX_RAT_CAPABILITIES];
+    uint32                   rat_type_list_size;
+    uint8                    rrc_transaction_id;
 }LIBLTE_RRC_UE_CAPABILITY_ENQUIRY_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_rrc_pack_ue_capability_enquiry_msg(LIBLTE_RRC_UE_CAPABILITY_ENQUIRY_STRUCT *ue_cap_enquiry,
@@ -5435,11 +5667,12 @@ typedef enum{
     LIBLTE_RRC_SI_WINDOW_LENGTH_MS15,
     LIBLTE_RRC_SI_WINDOW_LENGTH_MS20,
     LIBLTE_RRC_SI_WINDOW_LENGTH_MS40,
+    LIBLTE_RRC_SI_WINDOW_LENGTH_SPARE,
     LIBLTE_RRC_SI_WINDOW_LENGTH_N_ITEMS,
 }LIBLTE_RRC_SI_WINDOW_LENGTH_ENUM;
-static const char liblte_rrc_si_window_length_text[LIBLTE_RRC_SI_WINDOW_LENGTH_N_ITEMS][20] = { "1",  "2",  "5", "10",
-                                                                                               "15", "20", "40"};
-static const uint8 liblte_rrc_si_window_length_num[LIBLTE_RRC_SI_WINDOW_LENGTH_N_ITEMS] = {1, 2, 5, 10, 15, 20, 40};
+static const char liblte_rrc_si_window_length_text[LIBLTE_RRC_SI_WINDOW_LENGTH_N_ITEMS][20] = {    "1",     "2",     "5",    "10",
+                                                                                                  "15",    "20",    "40", "SPARE"};
+static const uint8 liblte_rrc_si_window_length_num[LIBLTE_RRC_SI_WINDOW_LENGTH_N_ITEMS] = {1, 2, 5, 10, 15, 20, 40, 0};
 typedef enum{
     LIBLTE_RRC_RESV_FOR_OPER = 0,
     LIBLTE_RRC_NOT_RESV_FOR_OPER,
@@ -5454,11 +5687,12 @@ typedef enum{
     LIBLTE_RRC_SI_PERIODICITY_RF128,
     LIBLTE_RRC_SI_PERIODICITY_RF256,
     LIBLTE_RRC_SI_PERIODICITY_RF512,
+    LIBLTE_RRC_SI_PERIODICITY_SPARE,
     LIBLTE_RRC_SI_PERIODICITY_N_ITEMS,
 }LIBLTE_RRC_SI_PERIODICITY_ENUM;
-static const char liblte_rrc_si_periodicity_text[LIBLTE_RRC_SI_PERIODICITY_N_ITEMS][20] = {  "8",  "16",  "32",  "64",
-                                                                                           "128", "256", "512"};
-static const uint16 liblte_rrc_si_periodicity_num[LIBLTE_RRC_SI_PERIODICITY_N_ITEMS] = {8, 16, 32, 64, 128, 256, 512};
+static const char liblte_rrc_si_periodicity_text[LIBLTE_RRC_SI_PERIODICITY_N_ITEMS][20] = {    "8",    "16",    "32",    "64",
+                                                                                             "128",   "256",   "512", "SPARE"};
+static const uint16 liblte_rrc_si_periodicity_num[LIBLTE_RRC_SI_PERIODICITY_N_ITEMS] = {8, 16, 32, 64, 128, 256, 512, 0};
 typedef enum{
     LIBLTE_RRC_SIB_TYPE_3 = 0,
     LIBLTE_RRC_SIB_TYPE_4,
@@ -5546,14 +5780,19 @@ typedef enum{
     LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_11,
     LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_12,
     LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_13,
+    LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_SPARE1,
+    LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_SPARE2,
+    LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_SPARE3,
+    LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_SPARE4,
     LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1, // Intentionally not first
     LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_N_ITEMS,
 }LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_ENUM;
-static const char liblte_rrc_sys_info_block_type_text[LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_N_ITEMS][20] = { "2",  "3",  "4",  "5",
-                                                                                                      "6",  "7",  "8",  "9",
-                                                                                                     "10", "11", "12", "13",
-                                                                                                      "1"};
-static const uint8 liblte_rrc_sys_info_block_type_num[LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_N_ITEMS] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 1};
+static const char liblte_rrc_sys_info_block_type_text[LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_N_ITEMS][20] = {     "2",      "3",      "4",      "5",
+                                                                                                          "6",      "7",      "8",      "9",
+                                                                                                         "10",     "11",     "12",     "13",
+                                                                                                     "SPARE1", "SPARE2", "SPARE3", "SPARE4",
+                                                                                                          "1"};
+static const uint8 liblte_rrc_sys_info_block_type_num[LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_N_ITEMS] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 0, 0, 0, 1};
 // Structs
 typedef union{
     LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1_STRUCT  sib1;
@@ -6227,11 +6466,13 @@ typedef enum{
     LIBLTE_RRC_DL_INFORMATION_TRANSFER_TYPE_NAS = 0,
     LIBLTE_RRC_DL_INFORMATION_TRANSFER_TYPE_CDMA2000_1XRTT,
     LIBLTE_RRC_DL_INFORMATION_TRANSFER_TYPE_CDMA2000_HRPD,
+    LIBLTE_RRC_DL_INFORMATION_TRANSFER_TYPE_SPARE,
     LIBLTE_RRC_DL_INFORMATION_TRANSFER_TYPE_N_ITEMS,
 }LIBLTE_RRC_DL_INFORMATION_TRANSFER_TYPE_ENUM;
 static const char liblte_rrc_dl_information_transfer_type_text[LIBLTE_RRC_DL_INFORMATION_TRANSFER_TYPE_N_ITEMS][20] = {"NAS",
                                                                                                                        "CDMA2000-1XRTT",
-                                                                                                                       "CDMA2000-HRPD"};
+                                                                                                                       "CDMA2000-HRPD",
+                                                                                                                       "SPARE"};
 // Structs
 typedef struct{
     LIBLTE_BYTE_MSG_STRUCT                       dedicated_info;
@@ -6343,11 +6584,13 @@ typedef enum{
     LIBLTE_RRC_DL_BANDWIDTH_50,
     LIBLTE_RRC_DL_BANDWIDTH_75,
     LIBLTE_RRC_DL_BANDWIDTH_100,
+    LIBLTE_RRC_DL_BANDWIDTH_SPARE1,
+    LIBLTE_RRC_DL_BANDWIDTH_SPARE2,
     LIBLTE_RRC_DL_BANDWIDTH_N_ITEMS,
 }LIBLTE_RRC_DL_BANDWIDTH_ENUM;
-static const char liblte_rrc_dl_bandwidth_text[LIBLTE_RRC_DL_BANDWIDTH_N_ITEMS][20] = {"1.4",   "3",   "5",  "10",
-                                                                                        "15",  "20"};
-static const double liblte_rrc_dl_bandwidth_num[LIBLTE_RRC_DL_BANDWIDTH_N_ITEMS] = {1.4, 3, 5, 10, 15, 20};
+static const char liblte_rrc_dl_bandwidth_text[LIBLTE_RRC_DL_BANDWIDTH_N_ITEMS][20] = {   "1.4",      "3",      "5",     "10",
+                                                                                           "15",     "20", "SPARE1", "SPARE2"};
+static const double liblte_rrc_dl_bandwidth_num[LIBLTE_RRC_DL_BANDWIDTH_N_ITEMS] = {1.4, 3, 5, 10, 15, 20, 0, 0};
 // Structs
 typedef struct{
     LIBLTE_RRC_PHICH_CONFIG_STRUCT phich_config;

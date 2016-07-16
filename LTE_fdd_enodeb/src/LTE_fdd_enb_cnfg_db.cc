@@ -46,6 +46,8 @@
                                    Gudkov).
     02/13/2016    Ben Wojtowicz    Actually properly constructing MNC (again,
                                    thanks to Mikhail Gudkov).
+    07/03/2016    Ben Wojtowicz    Removed the ability to switch EARFCNs while
+                                   the radio is running.
 
 *******************************************************************************/
 
@@ -194,7 +196,6 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_cnfg_db::set_param(LTE_FDD_ENB_PARAM_ENUM par
             set_param(LTE_FDD_ENB_PARAM_UL_EARFCN, (int64)liblte_interface_get_corresponding_ul_earfcn(value));
             set_param(LTE_FDD_ENB_PARAM_DL_CENTER_FREQ, (int64)liblte_interface_dl_earfcn_to_frequency(value));
             set_param(LTE_FDD_ENB_PARAM_UL_CENTER_FREQ, (int64)liblte_interface_ul_earfcn_to_frequency(liblte_interface_get_corresponding_ul_earfcn(value)));
-            radio->set_earfcns(value, (int64)liblte_interface_get_corresponding_ul_earfcn(value));
         }else if(LTE_FDD_ENB_PARAM_USE_CNFG_FILE == param){
             if(value)
             {

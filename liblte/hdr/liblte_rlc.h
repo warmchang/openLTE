@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@
                                    struct.
     02/15/2015    Ben Wojtowicz    Added header extension handling to UMD.
     03/11/2015    Ben Wojtowicz    Added header extension handling to AMD.
+    07/03/2016    Ben Wojtowicz    Added AMD PDU segment support.
 
 *******************************************************************************/
 
@@ -286,11 +287,13 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_umd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
 // Enums
 // Structs
 typedef struct{
-    LIBLTE_RLC_DC_FIELD_ENUM dc;
-    LIBLTE_RLC_RF_FIELD_ENUM rf;
-    LIBLTE_RLC_P_FIELD_ENUM  p;
-    LIBLTE_RLC_FI_FIELD_ENUM fi;
-    uint16                   sn;
+    LIBLTE_RLC_DC_FIELD_ENUM  dc;
+    LIBLTE_RLC_RF_FIELD_ENUM  rf;
+    LIBLTE_RLC_P_FIELD_ENUM   p;
+    LIBLTE_RLC_FI_FIELD_ENUM  fi;
+    LIBLTE_RLC_LSF_FIELD_ENUM lsf;
+    uint16                    sn;
+    uint16                    so;
 }LIBLTE_RLC_AMD_PDU_HEADER_STRUCT;
 typedef struct{
     LIBLTE_RLC_AMD_PDU_HEADER_STRUCT hdr;

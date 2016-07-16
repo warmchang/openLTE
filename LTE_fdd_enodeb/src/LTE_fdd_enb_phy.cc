@@ -48,6 +48,8 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
     03/12/2016    Ben Wojtowicz    Added PUCCH support.
+    07/03/2016    Ben Wojtowicz    Not including UL PDCCH allocations in a check
+                                   of how many DL PRBs are being used.
 
 *******************************************************************************/
 
@@ -572,8 +574,8 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
                                                 &pdcch.alloc[pdcch.N_alloc].tbs,
                                                 &pdcch.alloc[pdcch.N_alloc].mcs,
                                                 &pdcch.alloc[pdcch.N_alloc].N_prb);
-        pdcch.alloc[pdcch.N_alloc].rv_idx = (uint32)ceilf(1.5 * ((sfn / 2) % 4)) % 4; //36.321 section 5.3.1
-        pdcch.N_alloc++;
+        pdcch.alloc[pdcch.N_alloc].rv_idx     = (uint32)ceilf(1.5 * ((sfn / 2) % 4)) % 4; //36.321 section 5.3.1
+        pdcch.alloc[pdcch.N_alloc++].dl_alloc = true;
     }
     if((0 * sys_info.si_win_len)%10   <= dl_subframe.num &&
        (1 * sys_info.si_win_len)%10   >  dl_subframe.num &&
@@ -602,7 +604,7 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
                                                                      &pdcch.alloc[pdcch.N_alloc].mcs,
                                                                      &pdcch.alloc[pdcch.N_alloc].N_prb))
         {
-            pdcch.N_alloc++;
+            pdcch.alloc[pdcch.N_alloc++].dl_alloc = true;
         }
     }
     for(i=1; i<sys_info.sib1.N_sched_info; i++)
@@ -631,7 +633,7 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
                                                     &pdcch.alloc[pdcch.N_alloc].tbs,
                                                     &pdcch.alloc[pdcch.N_alloc].mcs,
                                                     &pdcch.alloc[pdcch.N_alloc].N_prb);
-            pdcch.N_alloc++;
+            pdcch.alloc[pdcch.N_alloc++].dl_alloc = true;
         }
     }
 
@@ -642,12 +644,12 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
         for(i=0; i<dl_schedule[subfn].dl_allocations.N_alloc; i++)
         {
             memcpy(&pdcch.alloc[pdcch.N_alloc], &dl_schedule[subfn].dl_allocations.alloc[i], sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
-            pdcch.N_alloc++;
+            pdcch.alloc[pdcch.N_alloc++].dl_alloc = true;
         }
         for(i=0; i<dl_schedule[subfn].ul_allocations.N_alloc; i++)
         {
             memcpy(&pdcch.alloc[pdcch.N_alloc], &dl_schedule[subfn].ul_allocations.alloc[i], sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
-            pdcch.N_alloc++;
+            pdcch.alloc[pdcch.N_alloc++].dl_alloc = false;
         }
     }else{
         late_subfr = true;
@@ -666,8 +668,11 @@ void LTE_fdd_enb_phy::process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf)
     {
         for(j=0; j<pdcch.alloc[i].N_prb; j++)
         {
-            pdcch.alloc[i].prb[0][j] = last_prb;
-            pdcch.alloc[i].prb[1][j] = last_prb++;
+            if(pdcch.alloc[i].dl_alloc)
+            {
+                pdcch.alloc[i].prb[0][j] = last_prb;
+                pdcch.alloc[i].prb[1][j] = last_prb++;
+            }
         }
     }
     if(last_prb > phy_struct->N_rb_dl)

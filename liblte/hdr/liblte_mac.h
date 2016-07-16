@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -33,6 +33,7 @@
     02/15/2015    Ben Wojtowicz    Removed FIXME for transparent mode.
     03/11/2015    Ben Wojtowicz    Fixed long BSR CE and added extended power
                                    headroom CE support.
+    07/03/2016    Ben Wojtowicz    Fixed extended power headroom CE.
 
 *******************************************************************************/
 
@@ -243,14 +244,17 @@ typedef struct{
     bool  v;
 }LIBLTE_MAC_EPH_CELL_STRUCT;
 typedef struct{
-    LIBLTE_MAC_EPH_CELL_STRUCT pcell;
+    LIBLTE_MAC_EPH_CELL_STRUCT pcell_type_1;
+    LIBLTE_MAC_EPH_CELL_STRUCT pcell_type_2;
     LIBLTE_MAC_EPH_CELL_STRUCT scell[7];
+    bool                       pcell_type_2_present;
     bool                       scell_present[7];
 }LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mac_pack_ext_power_headroom_ce(LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT  *ext_power_headroom,
                                                         uint8                                   **ce_ptr);
 LIBLTE_ERROR_ENUM liblte_mac_unpack_ext_power_headroom_ce(uint8                                   **ce_ptr,
+                                                          bool                                      simultaneous_pucch_pusch,
                                                           LIBLTE_MAC_EXT_POWER_HEADROOM_CE_STRUCT  *ext_power_headroom);
 
 /*********************************************************************
@@ -370,6 +374,7 @@ typedef struct{
 LIBLTE_ERROR_ENUM liblte_mac_pack_mac_pdu(LIBLTE_MAC_PDU_STRUCT *mac_pdu,
                                           LIBLTE_BIT_MSG_STRUCT *pdu);
 LIBLTE_ERROR_ENUM liblte_mac_unpack_mac_pdu(LIBLTE_BIT_MSG_STRUCT *pdu,
+                                            bool                   simultaneous_pucch_pusch,
                                             LIBLTE_MAC_PDU_STRUCT *mac_pdu);
 
 /*********************************************************************

@@ -1,6 +1,7 @@
 /*******************************************************************************
 
     Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2016 Przemek Bereski (send_ue_capability_enquiry)
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -41,6 +42,7 @@
     02/13/2016    Ben Wojtowicz    Removed boost message queue include and
                                    add support for connection reestablishment
                                    and connection reestablishment reject.
+    07/03/2016    Przemek Bereski  Added send_ue_capability_enquiry.
 
 *******************************************************************************/
 
@@ -130,6 +132,7 @@ private:
     void send_rrc_con_release(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_rrc_con_setup(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_security_mode_command(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void send_ue_capability_enquiry(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Parameters
     sem_t                       sys_info_sem;

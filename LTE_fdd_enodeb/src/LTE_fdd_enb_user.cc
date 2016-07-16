@@ -44,6 +44,8 @@
     02/13/2016    Ben Wojtowicz    Added an inactivity timer.
     03/12/2016    Ben Wojtowicz    Added H-ARQ support and properly cleaning
                                    up inactivity timer.
+    07/03/2016    Ben Wojtowicz    Changed the DL bytes per subframe QoS
+                                   parameter for default data.
 
 *******************************************************************************/
 
@@ -136,9 +138,9 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
 
     // Generic
     N_del_ticks         = 0;
-    avail_qos[0]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,  0,   0,   0};
-    avail_qos[1]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20, 20,  22,  22};
-    avail_qos[2]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 10,  5, 100, 400};
+    avail_qos[0]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,  0,   0,                          0};
+    avail_qos[1]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20, 20,  22,                         22};
+    avail_qos[2]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 10,  5, 100, (LIBLTE_MAX_MSG_SIZE/8)-20};
     qos                 = LTE_FDD_ENB_QOS_NONE;
     inactivity_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
 }

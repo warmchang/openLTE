@@ -35,6 +35,7 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t and added some
                                    helper functions.
     02/13/2016    Ben Wojtowicz    Removed boost message queue include.
+    07/31/2016    Ben Wojtowicz    Added a define for max HARQ retransmissions.
 
 *******************************************************************************/
 
@@ -56,6 +57,7 @@
                               DEFINES
 *******************************************************************************/
 
+#define LTE_FDD_ENB_MAX_HARQ_RETX 5
 
 /*******************************************************************************
                               FORWARD DECLARATIONS

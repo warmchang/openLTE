@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2016 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -34,6 +34,8 @@
     07/25/2015    Ben Wojtowicz    Combined the DL and UL schedule messages into
                                    a single PHY schedule message.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
+    07/31/2016    Ben Wojtowicz    Added an external interface for getting the
+                                   current TTIs.
 
 *******************************************************************************/
 
@@ -84,6 +86,7 @@ public:
     // External interface
     void update_sys_info(void);
     uint32 get_n_cce(void);
+    void get_current_ttis(uint32 *dl_tti, uint32 *ul_tti);
 
     // Radio interface
     void radio_interface(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf, LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf);

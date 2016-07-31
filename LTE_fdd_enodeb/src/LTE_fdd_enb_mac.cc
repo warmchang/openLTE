@@ -61,6 +61,8 @@
     02/13/2016    Ben Wojtowicz    Added a user inactivity timer.
     03/12/2016    Ben Wojtowicz    Added PUCCH and H-ARQ support.
     07/03/2016    Ben Wojtowicz    Fixed memcpy lengths.
+    07/31/2016    Ben Wojtowicz    Reworked the RTS logic and limited the number
+                                   of HARQ retransmissions.
 
 *******************************************************************************/
 
@@ -337,8 +339,12 @@ void LTE_fdd_enb_mac::sched_ul(LTE_fdd_enb_user *user,
 /**********************/
 void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT *rts)
 {
-    LTE_FDD_ENB_TIMER_TICK_MSG_STRUCT timer_tick;
-    uint32                            i;
+    LTE_fdd_enb_phy                   *phy = LTE_fdd_enb_phy::get_instance();
+    LTE_FDD_ENB_TIMER_TICK_MSG_STRUCT  timer_tick;
+    uint32                             i;
+    uint32                             dl_tti;
+    uint32                             ul_tti;
+    int32                              num_subfrs_to_skip;
 
     // Send tick to timer manager
     msgq_to_timer->send(LTE_FDD_ENB_MESSAGE_TYPE_TIMER_TICK,
@@ -346,20 +352,34 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
                         (LTE_FDD_ENB_MESSAGE_UNION *)&timer_tick,
                         sizeof(LTE_FDD_ENB_TIMER_TICK_MSG_STRUCT));
 
-    if(rts->late)
+    phy->get_current_ttis(&dl_tti, &ul_tti);
+    if(2 != ((int32)(sched_dl_subfr[sched_cur_dl_subfn].current_tti) - (int32)(dl_tti)))
     {
-        for(i=0; i<2; i++)
+        num_subfrs_to_skip = (int32)(sched_dl_subfr[sched_cur_dl_subfn].current_tti) - (int32)(dl_tti);
+        if(1000 < fabs(num_subfrs_to_skip))
         {
-            msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE,
-                              &sched_dl_subfr[sched_cur_dl_subfn],
-                              &sched_ul_subfr[sched_cur_ul_subfn]);
-
+            num_subfrs_to_skip = 0;
+        }else if(0 > num_subfrs_to_skip){
+            num_subfrs_to_skip  = -num_subfrs_to_skip;
+            num_subfrs_to_skip += 3;
+        }else{
+            num_subfrs_to_skip = 0;
+        }
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                  __FILE__,
+                                  __LINE__,
+                                  "MAC_dl_tti - PHY_dl_tti != 2 (%d), skipping %d subframes",
+                                  (int32)(sched_dl_subfr[sched_cur_dl_subfn].current_tti) - (int32)(dl_tti),
+                                  num_subfrs_to_skip);
+        sem_wait(&sys_info_sem);
+        for(i=0; i<num_subfrs_to_skip; i++)
+        {
             // Advance the frame number combination
             sched_dl_subfr[sched_cur_dl_subfn].current_tti = add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti, 10);
             sched_ul_subfr[sched_cur_ul_subfn].current_tti = add_to_tti(sched_ul_subfr[sched_cur_ul_subfn].current_tti, 10);
 
             // Clear the subframes
-            sem_wait(&sys_info_sem);
             sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc = 0;
             sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc = 0;
             sched_dl_subfr[sched_cur_dl_subfn].N_avail_prbs           = sys_info.N_rb_dl - get_n_reserved_prbs(sched_dl_subfr[sched_cur_dl_subfn].current_tti);
@@ -369,12 +389,12 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
             sched_ul_subfr[sched_cur_ul_subfn].next_prb               = 0;
             sched_ul_subfr[sched_cur_ul_subfn].pucch.decode           = false;
             sched_ul_subfr[sched_cur_ul_subfn].pucch.rnti             = LIBLTE_MAC_INVALID_RNTI;
-            sem_post(&sys_info_sem);
 
             // Advance the subframe numbers
             sched_cur_dl_subfn = (sched_cur_dl_subfn + 1) % 10;
             sched_cur_ul_subfn = (sched_cur_ul_subfn + 1) % 10;
         }
+        sem_post(&sys_info_sem);
     }else if(rts->dl_current_tti == sched_dl_subfr[sched_cur_dl_subfn].current_tti &&
              rts->ul_current_tti == sched_ul_subfr[sched_cur_ul_subfn].current_tti){
         msgq_to_phy->send(LTE_FDD_ENB_MESSAGE_TYPE_PHY_SCHEDULE,
@@ -403,6 +423,16 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
         sched_cur_ul_subfn = (sched_cur_ul_subfn + 1) % 10;
 
         scheduler();
+    }else{
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                  __FILE__,
+                                  __LINE__,
+                                  "RTS issue DL %u:%u, UL %u:%u",
+                                  sched_dl_subfr[sched_cur_dl_subfn].current_tti,
+                                  dl_tti,
+                                  sched_ul_subfr[sched_cur_ul_subfn].current_tti,
+                                  ul_tti);
     }
 }
 void LTE_fdd_enb_mac::handle_prach_decode(LTE_FDD_ENB_PRACH_DECODE_MSG_STRUCT *prach_decode)
@@ -449,27 +479,39 @@ void LTE_fdd_enb_mac::handle_pucch_decode(LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT *p
                                                              &mac_pdu,
                                                              &alloc))
             {
-                alloc.ndi = user->get_dl_ndi();
-                if(LTE_FDD_ENB_ERROR_NONE == add_to_dl_sched_queue(add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti,
-                                                                              4),
-                                                                   &mac_pdu,
-                                                                   &alloc))
+                if(LTE_FDD_ENB_MAX_HARQ_RETX <= alloc.harq_retx_count)
                 {
                     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                               LTE_FDD_ENB_DEBUG_LEVEL_MAC,
                                               __FILE__,
                                               __LINE__,
-                                              "Resending HARQ info RNTI=%u TTI=%u",
+                                              "Not resending HARQ due to max retx RNTI=%u TTI=%u",
                                               pucch_decode->rnti,
                                               pucch_decode->current_tti);
                 }else{
-                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                              __FILE__,
-                                              __LINE__,
-                                              "Failed to resend HARQ info RNTI=%u TTI=%u",
-                                              pucch_decode->rnti,
-                                              pucch_decode->current_tti);
+                    alloc.harq_retx_count++;
+                    alloc.ndi = user->get_dl_ndi();
+                    if(LTE_FDD_ENB_ERROR_NONE == add_to_dl_sched_queue(add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti,
+                                                                                  4),
+                                                                       &mac_pdu,
+                                                                       &alloc))
+                    {
+                        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                                  __FILE__,
+                                                  __LINE__,
+                                                  "Resending HARQ info RNTI=%u TTI=%u",
+                                                  pucch_decode->rnti,
+                                                  pucch_decode->current_tti);
+                    }else{
+                        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                                  __FILE__,
+                                                  __LINE__,
+                                                  "Failed to resend HARQ info RNTI=%u TTI=%u",
+                                                  pucch_decode->rnti,
+                                                  pucch_decode->current_tti);
+                    }
                 }
             }else{
                 interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -606,6 +648,7 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
         alloc.tpc  = LIBLTE_PHY_TPC_COMMAND_DCI_1_1A_1B_1D_2_3_DB_ZERO;
         alloc.ndi  = user->get_dl_ndi();
         user->flip_dl_ndi();
+        alloc.harq_retx_count = 0;
 
         // Pack the PDU
         mac_pdu.chan_type = LIBLTE_MAC_CHAN_TYPE_DLSCH;

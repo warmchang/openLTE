@@ -247,3 +247,5 @@ v00.20.00     Increased the maximum messages size, fixed extended power headroom
               default data QoS, using C-RNTI when no IMSI/IMEI are available for
               printing an attached user, Przemek Bereski added UE capability enquiry
               and UE capability information support and bladeRF support.
+v00.20.01     Reworked the MAC RTS handling logic and limited the number of HARQ
+              retransmissions in LTE_fdd_enodeb.

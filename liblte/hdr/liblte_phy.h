@@ -73,6 +73,7 @@
                                    tests.
     03/12/2016    Ben Wojtowicz    Added PUCCH channel decode support.
     07/03/2016    Ben Wojtowicz    Added PDCCH size defines.
+    07/31/2016    Ben Wojtowicz    Added harq_retx_count to allocation struct.
 
 *******************************************************************************/
 
@@ -688,6 +689,7 @@ typedef struct{
     uint32                          N_codewords;
     uint32                          N_layers;
     uint32                          tx_mode;
+    uint32                          harq_retx_count;
     uint16                          rnti;
     uint8                           mcs;
     uint8                           tpc;

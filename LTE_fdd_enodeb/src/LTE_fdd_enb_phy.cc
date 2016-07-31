@@ -50,6 +50,8 @@
     03/12/2016    Ben Wojtowicz    Added PUCCH support.
     07/03/2016    Ben Wojtowicz    Not including UL PDCCH allocations in a check
                                    of how many DL PRBs are being used.
+    07/31/2016    Ben Wojtowicz    Added an external interface for getting the
+                                   current TTIs.
 
 *******************************************************************************/
 
@@ -346,6 +348,12 @@ uint32 LTE_fdd_enb_phy::get_n_cce(void)
                          &N_cce);
 
     return(N_cce);
+}
+void LTE_fdd_enb_phy::get_current_ttis(uint32 *dl_tti,
+                                       uint32 *ul_tti)
+{
+    *dl_tti = dl_current_tti;
+    *ul_tti = ul_current_tti;
 }
 
 /***********************/

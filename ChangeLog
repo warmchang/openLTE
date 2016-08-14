@@ -249,3 +249,6 @@ v00.20.00     Increased the maximum messages size, fixed extended power headroom
               and UE capability information support and bladeRF support.
 v00.20.01     Reworked the MAC RTS handling logic and limited the number of HARQ
               retransmissions in LTE_fdd_enodeb.
+v00.20.02     Changed the QoS DL bytes per subframe for default data to ensure QPSK
+              only for 5MHz other DL modulation schemes seem to not be functioning
+              correctly.

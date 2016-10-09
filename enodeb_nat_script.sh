@@ -1,19 +1,8 @@
 #!/bin/sh
 
 # Determine which interface to use
-tmp_wlan0=$(ifconfig | grep -c wlan0)
-tmp_eth0=$(ifconfig | grep -c eth0)
-iface="0"
-if [ $tmp_wlan0 -eq 1 ]; then
-    iface="wlan0"
-fi
-if [ $tmp_eth0 -eq 1 ]; then
-    iface="eth0"
-fi
-if [ $iface = "0" ]; then
-    echo "NO KNOWN INTERFACE TO USE"
-    exit 1
-fi
+iface=$(ifconfig | grep Ethernet | head -n1 | awk '{print $1}')
+echo Using interface : $iface
 
 # Enable IPTABLES
 tmp_ipt_en=$(cat /etc/sysctl.conf | grep -c -x net.ipv4.ip_forward=1)

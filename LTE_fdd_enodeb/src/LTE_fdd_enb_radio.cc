@@ -51,6 +51,7 @@
                                    of bladeRF as a radio choice and setting
                                    processor affinity.
     07/03/2016    Przemek Bereski  Addition of bladeRF as a radio choice.
+    10/09/2016    Ben Wojtowicz    Added typecast for bladerf_get_timestamp().
 
 *******************************************************************************/
 
@@ -972,7 +973,7 @@ void LTE_fdd_enb_radio_bladerf::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_p
     if(radio_params->init_needed)
     {
         // Assume RX_timestamp and TX_timestamp difference is 0
-        bladerf_get_timestamp(bladerf, BLADERF_MODULE_RX, &rx_ts);
+        bladerf_get_timestamp(bladerf, BLADERF_MODULE_RX, (uint64_t*)&rx_ts);
         next_tx_ts            = rx_ts + radio_params->samp_rate; // 1 second to make sure everything is setup
         metadata_rx.flags     = 0;
         metadata_rx.timestamp = next_tx_ts - (radio_params->N_samps_per_subfr*2); // Retard RX by 2 subframes

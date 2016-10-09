@@ -67,6 +67,7 @@
     07/03/2016    Przemek Bereski  Added UE capability RAT container list IE,
                                    UE capability information message, and UE
                                    capability enquiry message support.
+    10/09/2016    Ben Wojtowicz    Properly discarding sequence type extensions.
 
 *******************************************************************************/
 
@@ -91,6 +92,23 @@
 *******************************************************************************/
 
 LIBLTE_BIT_MSG_STRUCT global_msg;
+
+/*******************************************************************************
+                              LOCAL FUNCTION PROTOTYPES
+*******************************************************************************/
+
+/*********************************************************************
+    Name: skip_sequence_type_extension
+
+    Description: Skips an ASN.1 sequence type extension
+
+    Document Reference: ITU X.691 Section 18
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void skip_sequence_type_extension(bool ext_ind, uint8 **ptr);
 
 /*******************************************************************************
                               INFORMATION ELEMENT FUNCTIONS
@@ -193,6 +211,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_mbsfn_area_info_ie(uint8                    
         mbsfn_area_info->mcch_modification_period_r9 = (LIBLTE_RRC_MCCH_MODIFICATION_PERIOD_ENUM)liblte_bits_2_value(ie_ptr, 1);
         mbsfn_area_info->sf_alloc_info_r9            = liblte_bits_2_value(ie_ptr, 6);
         mbsfn_area_info->signalling_mcs_r9           = (LIBLTE_RRC_MCCH_SIGNALLING_MCS_ENUM)liblte_bits_2_value(ie_ptr, 2);
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -329,6 +349,9 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_pmch_info_list_ie(uint8                     
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
     uint32            j;
+    bool              pmch_info_ext_ind;
+    bool              pmch_config_ext_ind;
+    bool              mbms_session_info_ext_ind;
 
     if(ie_ptr         != NULL &&
        pmch_info_list != NULL)
@@ -337,20 +360,21 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_pmch_info_list_ie(uint8                     
         for(i=0; i<pmch_info_list->pmch_info_list_size; i++)
         {
             // Extension indicator
-            liblte_bits_2_value(ie_ptr, 1);
+            pmch_info_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
             // PMCH Config
-            liblte_bits_2_value(ie_ptr, 1); // Extension indicator
+            pmch_config_ext_ind                                                 = liblte_bits_2_value(ie_ptr,  1);
             pmch_info_list->pmch_info_list[i].pmch_config.sf_alloc_end          = liblte_bits_2_value(ie_ptr, 11);
             pmch_info_list->pmch_info_list[i].pmch_config.data_mcs              = liblte_bits_2_value(ie_ptr,  5);
             pmch_info_list->pmch_info_list[i].pmch_config.mch_scheduling_period = (LIBLTE_RRC_MCH_SCHEDULING_PERIOD_ENUM)liblte_bits_2_value(ie_ptr, 3);
+            skip_sequence_type_extension(pmch_config_ext_ind, ie_ptr);
 
             // MBMS Session Info List
             pmch_info_list->pmch_info_list[i].mbms_session_info_list_size = liblte_bits_2_value(ie_ptr, 5);
             for(j=0; j<pmch_info_list->pmch_info_list[i].mbms_session_info_list_size; j++)
             {
                 // Extension indicator
-                liblte_bits_2_value(ie_ptr, 1);
+                mbms_session_info_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                 // Optional indicator
                 pmch_info_list->pmch_info_list[i].mbms_session_info_list[j].session_id_present = liblte_bits_2_value(ie_ptr, 1);
@@ -376,7 +400,11 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_pmch_info_list_ie(uint8                     
 
                 // Logical Channel Identity
                 pmch_info_list->pmch_info_list[i].mbms_session_info_list[j].logical_channel_id = liblte_bits_2_value(ie_ptr, 5);
+
+                skip_sequence_type_extension(mbms_session_info_ext_ind, ie_ptr);
             }
+
+            skip_sequence_type_extension(pmch_info_ext_ind, ie_ptr);
         }
 
         err = LIBLTE_SUCCESS;
@@ -732,12 +760,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_other_config_ie(uint8                       
                                                     LIBLTE_RRC_OTHER_CONFIG_R9_STRUCT  *other_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr     != NULL &&
        other_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicator
         other_cnfg->report_proximity_cnfg_present = liblte_bits_2_value(ie_ptr, 1);
@@ -758,6 +787,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_other_config_ie(uint8                       
                 other_cnfg->report_proximity_cnfg.report_proximity_ind_utra = (LIBLTE_RRC_REPORT_PROXIMITY_INDICATION_UTRA_R9_ENUM)liblte_bits_2_value(ie_ptr, 1);
             }
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -1094,12 +1125,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ue_timers_and_constants_ie(uint8            
                                                                LIBLTE_RRC_UE_TIMERS_AND_CONSTANTS_STRUCT  *ue_timers_and_constants)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr                  != NULL &&
        ue_timers_and_constants != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         ue_timers_and_constants->t300 = (LIBLTE_RRC_T300_ENUM)liblte_bits_2_value(ie_ptr, 3);
         ue_timers_and_constants->t301 = (LIBLTE_RRC_T301_ENUM)liblte_bits_2_value(ie_ptr, 3);
@@ -1107,6 +1139,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ue_timers_and_constants_ie(uint8            
         ue_timers_and_constants->n310 = (LIBLTE_RRC_N310_ENUM)liblte_bits_2_value(ie_ptr, 3);
         ue_timers_and_constants->t311 = (LIBLTE_RRC_T311_ENUM)liblte_bits_2_value(ie_ptr, 3);
         ue_timers_and_constants->n311 = (LIBLTE_RRC_N311_ENUM)liblte_bits_2_value(ie_ptr, 3);
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -1346,6 +1380,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_config_ie(uint8                        
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
+    bool              ext_ind;
     bool              meas_obj_to_remove_present;
     bool              rep_cnfg_to_remove_present;
     bool              meas_id_to_remove_present;
@@ -1354,7 +1389,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_config_ie(uint8                        
        meas_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         meas_obj_to_remove_present                  = liblte_bits_2_value(ie_ptr, 1);
@@ -1462,6 +1497,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_config_ie(uint8                        
                 liblte_rrc_unpack_speed_state_scale_factors_ie(ie_ptr, &meas_cnfg->speed_state_params.time_to_trig_sf);
             }
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -1715,13 +1752,14 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_cdma2000_ie(uint8               
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
+    bool              ext_ind;
     bool              cells_to_add_mod_present;
 
     if(ie_ptr            != NULL &&
        meas_obj_cdma2000 != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         meas_obj_cdma2000->search_win_size_present           = liblte_bits_2_value(ie_ptr, 1);
@@ -1771,6 +1809,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_cdma2000_ie(uint8               
         {
             liblte_rrc_unpack_phys_cell_id_cdma2000_ie(ie_ptr, &meas_obj_cdma2000->cell_for_which_to_rep_cgi);
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -1889,6 +1929,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_eutra_ie(uint8                  
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
+    bool              ext_ind;
     bool              cells_to_add_mod_list_present;
     bool              black_cells_to_add_mod_list_present;
 
@@ -1896,7 +1937,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_eutra_ie(uint8                  
        meas_obj_eutra != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         meas_obj_eutra->cells_to_remove_list_present       = liblte_bits_2_value(ie_ptr, 1);
@@ -1973,6 +2014,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_eutra_ie(uint8                  
             liblte_rrc_unpack_phys_cell_id_ie(ie_ptr, &meas_obj_eutra->cell_for_which_to_rep_cgi);
         }
 
+        skip_sequence_type_extension(ext_ind, ie_ptr);
+
         err = LIBLTE_SUCCESS;
     }
 
@@ -2025,12 +2068,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_geran_ie(uint8                  
                                                          LIBLTE_RRC_MEAS_OBJECT_GERAN_STRUCT  *meas_obj_geran)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr         != NULL &&
        meas_obj_geran != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicator
         meas_obj_geran->cell_for_which_to_rep_cgi_present = liblte_bits_2_value(ie_ptr, 1);
@@ -2049,6 +2093,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_geran_ie(uint8                  
         {
             liblte_rrc_unpack_phys_cell_id_geran_ie(ie_ptr, &meas_obj_geran->cell_for_which_to_rep_cgi);
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -2267,12 +2313,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_utra_ie(uint8                   
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
+    bool              ext_ind;
 
     if(ie_ptr        != NULL &&
        meas_obj_utra != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         meas_obj_utra->cells_to_remove_list_present       = liblte_bits_2_value(ie_ptr, 1);
@@ -2332,6 +2379,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_meas_object_utra_ie(uint8                   
                 liblte_rrc_unpack_phys_cell_id_utra_tdd_ie(ie_ptr, &meas_obj_utra->cells_for_which_to_rep_cgi.pci_tdd);
             }
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -2412,12 +2461,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_quantity_config_ie(uint8                    
                                                        LIBLTE_RRC_QUANTITY_CONFIG_STRUCT  *qc)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr != NULL &&
        qc     != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         qc->qc_eutra_present    = liblte_bits_2_value(ie_ptr, 1);
@@ -2452,6 +2502,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_quantity_config_ie(uint8                    
         {
             qc->qc_cdma2000.mq = (LIBLTE_RRC_MEAS_QUANTITY_CDMA2000_ENUM)liblte_bits_2_value(ie_ptr, 1);
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -2579,12 +2631,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_report_config_eutra_ie(uint8                
                                                            LIBLTE_RRC_REPORT_CONFIG_EUTRA_STRUCT  *rep_cnfg_eutra)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              report_cnfg_ext_ind;
 
     if(ie_ptr         != NULL &&
        rep_cnfg_eutra != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        report_cnfg_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Trigger Type
         rep_cnfg_eutra->trigger_type = (LIBLTE_RRC_TRIGGER_TYPE_EUTRA_ENUM)liblte_bits_2_value(ie_ptr, 1);
@@ -2676,6 +2729,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_report_config_eutra_ie(uint8                
 
         // Report Amount
         rep_cnfg_eutra->report_amount = (LIBLTE_RRC_REPORT_AMOUNT_ENUM)liblte_bits_2_value(ie_ptr, 3);
+
+        skip_sequence_type_extension(report_cnfg_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -2821,12 +2876,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_report_config_inter_rat_ie(uint8            
                                                                LIBLTE_RRC_REPORT_CONFIG_INTER_RAT_STRUCT  *rep_cnfg_inter_rat)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr             != NULL &&
        rep_cnfg_inter_rat != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Trigger Type
         rep_cnfg_inter_rat->trigger_type = (LIBLTE_RRC_TRIGGER_TYPE_INTER_RAT_ENUM)liblte_bits_2_value(ie_ptr, 1);
@@ -2900,6 +2956,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_report_config_inter_rat_ie(uint8            
 
         // Report Amount
         rep_cnfg_inter_rat->report_amount = (LIBLTE_RRC_REPORT_AMOUNT_ENUM)liblte_bits_2_value(ie_ptr, 3);
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -4124,12 +4182,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_mobility_control_info_ie(uint8              
                                                              LIBLTE_RRC_MOBILITY_CONTROL_INFO_STRUCT  *mob_ctrl_info)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr        != NULL &&
        mob_ctrl_info != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         mob_ctrl_info->carrier_freq_eutra_present = liblte_bits_2_value(ie_ptr, 1);
@@ -4192,6 +4251,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_mobility_control_info_ie(uint8              
         {
             liblte_rrc_unpack_rach_config_dedicated_ie(ie_ptr, &mob_ctrl_info->rach_cnfg_ded);
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -5706,12 +5767,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_cross_carrier_scheduling_config_ie(uint8    
                                                                        LIBLTE_RRC_CROSS_CARRIER_SCHEDULING_CONFIG_STRUCT  *cross_carrier_sched_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr                   != NULL &&
        cross_carrier_sched_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Choice
         cross_carrier_sched_cnfg->sched_cnfg_info_choice = (LIBLTE_RRC_SCHEDULING_CONFIG_INFO_CHOICE_ENUM)liblte_bits_2_value(ie_ptr, 1);
@@ -5722,6 +5784,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_cross_carrier_scheduling_config_ie(uint8    
             liblte_rrc_unpack_serv_cell_index_ie(ie_ptr, &cross_carrier_sched_cnfg->other_serv_cell_idx);
             cross_carrier_sched_cnfg->other_pdsch_start = liblte_bits_2_value(ie_ptr, 2) + 1;
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -5839,7 +5903,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_pack_logical_channel_config_ie(LIBLTE_RRC_LOGICAL_C
        ie_ptr        != NULL)
     {
         // Extension indicator
-        liblte_value_2_bits(0, ie_ptr, 1); // FIXME: Handle extension
+        liblte_value_2_bits(0, ie_ptr, 1);
 
         // Optional indicator
         liblte_value_2_bits(log_chan_cnfg->ul_specific_params_present, ie_ptr, 1);
@@ -5868,12 +5932,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_logical_channel_config_ie(uint8             
                                                               LIBLTE_RRC_LOGICAL_CHANNEL_CONFIG_STRUCT  *log_chan_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr        != NULL &&
        log_chan_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1); // FIXME: Handle extension
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicator
         log_chan_cnfg->ul_specific_params_present = liblte_bits_2_value(ie_ptr, 1);
@@ -5892,6 +5957,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_logical_channel_config_ie(uint8             
                 log_chan_cnfg->ul_specific_params.log_chan_group = liblte_bits_2_value(ie_ptr, 2);
             }
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -6049,13 +6116,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_mac_main_config_ie(uint8                    
                                                        LIBLTE_RRC_MAC_MAIN_CONFIG_STRUCT  *mac_main_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    bool              ext;
+    bool              ext_ind;
 
     if(ie_ptr        != NULL &&
        mac_main_cnfg != NULL)
     {
         // Extension indicator
-        ext = liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         mac_main_cnfg->ulsch_cnfg_present = liblte_bits_2_value(ie_ptr, 1);
@@ -6178,6 +6245,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_mac_main_config_ie(uint8                    
             }
         }
 
+        skip_sequence_type_extension(ext_ind, ie_ptr);
+
         err = LIBLTE_SUCCESS;
     }
 
@@ -6257,12 +6326,14 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_pdcp_config_ie(uint8                        
                                                    LIBLTE_RRC_PDCP_CONFIG_STRUCT  *pdcp_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              pdcp_cnfg_ext_ind;
+    bool              rohc_ext_ind;
 
     if(ie_ptr    != NULL &&
        pdcp_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        pdcp_cnfg_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         pdcp_cnfg->discard_timer_present                 = liblte_bits_2_value(ie_ptr, 1);
@@ -6292,7 +6363,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_pdcp_config_ie(uint8                        
         if(pdcp_cnfg->hdr_compression_rohc)
         {
             // Extension indicator
-            liblte_bits_2_value(ie_ptr, 1);
+            rohc_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
             // Max CID
             pdcp_cnfg->hdr_compression_max_cid = liblte_bits_2_value(ie_ptr, 14) + 1;
@@ -6307,7 +6378,11 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_pdcp_config_ie(uint8                        
             pdcp_cnfg->hdr_compression_profile_0102 = liblte_bits_2_value(ie_ptr, 1);
             pdcp_cnfg->hdr_compression_profile_0103 = liblte_bits_2_value(ie_ptr, 1);
             pdcp_cnfg->hdr_compression_profile_0104 = liblte_bits_2_value(ie_ptr, 1);
+
+            skip_sequence_type_extension(rohc_ext_ind, ie_ptr);
         }
+
+        skip_sequence_type_extension(pdcp_cnfg_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -6530,13 +6605,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_physical_config_dedicated_ie(uint8          
                                                                  LIBLTE_RRC_PHYSICAL_CONFIG_DEDICATED_STRUCT  *phy_cnfg_ded)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    bool              ext;
+    bool              ext_ind;
 
     if(ie_ptr       != NULL &&
        phy_cnfg_ded != NULL)
     {
         // Extension indicator
-        ext = liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         phy_cnfg_ded->pdsch_cnfg_ded_present       = liblte_bits_2_value(ie_ptr, 1);
@@ -6613,6 +6688,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_physical_config_dedicated_ie(uint8          
         {
             liblte_rrc_unpack_scheduling_request_config_ie(ie_ptr, &phy_cnfg_ded->sched_request_cnfg);
         }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -7091,12 +7168,14 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rach_config_common_ie(uint8                 
                                                           LIBLTE_RRC_RACH_CONFIG_COMMON_STRUCT  *rach_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              rach_cnfg_cmn_ext_ind;
+    bool              preamble_info_ext_ind;
 
     if(ie_ptr    != NULL &&
        rach_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        rach_cnfg_cmn_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Preamble Info
         rach_cnfg->preambles_group_a_cnfg.present = liblte_bits_2_value(ie_ptr, 1);
@@ -7104,11 +7183,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rach_config_common_ie(uint8                 
         if(true == rach_cnfg->preambles_group_a_cnfg.present)
         {
             // Extension indicator
-            liblte_bits_2_value(ie_ptr, 1);
+            preamble_info_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
             rach_cnfg->preambles_group_a_cnfg.size_of_ra             = (LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_ENUM)liblte_bits_2_value(ie_ptr, 4);
             rach_cnfg->preambles_group_a_cnfg.msg_size               = (LIBLTE_RRC_MESSAGE_SIZE_GROUP_A_ENUM)liblte_bits_2_value(ie_ptr, 2);
             rach_cnfg->preambles_group_a_cnfg.msg_pwr_offset_group_b = (LIBLTE_RRC_MESSAGE_POWER_OFFSET_GROUP_B_ENUM)liblte_bits_2_value(ie_ptr, 3);
+
+            skip_sequence_type_extension(preamble_info_ext_ind, ie_ptr);
         }else{
             rach_cnfg->preambles_group_a_cnfg.size_of_ra = (LIBLTE_RRC_SIZE_OF_RA_PREAMBLES_GROUP_A_ENUM)rach_cnfg->num_ra_preambles;
         }
@@ -7123,6 +7204,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rach_config_common_ie(uint8                 
         rach_cnfg->mac_con_res_timer  = (LIBLTE_RRC_MAC_CONTENTION_RESOLUTION_TIMER_ENUM)liblte_bits_2_value(ie_ptr, 3);
 
         rach_cnfg->max_harq_msg3_tx = liblte_bits_2_value(ie_ptr, 3) + 1;
+
+        skip_sequence_type_extension(rach_cnfg_cmn_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -7219,12 +7302,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_common_sib_ie(uint8               
                                                             LIBLTE_RRC_RR_CONFIG_COMMON_SIB_STRUCT  *rr_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr  != NULL &&
        rr_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         liblte_rrc_unpack_rach_config_common_ie(ie_ptr, &rr_cnfg->rach_cnfg);
 
@@ -7244,6 +7328,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_common_sib_ie(uint8               
 
         // UL CP Length
         rr_cnfg->ul_cp_length = (LIBLTE_RRC_UL_CP_LENGTH_ENUM)liblte_bits_2_value(ie_ptr, 1);
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -7338,12 +7424,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_common_ie(uint8                   
                                                         LIBLTE_RRC_RR_CONFIG_COMMON_STRUCT  *rr_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr  != NULL &&
        rr_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         rr_cnfg->rach_cnfg_present   = liblte_bits_2_value(ie_ptr, 1);
@@ -7412,6 +7499,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_common_ie(uint8                   
 
         // UL CP Length
         rr_cnfg->ul_cp_length = (LIBLTE_RRC_UL_CP_LENGTH_ENUM)liblte_bits_2_value(ie_ptr, 1);
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -7591,14 +7680,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_pack_rr_config_dedicated_ie(LIBLTE_RRC_RR_CONFIG_DE
         }
 
         // Extension
-        // Optional indicators
-        liblte_value_2_bits(rr_cnfg->rlf_timers_and_constants_present, ie_ptr, 1);
-
-        // RLF Timers and Constants
-        if(rr_cnfg->rlf_timers_and_constants_present)
-        {
-            liblte_rrc_pack_rlf_timers_and_constants_ie(&rr_cnfg->rlf_timers_and_constants, ie_ptr);
-        }
+        // FIXME
 
         err = LIBLTE_SUCCESS;
     }
@@ -7610,16 +7692,18 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_dedicated_ie(uint8                
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
-    bool              ext;
+    bool              rr_cnfg_ded_ext_ind;
     bool              srb_to_add_mod_list_present;
+    bool              srb_to_add_mod_ext_ind;
     bool              drb_to_add_mod_list_present;
+    bool              drb_to_add_mod_ext_ind;
     bool              drb_to_release_list_present;
 
     if(ie_ptr  != NULL &&
        rr_cnfg != NULL)
     {
         // Extension indicator
-        ext = liblte_bits_2_value(ie_ptr, 1);
+        rr_cnfg_ded_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         srb_to_add_mod_list_present    = liblte_bits_2_value(ie_ptr, 1);
@@ -7636,7 +7720,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_dedicated_ie(uint8                
             for(i=0; i<rr_cnfg->srb_to_add_mod_list_size; i++)
             {
                 // Extension indicator
-                liblte_bits_2_value(ie_ptr, 1);
+                srb_to_add_mod_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                 // Optional indicators
                 rr_cnfg->srb_to_add_mod_list[i].rlc_cnfg_present = liblte_bits_2_value(ie_ptr, 1);
@@ -7670,6 +7754,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_dedicated_ie(uint8                
                         liblte_rrc_unpack_logical_channel_config_ie(ie_ptr, &rr_cnfg->srb_to_add_mod_list[i].lc_explicit_cnfg);
                     }
                 }
+
+                skip_sequence_type_extension(srb_to_add_mod_ext_ind, ie_ptr);
             }
         }
 
@@ -7680,7 +7766,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_dedicated_ie(uint8                
             for(i=0; i<rr_cnfg->drb_to_add_mod_list_size; i++)
             {
                 // Extension indicator
-                liblte_bits_2_value(ie_ptr, 1);
+                drb_to_add_mod_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                 // Optional indicators
                 rr_cnfg->drb_to_add_mod_list[i].eps_bearer_id_present = liblte_bits_2_value(ie_ptr, 1);
@@ -7721,6 +7807,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_dedicated_ie(uint8                
                 {
                     liblte_rrc_unpack_logical_channel_config_ie(ie_ptr, &rr_cnfg->drb_to_add_mod_list[i].lc_cnfg);
                 }
+
+                skip_sequence_type_extension(drb_to_add_mod_ext_ind, ie_ptr);
             }
         }
 
@@ -7757,17 +7845,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rr_config_dedicated_ie(uint8                
         }
 
         // Extension
-        if(ext)
-        {
-            // Optional indicators
-            rr_cnfg->rlf_timers_and_constants_present = liblte_bits_2_value(ie_ptr, 1);
-
-            // RLF Timers and Constants
-            if(rr_cnfg->rlf_timers_and_constants_present)
-            {
-                liblte_rrc_unpack_rlf_timers_and_constants_ie(ie_ptr, &rr_cnfg->rlf_timers_and_constants);
-            }
-        }
+        skip_sequence_type_extension(rr_cnfg_ded_ext_ind, ie_ptr);
+        rr_cnfg->rlf_timers_and_constants_present = false;
 
         err = LIBLTE_SUCCESS;
     }
@@ -7856,12 +7935,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rlc_config_ie(uint8                        *
                                                   LIBLTE_RRC_RLC_CONFIG_STRUCT  *rlc_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr   != NULL &&
        rlc_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Mode Choice
         rlc_cnfg->rlc_mode = (LIBLTE_RRC_RLC_MODE_ENUM)liblte_bits_2_value(ie_ptr, 2);
@@ -7917,6 +7997,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rlc_config_ie(uint8                        *
             rlc_cnfg->dl_um_uni_rlc.t_reordering = (LIBLTE_RRC_T_REORDERING_ENUM)liblte_bits_2_value(ie_ptr, 5);
         }
 
+        skip_sequence_type_extension(ext_ind, ie_ptr);
+
         err = LIBLTE_SUCCESS;
     }
 
@@ -7960,6 +8042,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rlf_timers_and_constants_ie(uint8           
                                                                 LIBLTE_RRC_RLF_TIMERS_AND_CONSTANTS_STRUCT  *rlf_timers_and_constants)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr                   != NULL &&
        rlf_timers_and_constants != NULL)
@@ -7968,13 +8051,15 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rlf_timers_and_constants_ie(uint8           
         liblte_bits_2_value(ie_ptr, 1);
 
         // Extension
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         rlf_timers_and_constants->t301 = (LIBLTE_RRC_T301_ENUM)liblte_bits_2_value(ie_ptr, 3);
         rlf_timers_and_constants->t310 = (LIBLTE_RRC_T310_ENUM)liblte_bits_2_value(ie_ptr, 3);
         rlf_timers_and_constants->n310 = (LIBLTE_RRC_N310_ENUM)liblte_bits_2_value(ie_ptr, 3);
         rlf_timers_and_constants->t311 = (LIBLTE_RRC_T311_ENUM)liblte_bits_2_value(ie_ptr, 3);
         rlf_timers_and_constants->n311 = (LIBLTE_RRC_N311_ENUM)liblte_bits_2_value(ie_ptr, 3);
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -8061,12 +8146,14 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rn_subframe_config_ie(uint8                 
                                                           LIBLTE_RRC_RN_SUBFRAME_CONFIG_STRUCT  *rn_subfr_cnfg)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              rn_subfr_cnfg_ext_ind;
+    bool              rpdcch_cnfg_ext_ind;
 
     if(ie_ptr        != NULL &&
        rn_subfr_cnfg != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        rn_subfr_cnfg_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicator
         rn_subfr_cnfg->rpdcch_cnfg_present = liblte_bits_2_value(ie_ptr, 1);
@@ -8084,7 +8171,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rn_subframe_config_ie(uint8                 
         if(rn_subfr_cnfg->rpdcch_cnfg_present)
         {
             // Extension indicator
-            liblte_bits_2_value(ie_ptr, 1);
+            rpdcch_cnfg_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
             // Resource allocation type
             rn_subfr_cnfg->rpdcch_cnfg.resource_alloc_type = (LIBLTE_RRC_RESOURCE_ALLOCATION_TYPE_ENUM)liblte_bits_2_value(ie_ptr, 2);
@@ -8118,7 +8205,11 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rn_subframe_config_ie(uint8                 
             // PUCCH Config
             rn_subfr_cnfg->rpdcch_cnfg.n1_pucch_an_port_0 = liblte_bits_2_value(ie_ptr, 11);
             rn_subfr_cnfg->rpdcch_cnfg.n1_pucch_an_port_1 = liblte_bits_2_value(ie_ptr, 11);
+
+            skip_sequence_type_extension(rpdcch_cnfg_ext_ind, ie_ptr);
         }
+
+        skip_sequence_type_extension(rn_subfr_cnfg_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -8432,6 +8523,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sps_config_ie(uint8                        *
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
+    bool              dl_ext_ind;
+    bool              ul_ext_ind;
 
     if(ie_ptr   != NULL &&
        sps_cnfg != NULL)
@@ -8454,7 +8547,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sps_config_ie(uint8                        *
             if(sps_cnfg->sps_cnfg_dl.setup_present)
             {
                 // Extension indicator
-                liblte_bits_2_value(ie_ptr, 1);
+                dl_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                 // SPS Interval DL
                 sps_cnfg->sps_cnfg_dl.sps_interval_dl = (LIBLTE_RRC_SPS_INTERVAL_DL_ENUM)liblte_bits_2_value(ie_ptr, 4);
@@ -8468,6 +8561,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sps_config_ie(uint8                        *
                 {
                     sps_cnfg->sps_cnfg_dl.n1_pucch_an_persistent_list[i] = liblte_bits_2_value(ie_ptr, 11);
                 }
+
+                skip_sequence_type_extension(dl_ext_ind, ie_ptr);
             }
         }
 
@@ -8478,7 +8573,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sps_config_ie(uint8                        *
             if(sps_cnfg->sps_cnfg_ul.setup_present)
             {
                 // Extension indicator
-                liblte_bits_2_value(ie_ptr, 1);
+                ul_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                 // Optional indicators
                 sps_cnfg->sps_cnfg_ul.p0_persistent_present      = liblte_bits_2_value(ie_ptr, 1);
@@ -8505,6 +8600,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sps_config_ie(uint8                        *
                 {
                     sps_cnfg->sps_cnfg_ul.two_intervals_cnfg = (LIBLTE_RRC_TWO_INTERVALS_CONFIG_ENUM)liblte_bits_2_value(ie_ptr, 1);
                 }
+
+                skip_sequence_type_extension(ul_ext_ind, ie_ptr);
             }
         }
 
@@ -8692,15 +8789,18 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ul_antenna_info_ie(uint8                    
                                                        LIBLTE_RRC_UL_ANTENNA_INFO_STRUCT  *ul_ant_info)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
+    bool              ext_ind;
 
     if(ie_ptr      != NULL &&
        ul_ant_info != NULL)
     {
         // Extension indicator
-        liblte_bits_2_value(ie_ptr, 1);
+        ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         ul_ant_info->ul_tx_mode              = (LIBLTE_RRC_UL_TRANSMISSION_MODE_R10_ENUM)liblte_bits_2_value(ie_ptr, 3);
         ul_ant_info->four_ant_port_activated = liblte_bits_2_value(ie_ptr, 1);
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -8944,8 +9044,6 @@ LIBLTE_ERROR_ENUM liblte_rrc_pack_sys_info_block_type_2_ie(LIBLTE_RRC_SYS_INFO_B
         // Time Alignment Timer Common
         liblte_rrc_pack_time_alignment_timer_ie(sib2->time_alignment_timer, ie_ptr);
 
-        // FIXME: Not handling extensions
-
         err = LIBLTE_SUCCESS;
     }
 
@@ -9044,11 +9142,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_2_ie(uint8              
         // Time Alignment Timer Common
         liblte_rrc_unpack_time_alignment_timer_ie(ie_ptr, &sib2->time_alignment_timer);
 
-        // Extensions
-        if(true == ext_ind)
-        {
-            // FIXME
-        }
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -9233,11 +9327,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_3_ie(uint8              
             }
         }
 
-        // Extensions
-        if(true == ext_ind)
-        {
-            // FIXME
-        }
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -9317,15 +9407,16 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_4_ie(uint8              
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
-    bool              ext_ind;
+    bool              sib4_ext_ind;
     bool              intra_freq_neigh_cell_list_opt;
+    bool              intra_freq_neigh_cell_ext_ind;
     bool              intra_freq_black_cell_list_opt;
 
     if(ie_ptr != NULL &&
        sib4   != NULL)
     {
         // Extension indicator
-        ext_ind = liblte_bits_2_value(ie_ptr, 1);
+        sib4_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         intra_freq_neigh_cell_list_opt       = liblte_bits_2_value(ie_ptr, 1);
@@ -9338,10 +9429,12 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_4_ie(uint8              
             for(i=0; i<sib4->intra_freq_neigh_cell_list_size; i++)
             {
                 // Extension indicator
-                liblte_bits_2_value(ie_ptr, 1);
+                intra_freq_neigh_cell_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                 liblte_rrc_unpack_phys_cell_id_ie(ie_ptr, &sib4->intra_freq_neigh_cell_list[i].phys_cell_id);
                 liblte_rrc_unpack_q_offset_range_ie(ie_ptr, &sib4->intra_freq_neigh_cell_list[i].q_offset_range);
+
+                skip_sequence_type_extension(intra_freq_neigh_cell_ext_ind, ie_ptr);
             }
         }else{
             sib4->intra_freq_neigh_cell_list_size = 0;
@@ -9363,11 +9456,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_4_ie(uint8              
             liblte_rrc_unpack_phys_cell_id_range_ie(ie_ptr, &sib4->csg_phys_cell_id_range);
         }
 
-        // Extension
-        if(true == ext_ind)
-        {
-            // FIXME
-        }
+        skip_sequence_type_extension(sib4_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -9472,7 +9561,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_5_ie(uint8              
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
     uint32            j;
-    bool              ext_ind;
+    bool              sib5_ext_ind;
     bool              inter_freq_carrier_freq_list_ext_ind;
     bool              q_offset_freq_opt;
     bool              inter_freq_neigh_cell_list_opt;
@@ -9482,7 +9571,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_5_ie(uint8              
        sib5   != NULL)
     {
         // Extension indicator
-        ext_ind = liblte_bits_2_value(ie_ptr, 1);
+        sib5_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         sib5->inter_freq_carrier_freq_list_size = liblte_bits_2_value(ie_ptr, 3) + 1;
         for(i=0; i<sib5->inter_freq_carrier_freq_list_size; i++)
@@ -9545,7 +9634,11 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_5_ie(uint8              
             }else{
                 sib5->inter_freq_carrier_freq_list[i].inter_freq_black_cell_list_size = 0;
             }
+
+            skip_sequence_type_extension(inter_freq_carrier_freq_list_ext_ind, ie_ptr);
         }
+
+        skip_sequence_type_extension(sib5_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -9651,7 +9744,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_6_ie(uint8              
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
-    bool              ext_ind;
+    bool              sib6_ext_ind;
     bool              carrier_freq_list_utra_fdd_opt;
     bool              carrier_freq_list_utra_fdd_ext_ind;
     bool              carrier_freq_list_utra_tdd_opt;
@@ -9661,7 +9754,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_6_ie(uint8              
        sib6   != NULL)
     {
         // Extension indicator
-        ext_ind = liblte_bits_2_value(ie_ptr, 1);
+        sib6_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         carrier_freq_list_utra_fdd_opt = liblte_bits_2_value(ie_ptr, 1);
@@ -9689,6 +9782,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_6_ie(uint8              
                 sib6->carrier_freq_list_utra_fdd[i].q_rx_lev_min = (int8)((liblte_bits_2_value(ie_ptr, 6) - 60) * 2) + 1;
                 sib6->carrier_freq_list_utra_fdd[i].p_max_utra   = (int8)liblte_bits_2_value(ie_ptr, 7) - 50;
                 sib6->carrier_freq_list_utra_fdd[i].q_qual_min   = (int8)liblte_bits_2_value(ie_ptr, 5) - 24;
+
+                skip_sequence_type_extension(carrier_freq_list_utra_fdd_ext_ind, ie_ptr);
             }
         }else{
             sib6->carrier_freq_list_utra_fdd_size = 0;
@@ -9713,6 +9808,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_6_ie(uint8              
                 liblte_rrc_unpack_reselection_threshold_ie(ie_ptr, &sib6->carrier_freq_list_utra_tdd[i].threshx_low);
                 sib6->carrier_freq_list_utra_tdd[i].q_rx_lev_min = (int8)((liblte_bits_2_value(ie_ptr, 6) * 2) + 1) - 60;
                 sib6->carrier_freq_list_utra_tdd[i].p_max_utra   = (int8)liblte_bits_2_value(ie_ptr, 7) - 50;
+
+                skip_sequence_type_extension(carrier_freq_list_utra_tdd_ext_ind, ie_ptr);
             }
         }else{
             sib6->carrier_freq_list_utra_tdd_size = 0;
@@ -9722,6 +9819,9 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_6_ie(uint8              
         {
             liblte_rrc_unpack_speed_state_scale_factors_ie(ie_ptr, &sib6->t_resel_utra_sf);
         }
+
+        skip_sequence_type_extension(sib6_ext_ind, ie_ptr);
+
         err = LIBLTE_SUCCESS;
     }
 
@@ -9805,7 +9905,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_7_ie(uint8              
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
-    bool              ext_ind;
+    bool              sib7_ext_ind;
     bool              carrier_freqs_info_list_opt;
     bool              carrier_freqs_info_list_ext_ind;
 
@@ -9813,7 +9913,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_7_ie(uint8              
        sib7   != NULL)
     {
         // Extension indicator
-        ext_ind = liblte_bits_2_value(ie_ptr, 1);
+        sib7_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         sib7->t_resel_geran_sf_present = liblte_bits_2_value(ie_ptr, 1);
@@ -9853,10 +9953,14 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_7_ie(uint8              
                     liblte_rrc_unpack_reselection_threshold_ie(ie_ptr, &sib7->carrier_freqs_info_list[i].threshx_high);
                     liblte_rrc_unpack_reselection_threshold_ie(ie_ptr, &sib7->carrier_freqs_info_list[i].threshx_low);
                 }
+
+                skip_sequence_type_extension(carrier_freqs_info_list_ext_ind, ie_ptr);
             }
         }else{
             sib7->carrier_freqs_info_list_size = 0;
         }
+
+        skip_sequence_type_extension(sib7_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -10039,13 +10143,15 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_8_ie(uint8              
     uint32                                 i;
     uint32                                 j;
     uint32                                 k;
-    bool                                   ext_ind;
+    bool                                   sib8_ext_ind;
+    bool                                   hrpd_band_class_info_ext_ind;
+    bool                                   onexrtt_band_class_info_ext_ind;
 
     if(ie_ptr != NULL &&
        sib8   != NULL)
     {
         // Extension indicator
-        ext_ind = liblte_bits_2_value(ie_ptr, 1);
+        sib8_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
         sib8->sys_time_info_present   = liblte_bits_2_value(ie_ptr, 1);
@@ -10079,7 +10185,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_8_ie(uint8              
                 for(i=0; i<sib8->cell_resel_params_hrpd.band_class_list_size; i++)
                 {
                     // Extension indicator
-                    liblte_bits_2_value(ie_ptr, 1);
+                    hrpd_band_class_info_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                     // Optional indicator
                     sib8->cell_resel_params_hrpd.band_class_list[i].cell_resel_prio_present = liblte_bits_2_value(ie_ptr, 1);
@@ -10091,6 +10197,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_8_ie(uint8              
                     }
                     sib8->cell_resel_params_hrpd.band_class_list[i].thresh_x_high = liblte_bits_2_value(ie_ptr, 6);
                     sib8->cell_resel_params_hrpd.band_class_list[i].thresh_x_low  = liblte_bits_2_value(ie_ptr, 6);
+
+                    skip_sequence_type_extension(hrpd_band_class_info_ext_ind, ie_ptr);
                 }
 
                 sib8->cell_resel_params_hrpd.neigh_cell_list_size = liblte_bits_2_value(ie_ptr, 4) + 1;
@@ -10147,7 +10255,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_8_ie(uint8              
                 for(i=0; i<sib8->cell_resel_params_1xrtt.band_class_list_size; i++)
                 {
                     // Extension indicator
-                    liblte_bits_2_value(ie_ptr, 1);
+                    onexrtt_band_class_info_ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
                     // Optional indicator
                     sib8->cell_resel_params_1xrtt.band_class_list[i].cell_resel_prio_present = liblte_bits_2_value(ie_ptr, 1);
@@ -10159,6 +10267,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_8_ie(uint8              
                     }
                     sib8->cell_resel_params_1xrtt.band_class_list[i].thresh_x_high = liblte_bits_2_value(ie_ptr, 6);
                     sib8->cell_resel_params_1xrtt.band_class_list[i].thresh_x_low  = liblte_bits_2_value(ie_ptr, 6);
+
+                    skip_sequence_type_extension(onexrtt_band_class_info_ext_ind, ie_ptr);
                 }
 
                 sib8->cell_resel_params_1xrtt.neigh_cell_list_size = liblte_bits_2_value(ie_ptr, 4) + 1;
@@ -10189,6 +10299,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_8_ie(uint8              
             sib8->long_code_state_1xrtt_present   = false;
             sib8->cell_resel_params_1xrtt_present = false;
         }
+
+        skip_sequence_type_extension(sib8_ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -10274,7 +10386,6 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_13_ie(uint8             
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            i;
     bool              ext_ind;
-    bool              non_crit_ext_present;
 
     if(ie_ptr != NULL &&
        sib13  != NULL)
@@ -10283,7 +10394,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_13_ie(uint8             
         ext_ind = liblte_bits_2_value(ie_ptr, 1);
 
         // Optional indicators
-        non_crit_ext_present = liblte_bits_2_value(ie_ptr, 1);
+        sib13->non_crit_ext_present = liblte_bits_2_value(ie_ptr, 1);
 
         sib13->mbsfn_area_info_list_r9_size = liblte_bits_2_value(ie_ptr, 3) + 1;
         for(i=0; i<sib13->mbsfn_area_info_list_r9_size; i++)
@@ -10291,6 +10402,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_13_ie(uint8             
             liblte_rrc_unpack_mbsfn_area_info_ie(ie_ptr, &sib13->mbsfn_area_info_list_r9[i]);
         }
         liblte_rrc_unpack_mbsfn_notification_config_ie(ie_ptr, &sib13->mbms_notification_config);
+
+        if(sib13->non_crit_ext_present)
+        {
+            liblte_rrc_unpack_octet_string_ie(ie_ptr, &sib13->non_crit_ext);
+        }
+
+        skip_sequence_type_extension(ext_ind, ie_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -11243,6 +11361,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_security_mode_command_msg(LIBLTE_BIT_MSG_STR
 {
     LIBLTE_ERROR_ENUM  err     = LIBLTE_ERROR_INVALID_INPUTS;
     uint8             *msg_ptr = msg->msg;
+    bool               ext_ind;
 
     if(msg_ptr           != NULL &&
        security_mode_cmd != NULL)
@@ -11261,11 +11380,13 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_security_mode_command_msg(LIBLTE_BIT_MSG_STR
         liblte_bits_2_value(&msg_ptr, 1);
 
         // Extension indicator
-        liblte_bits_2_value(&msg_ptr, 1);
+        ext_ind = liblte_bits_2_value(&msg_ptr, 1);
 
         // Security Algorithms Config
         liblte_rrc_unpack_security_algorithm_config_ie(&msg_ptr,
                                                        &security_mode_cmd->sec_algs);
+
+        skip_sequence_type_extension(ext_ind, &msg_ptr);
 
         err = LIBLTE_SUCCESS;
     }
@@ -12126,6 +12247,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rrc_connection_reconfiguration_msg(LIBLTE_BI
     uint8             *msg_ptr = msg->msg;
     uint32             i;
     bool               ded_info_nas_list_present;
+    bool               sec_cnfg_ho_ext_ind;
 
     if(msg          != NULL &&
        con_reconfig != NULL)
@@ -12181,7 +12303,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rrc_connection_reconfiguration_msg(LIBLTE_BI
         if(con_reconfig->sec_cnfg_ho_present)
         {
             // Extension indicator
-            liblte_bits_2_value(&msg_ptr, 1);
+            sec_cnfg_ho_ext_ind = liblte_bits_2_value(&msg_ptr, 1);
 
             // Handover Type
             con_reconfig->sec_cnfg_ho.ho_type = (LIBLTE_RRC_HANDOVER_TYPE_ENUM)liblte_bits_2_value(&msg_ptr, 1);
@@ -12212,6 +12334,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_rrc_connection_reconfiguration_msg(LIBLTE_BI
                     con_reconfig->sec_cnfg_ho.inter_rat.nas_sec_param_to_eutra[i] = liblte_bits_2_value(&msg_ptr, 8);
                 }
             }
+
+            skip_sequence_type_extension(sec_cnfg_ho_ext_ind, &msg_ptr);
         }
 
         err = LIBLTE_SUCCESS;
@@ -12508,6 +12632,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_paging_msg(LIBLTE_BIT_MSG_STRUCT    *msg,
     uint32             i;
     uint32             j;
     uint8              paging_record_list_present;
+    bool               paging_record_ext_ind;
 
     if(msg  != NULL &&
        page != NULL)
@@ -12524,7 +12649,7 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_paging_msg(LIBLTE_BIT_MSG_STRUCT    *msg,
             for(i=0; i<page->paging_record_list_size; i++)
             {
                 // Extension indicator
-                liblte_bits_2_value(&msg_ptr, 1);
+                paging_record_ext_ind = liblte_bits_2_value(&msg_ptr, 1);
 
                 // Paging UE identity
                 {
@@ -12546,6 +12671,8 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_paging_msg(LIBLTE_BIT_MSG_STRUCT    *msg,
                 }
 
                 page->paging_record_list[i].cn_domain = (LIBLTE_RRC_CN_DOMAIN_ENUM)liblte_bits_2_value(&msg_ptr, 1);
+
+                skip_sequence_type_extension(paging_record_ext_ind, &msg_ptr);
             }
         }
 
@@ -13522,4 +13649,54 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_ul_dcch_msg(LIBLTE_BIT_MSG_STRUCT         *m
     }
 
     return(err);
+}
+
+/*******************************************************************************
+                              LOCAL FUNCTIONS
+*******************************************************************************/
+
+/*********************************************************************
+    Name: skip_sequence_type_extension
+
+    Description: Skips an ASN.1 sequence type extension
+
+    Document Reference: ITU X.691 Section 18
+*********************************************************************/
+void skip_sequence_type_extension(bool ext_ind, uint8 **ptr)
+{
+    uint32 num_extension_fields;
+    uint32 bits_to_skip;
+    uint32 i;
+    uint32 ext_field_presence;
+
+    if(ext_ind)
+    {
+        num_extension_fields = liblte_bits_2_value(ptr, 7) + 1;
+
+        ext_field_presence = liblte_bits_2_value(ptr, num_extension_fields);
+
+        for(i=0; i<num_extension_fields; i++)
+        {
+            if((ext_field_presence >> (num_extension_fields - i - 1)) & 0x1)
+            {
+                if(0 == liblte_bits_2_value(ptr, 1))
+                {
+                    bits_to_skip = liblte_bits_2_value(ptr, 7) * 8;
+                }else{
+                    if(0 == liblte_bits_2_value(ptr, 1))
+                    {
+                        bits_to_skip = liblte_bits_2_value(ptr, 14) * 8;
+                    }else{
+                        // FIXME: Unlikely to have more than 16K bytes
+                    }
+                }
+                while(bits_to_skip > 32)
+                {
+                    liblte_bits_2_value(ptr, 32);
+                    bits_to_skip -= 32;
+                }
+                liblte_bits_2_value(ptr, bits_to_skip);
+            }
+        }
+    }
 }

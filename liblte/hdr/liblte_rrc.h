@@ -61,6 +61,7 @@
                                    IE support.
     07/03/2016    Przemek Bereski  Added UE capability RAT container list IE and
                                    UE capability enquiry message support.
+    10/09/2016    Ben Wojtowicz    Added SIB13 non critical extension handling.
 
 *******************************************************************************/
 
@@ -5484,7 +5485,9 @@ LIBLTE_ERROR_ENUM liblte_rrc_unpack_sys_info_block_type_8_ie(uint8              
 typedef struct{
     LIBLTE_RRC_MBSFN_AREA_INFO_STRUCT           mbsfn_area_info_list_r9[LIBLTE_RRC_MAX_MBSFN_AREAS];
     LIBLTE_RRC_MBSFN_NOTIFICATION_CONFIG_STRUCT mbms_notification_config;
+    LIBLTE_BYTE_MSG_STRUCT                      non_crit_ext;
     uint8                                       mbsfn_area_info_list_r9_size;
+    bool                                        non_crit_ext_present;
 }LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_13_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_rrc_pack_sys_info_block_type_13_ie(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_13_STRUCT  *sib13,

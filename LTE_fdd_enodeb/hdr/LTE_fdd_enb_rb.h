@@ -48,6 +48,7 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Added a wait for RRC connection
                                    reestablishment complete RRC state.
+    12/18/2016    Ben Wojtowicz    Properly handling multiple RLC AMD PDUs.
 
 *******************************************************************************/
 
@@ -265,7 +266,7 @@ public:
     uint16 get_rlc_vrmr(void);
     uint16 get_rlc_vrh(void);
     void set_rlc_vrh(uint16 vrh);
-    void rlc_add_to_am_reception_buffer(LIBLTE_RLC_AMD_PDU_STRUCT *amd_pdu);
+    void rlc_add_to_am_reception_buffer(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd_pdu);
     void rlc_get_am_reception_buffer_status(LIBLTE_RLC_STATUS_PDU_STRUCT *status);
     LTE_FDD_ENB_ERROR_ENUM rlc_am_reassemble(LIBLTE_BYTE_MSG_STRUCT *sdu);
     uint16 get_rlc_vta(void);
@@ -273,7 +274,7 @@ public:
     uint16 get_rlc_vtms(void);
     uint16 get_rlc_vts(void);
     void set_rlc_vts(uint16 vts);
-    void rlc_add_to_transmission_buffer(LIBLTE_RLC_AMD_PDU_STRUCT *amd_pdu);
+    void rlc_add_to_transmission_buffer(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd_pdu);
     void rlc_update_transmission_buffer(LIBLTE_RLC_STATUS_PDU_STRUCT *status);
     void rlc_start_t_poll_retransmit(void);
     void rlc_stop_t_poll_retransmit(void);
@@ -346,27 +347,27 @@ private:
     uint32                              pdcp_tx_count;
 
     // RLC
-    sem_t                                         rlc_pdu_queue_sem;
-    sem_t                                         rlc_sdu_queue_sem;
-    std::list<LIBLTE_BYTE_MSG_STRUCT *>           rlc_pdu_queue;
-    std::list<LIBLTE_BYTE_MSG_STRUCT *>           rlc_sdu_queue;
-    std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *> rlc_am_reception_buffer;
-    std::map<uint16, LIBLTE_RLC_AMD_PDU_STRUCT *> rlc_am_transmission_buffer;
-    std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>    rlc_um_reception_buffer;
-    LTE_FDD_ENB_RLC_CONFIG_ENUM                   rlc_config;
-    uint32                                        t_poll_retransmit_timer_id;
-    uint16                                        rlc_vrr;
-    uint16                                        rlc_vrmr;
-    uint16                                        rlc_vrh;
-    uint16                                        rlc_vta;
-    uint16                                        rlc_vtms;
-    uint16                                        rlc_vts;
-    uint16                                        rlc_vruh;
-    uint16                                        rlc_vrur;
-    uint16                                        rlc_um_window_size;
-    uint16                                        rlc_first_um_segment_sn;
-    uint16                                        rlc_last_um_segment_sn;
-    uint16                                        rlc_vtus;
+    sem_t                                                rlc_pdu_queue_sem;
+    sem_t                                                rlc_sdu_queue_sem;
+    std::list<LIBLTE_BYTE_MSG_STRUCT *>                  rlc_pdu_queue;
+    std::list<LIBLTE_BYTE_MSG_STRUCT *>                  rlc_sdu_queue;
+    std::map<uint16, LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *> rlc_am_reception_buffer;
+    std::map<uint16, LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *> rlc_am_transmission_buffer;
+    std::map<uint16, LIBLTE_BYTE_MSG_STRUCT *>           rlc_um_reception_buffer;
+    LTE_FDD_ENB_RLC_CONFIG_ENUM                          rlc_config;
+    uint32                                               t_poll_retransmit_timer_id;
+    uint16                                               rlc_vrr;
+    uint16                                               rlc_vrmr;
+    uint16                                               rlc_vrh;
+    uint16                                               rlc_vta;
+    uint16                                               rlc_vtms;
+    uint16                                               rlc_vts;
+    uint16                                               rlc_vruh;
+    uint16                                               rlc_vrur;
+    uint16                                               rlc_um_window_size;
+    uint16                                               rlc_first_um_segment_sn;
+    uint16                                               rlc_last_um_segment_sn;
+    uint16                                               rlc_vtus;
 
     // MAC
     sem_t                               mac_sdu_queue_sem;

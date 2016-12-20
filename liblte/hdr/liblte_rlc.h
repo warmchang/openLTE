@@ -31,6 +31,7 @@
     02/15/2015    Ben Wojtowicz    Added header extension handling to UMD.
     03/11/2015    Ben Wojtowicz    Added header extension handling to AMD.
     07/03/2016    Ben Wojtowicz    Added AMD PDU segment support.
+    12/18/2016    Ben Wojtowicz    Properly handling multiple AMD PDUs.
 
 *******************************************************************************/
 
@@ -283,7 +284,7 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_umd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
     Document Reference: 36.322 v10.0.0 Sections 6.2.1.4 & 6.2.1.5
 *********************************************************************/
 // Defines
-#define LIBLTE_RLC_AMD_MAX_N_DATA 5
+#define LIBLTE_RLC_AMD_MAX_N_PDU 5
 // Enums
 // Structs
 typedef struct{
@@ -297,17 +298,20 @@ typedef struct{
 }LIBLTE_RLC_AMD_PDU_HEADER_STRUCT;
 typedef struct{
     LIBLTE_RLC_AMD_PDU_HEADER_STRUCT hdr;
-    LIBLTE_BYTE_MSG_STRUCT           data[LIBLTE_RLC_AMD_MAX_N_DATA];
-    uint32                           N_data;
-}LIBLTE_RLC_AMD_PDU_STRUCT;
+    LIBLTE_BYTE_MSG_STRUCT           data;
+}LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT;
+typedef struct{
+    LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT pdu[LIBLTE_RLC_AMD_MAX_N_PDU];
+    uint32                           N_pdu;
+}LIBLTE_RLC_AMD_PDUS_STRUCT;
 // Functions
-LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd,
-                                          LIBLTE_BYTE_MSG_STRUCT    *pdu);
-LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd,
-                                          LIBLTE_BYTE_MSG_STRUCT    *data,
-                                          LIBLTE_BYTE_MSG_STRUCT    *pdu);
-LIBLTE_ERROR_ENUM liblte_rlc_unpack_amd_pdu(LIBLTE_BYTE_MSG_STRUCT    *pdu,
-                                            LIBLTE_RLC_AMD_PDU_STRUCT *amd);
+LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_AMD_PDUS_STRUCT *amd,
+                                          LIBLTE_BYTE_MSG_STRUCT     *pdu);
+LIBLTE_ERROR_ENUM liblte_rlc_pack_amd_pdu(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd,
+                                          LIBLTE_BYTE_MSG_STRUCT           *data,
+                                          LIBLTE_BYTE_MSG_STRUCT           *pdu);
+LIBLTE_ERROR_ENUM liblte_rlc_unpack_amd_pdu(LIBLTE_BYTE_MSG_STRUCT     *pdu,
+                                            LIBLTE_RLC_AMD_PDUS_STRUCT *amd);
 
 /*********************************************************************
     PDU Type: Status PDU

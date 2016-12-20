@@ -125,6 +125,8 @@
     07/03/2016    Ben Wojtowicz    Added an error return to dci_1c_unpack, using
                                    new PDCCH size defines, and clearing
                                    punctured turbo decode bits before decoding.
+    12/18/2016    Ben Wojtowicz    Fixed turbo enocde tail bits (thanks to
+                                   Laurent Louf and Jeremy Quirke).
 
 *******************************************************************************/
 
@@ -10454,16 +10456,16 @@ void turbo_encode(LIBLTE_PHY_STRUCT *phy_struct,
         d_bits[N_branch_bits+i]   = phy_struct->te_z[i];
         d_bits[2*N_branch_bits+i] = phy_struct->te_z_prime[i];
     }
-    d_bits[N_c_bits]                   = phy_struct->te_fb1[N_c_bits-1];
+    d_bits[N_c_bits]                   = phy_struct->te_fb1[N_c_bits];
     d_bits[N_c_bits+1]                 = phy_struct->te_z[N_c_bits+1];
     d_bits[N_c_bits+2]                 = phy_struct->te_x_prime[N_c_bits];
     d_bits[N_c_bits+3]                 = phy_struct->te_z_prime[N_c_bits+1];
     d_bits[N_branch_bits+N_c_bits]     = phy_struct->te_z[N_c_bits];
-    d_bits[N_branch_bits+N_c_bits+1]   = phy_struct->te_fb1[N_c_bits+1];
+    d_bits[N_branch_bits+N_c_bits+1]   = phy_struct->te_fb1[N_c_bits+2];
     d_bits[N_branch_bits+N_c_bits+2]   = phy_struct->te_z_prime[N_c_bits];
     d_bits[N_branch_bits+N_c_bits+3]   = phy_struct->te_x_prime[N_c_bits+2];
-    d_bits[2*N_branch_bits+N_c_bits]   = phy_struct->te_fb1[N_c_bits];
-    d_bits[2*N_branch_bits+N_c_bits+1] = phy_struct->te_z[N_c_bits+1];
+    d_bits[2*N_branch_bits+N_c_bits]   = phy_struct->te_fb1[N_c_bits+1];
+    d_bits[2*N_branch_bits+N_c_bits+1] = phy_struct->te_z[N_c_bits+2];
     d_bits[2*N_branch_bits+N_c_bits+2] = phy_struct->te_x_prime[N_c_bits+1];
     d_bits[2*N_branch_bits+N_c_bits+3] = phy_struct->te_z_prime[N_c_bits+2];
 

@@ -53,6 +53,9 @@
                                    Przemek Bereski and Peter Nguyen for finding
                                    this), and added tracking area update request
                                    message parsing.
+    12/18/2016    Ben Wojtowicz    Skipped the proper amount including the
+                                   length field in unpack_pdn_address_ie (thanks
+                                   to Przemek Bereski).
 
 *******************************************************************************/
 
@@ -5071,7 +5074,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_pdn_address_ie(uint8                        
                 pdn_addr->addr[i] = (*ie_ptr)[2+i];
             }
         }
-        *ie_ptr += (*ie_ptr)[0];
+        *ie_ptr += (*ie_ptr)[0] + 1;
 
         err = LIBLTE_SUCCESS;
     }

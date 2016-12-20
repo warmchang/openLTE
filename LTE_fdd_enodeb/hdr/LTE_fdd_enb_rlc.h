@@ -33,6 +33,7 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Removed boost message queue include.
+    12/18/2016    Ben Wojtowicz    Properly handling multiple AMD PDUs.
 
 *******************************************************************************/
 
@@ -78,7 +79,7 @@ public:
 
     // External interface
     void update_sys_info(void);
-    void handle_retransmit(LIBLTE_RLC_AMD_PDU_STRUCT *amd, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void handle_retransmit(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
 private:
     // Singleton
@@ -114,7 +115,7 @@ private:
 
     // Message Constructors
     void send_status_pdu(LIBLTE_RLC_STATUS_PDU_STRUCT *status_pdu, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
-    void send_amd_pdu(LIBLTE_RLC_AMD_PDU_STRUCT *amd, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void send_amd_pdu(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Parameters
     sem_t                       sys_info_sem;

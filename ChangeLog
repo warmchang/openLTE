@@ -256,3 +256,8 @@ v00.20.03     Properly discarding sequence type extensions in liblte_rrc, proper
               typecasting for bladerf_get_timestamp() in LTE_fdd_enodeb_radio, and
               updated enodeb_nat_script.sh to be more generic with ethernet
               interfaces.
+v00.20.04     Added band 26, 27, and 28 support (thanks to Jeremy Quirke), fixed the
+              length skipping in liblte_mme_unpack_pdn_address_ie (thanks to Przemek
+              Bereski), and fixed the turbo encoder tail bits (thanks to Laurent
+              Louf and Jeremy Quirke) in the LTE library and fixed the handling of
+              multiple RLC AMD PDUs throughout.

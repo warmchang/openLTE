@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2016 Ben Wojtowicz
+    Copyright 2014-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -35,6 +35,8 @@
                                    to Mikhail Gudkov for reporting this.
     07/03/2016    Ben Wojtowicz    Added AMD PDU segment support.
     12/18/2016    Ben Wojtowicz    Properly handling multiple AMD PDUs.
+    07/29/2017    Ben Wojtowicz    Properly handle FI flags for multiple AMD
+                                   PDUs.
 
 *******************************************************************************/
 
@@ -444,13 +446,46 @@ LIBLTE_ERROR_ENUM liblte_rlc_unpack_amd_pdu(LIBLTE_BYTE_MSG_STRUCT     *pdu,
             // Data
             for(i=0; i<amd->N_pdu; i++)
             {
+                // Blindly copy the original header to all PDUs
                 if(0 != i)
                 {
                     memcpy(&amd->pdu[i].hdr, &amd->pdu[0].hdr, sizeof(amd->pdu[i].hdr));
                 }
                 memcpy(amd->pdu[i].data.msg, pdu_ptr, amd->pdu[i].data.N_bytes);
-                amd->pdu[i].hdr.sn  = amd->pdu[0].hdr.sn + i;
-                pdu_ptr            += amd->pdu[i].data.N_bytes;
+                pdu_ptr += amd->pdu[i].data.N_bytes;
+            }
+
+            // Fix the FI field in all headers
+            if(1 != amd->N_pdu)
+            {
+                // Deal with the first PDU
+                if(LIBLTE_RLC_FI_FIELD_FIRST_SDU_SEGMENT == amd->pdu[0].hdr.fi ||
+                   LIBLTE_RLC_FI_FIELD_FULL_SDU          == amd->pdu[0].hdr.fi)
+                {
+                    // Change a first or full to a full
+                    amd->pdu[0].hdr.fi = LIBLTE_RLC_FI_FIELD_FULL_SDU;
+                }else{
+                    // Change all others to a last
+                    amd->pdu[0].hdr.fi = LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT;
+                }
+
+                // Deal with the last PDU
+                if(LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT == amd->pdu[amd->N_pdu-1].hdr.fi ||
+                   LIBLTE_RLC_FI_FIELD_FULL_SDU         == amd->pdu[amd->N_pdu-1].hdr.fi)
+                {
+                    // Change a last or full to a full
+                    amd->pdu[amd->N_pdu-1].hdr.fi = LIBLTE_RLC_FI_FIELD_FULL_SDU;
+                }else{
+                    // Change all others to a first
+                    amd->pdu[amd->N_pdu-1].hdr.fi = LIBLTE_RLC_FI_FIELD_FIRST_SDU_SEGMENT;
+                }
+
+                // Deal with all other PDUs
+                for(i=1; i<amd->N_pdu-1; i++)
+                {
+                    // All others must be full
+                    amd->pdu[i].hdr.fi = LIBLTE_RLC_FI_FIELD_FULL_SDU;
+                }
             }
         }
 

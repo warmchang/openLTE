@@ -261,3 +261,13 @@ v00.20.04     Added band 26, 27, and 28 support (thanks to Jeremy Quirke), fixed
               Bereski), and fixed the turbo encoder tail bits (thanks to Laurent
               Louf and Jeremy Quirke) in the LTE library and fixed the handling of
               multiple RLC AMD PDUs throughout.
+v00.20.05     Added two codeword support, refactored PUCCH channel decoding for 1,
+              1A, and 1B, added SR configuration index mapping, added liblte_common
+              unit tests, and properly handling FI fields for multiple AMD PDUs in
+              the LTE library, added helper functions and interprocess message queue
+              support to the tools library, added SR support, moved GW, MME, and PDCP
+              away from the singleton pattern, added direct IPC to a UE for MAC and
+              PHY, removed QOS and fixed UL scheduling in favor of SR and BSR based
+              UL scheduling, and refactored the AMD reception buffer to handle more
+              than one PDU per SN in LTE_fdd_enodeb, and fixed a typo in
+              lte_pucch_demod.m.

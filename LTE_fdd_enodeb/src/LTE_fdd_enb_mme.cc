@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_mme.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -54,6 +54,7 @@
     07/03/2016    Ben Wojtowicz    Fixed a bug when receiving a service request
                                    message for a non-existent user.  Thanks to
                                    Peter Nguyen for finding this.
+    07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
 
 *******************************************************************************/
 
@@ -83,37 +84,10 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_mme*       LTE_fdd_enb_mme::instance = NULL;
-static pthread_mutex_t mme_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
 *******************************************************************************/
-
-/*******************/
-/*    Singleton    */
-/*******************/
-LTE_fdd_enb_mme* LTE_fdd_enb_mme::get_instance(void)
-{
-    libtools_scoped_lock lock(mme_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_fdd_enb_mme();
-    }
-
-    return(instance);
-}
-void LTE_fdd_enb_mme::cleanup(void)
-{
-    libtools_scoped_lock lock(mme_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
-    }
-}
 
 /********************************/
 /*    Constructor/Destructor    */
@@ -822,7 +796,7 @@ void LTE_fdd_enb_mme::parse_identity_response(LIBLTE_BYTE_MSG_STRUCT *msg,
                                               LTE_fdd_enb_user       *user,
                                               LTE_fdd_enb_rb         *rb)
 {
-    LTE_fdd_enb_hss                   *hss       = LTE_fdd_enb_hss::get_instance();
+    LTE_fdd_enb_hss                   *hss = LTE_fdd_enb_hss::get_instance();
     LIBLTE_MME_ID_RESPONSE_MSG_STRUCT  id_resp;
     uint64                             imsi_num = 0;
     uint64                             imei_num = 0;

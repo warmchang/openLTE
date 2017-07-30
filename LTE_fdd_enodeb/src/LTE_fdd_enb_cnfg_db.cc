@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_cnfg_db.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -48,6 +48,10 @@
                                    thanks to Mikhail Gudkov).
     07/03/2016    Ben Wojtowicz    Removed the ability to switch EARFCNs while
                                    the radio is running.
+    07/29/2017    Ben Wojtowicz    Added a routine for filling RRC physical
+                                   layer dedicated configuration, added input
+                                   parameters for direct IPC to a UE, and using
+                                   the latest tools library.
 
 *******************************************************************************/
 
@@ -67,7 +71,7 @@
 #include "liblte_mac.h"
 #include "liblte_interface.h"
 #include "libtools_scoped_lock.h"
-#include <boost/lexical_cast.hpp>
+#include "libtools_helpers.h"
 
 /*******************************************************************************
                               DEFINES
@@ -156,6 +160,8 @@ LTE_fdd_enb_cnfg_db::LTE_fdd_enb_cnfg_db()
     var_map_int64[LTE_FDD_ENB_PARAM_PHICH_RESOURCE]            = LIBLTE_RRC_PHICH_RESOURCE_1;
     var_map_int64[LTE_FDD_ENB_PARAM_N_SCHED_INFO]              = 1;
     var_map_int64[LTE_FDD_ENB_PARAM_SYSTEM_INFO_PERIODICITY]   = LIBLTE_RRC_SI_PERIODICITY_RF8;
+    var_map_int64[LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE]          = 0;
+    var_map_int64[LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE]          = 0;
     var_map_uint32[LTE_FDD_ENB_PARAM_DEBUG_TYPE]               = 0xFFFFFFFF;
     var_map_uint32[LTE_FDD_ENB_PARAM_DEBUG_LEVEL]              = 0xFFFFFFFF;
     var_map_int64[LTE_FDD_ENB_PARAM_ENABLE_PCAP]               = 0;
@@ -387,7 +393,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_cnfg_db::get_param(LTE_FDD_ENB_PARAM_ENUM  pa
                 {
                     if((((*iter).second >> (7-i)*4) & 0x0F) != 0xF)
                     {
-                        value += boost::lexical_cast<std::string>(((*iter).second >> (7-i)*4) & 0x0F);
+                        value += to_string(((*iter).second >> (7-i)*4) & 0x0F);
                     }
                 }
             }
@@ -417,14 +423,13 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_cnfg_db::get_param(LTE_FDD_ENB_PARAM_ENUM  pa
 /******************************/
 /*    MIB/SIB Construction    */
 /******************************/
-void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
+void LTE_fdd_enb_cnfg_db::construct_sys_info(LTE_fdd_enb_pdcp *pdcp,
+                                             LTE_fdd_enb_mme  *mme)
 {
     LTE_fdd_enb_phy                                    *phy  = LTE_fdd_enb_phy::get_instance();
     LTE_fdd_enb_mac                                    *mac  = LTE_fdd_enb_mac::get_instance();
     LTE_fdd_enb_rlc                                    *rlc  = LTE_fdd_enb_rlc::get_instance();
-    LTE_fdd_enb_pdcp                                   *pdcp = LTE_fdd_enb_pdcp::get_instance();
     LTE_fdd_enb_rrc                                    *rrc  = LTE_fdd_enb_rrc::get_instance();
-    LTE_fdd_enb_mme                                    *mme  = LTE_fdd_enb_mme::get_instance();
     std::map<LTE_FDD_ENB_PARAM_ENUM, double>::iterator  double_iter;
     std::map<LTE_FDD_ENB_PARAM_ENUM, int64>::iterator   int64_iter;
     std::map<LTE_FDD_ENB_PARAM_ENUM, uint32>::iterator  uint32_iter;
@@ -771,7 +776,7 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
     bcch_dlsch_msg.sibs[0].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1;
     memcpy(&bcch_dlsch_msg.sibs[0].sib, &sys_info.sib1, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1_STRUCT));
     liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                   &sys_info.sib1_alloc.msg);
+                                   &sys_info.sib1_alloc.msg[0]);
     sys_info.sib1_alloc.pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
     sys_info.sib1_alloc.mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
     sys_info.sib1_alloc.rv_idx         = 0; // 36.321 section 5.3.1
@@ -822,7 +827,7 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
         }
     }
     liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                   &sys_info.sib_alloc[0].msg);
+                                   &sys_info.sib_alloc[0].msg[0]);
     sys_info.sib_alloc[0].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
     sys_info.sib_alloc[0].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
     sys_info.sib_alloc[0].rv_idx         = 0; // 36.321 section 5.3.1
@@ -865,7 +870,7 @@ void LTE_fdd_enb_cnfg_db::construct_sys_info(void)
             }
         }
         liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                       &sys_info.sib_alloc[i].msg);
+                                       &sys_info.sib_alloc[i].msg[0]);
         sys_info.sib_alloc[i].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
         sys_info.sib_alloc[i].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
         sys_info.sib_alloc[i].rv_idx         = 0; // 36.321 section 5.3.1
@@ -1029,6 +1034,10 @@ void LTE_fdd_enb_cnfg_db::write_cnfg_file(void)
         fprintf(cnfg_file, "%s %lld\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SIB8_PRESENT], (*iter_i64).second);
         iter_i64 = var_map_int64.find(LTE_FDD_ENB_PARAM_SEARCH_WIN_SIZE);
         fprintf(cnfg_file, "%s %lld\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SEARCH_WIN_SIZE], (*iter_i64).second);
+        iter_i64 = var_map_int64.find(LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE);
+        fprintf(cnfg_file, "%s %lld\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE], (*iter_i64).second);
+        iter_i64 = var_map_int64.find(LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE);
+        fprintf(cnfg_file, "%s %lld\n", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE], (*iter_i64).second);
         iter_u32 = var_map_uint32.find(LTE_FDD_ENB_PARAM_DEBUG_TYPE);
         fprintf(cnfg_file, "%s ", LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_DEBUG_TYPE]);
         for(i=0; i<32; i++)
@@ -1074,4 +1083,29 @@ void LTE_fdd_enb_cnfg_db::write_cnfg_file(void)
 void LTE_fdd_enb_cnfg_db::delete_cnfg_file(void)
 {
     remove("/tmp/LTE_fdd_enodeb.cnfg_db");
+}
+
+/*****************/
+/*    Helpers    */
+/*****************/
+void LTE_fdd_enb_cnfg_db::populate_rrc_phy_config_dedicated(LIBLTE_RRC_PHYSICAL_CONFIG_DEDICATED_STRUCT *cnfg,
+                                                            uint32                                       i_cqi_pmi,
+                                                            uint32                                       i_ri,
+                                                            uint32                                       i_sr,
+                                                            uint32                                       n_1_p_pucch)
+{
+    cnfg->pdsch_cnfg_ded_present                   = false;
+    cnfg->pucch_cnfg_ded_present                   = false;
+    cnfg->pusch_cnfg_ded_present                   = false;
+    cnfg->ul_pwr_ctrl_ded_present                  = false;
+    cnfg->tpc_pdcch_cnfg_pucch_present             = false;
+    cnfg->tpc_pdcch_cnfg_pusch_present             = false;
+    cnfg->cqi_report_cnfg_present                  = false;
+    cnfg->srs_ul_cnfg_ded_present                  = false;
+    cnfg->antenna_info_present                     = false;
+    cnfg->sched_request_cnfg_present               = true;
+    cnfg->sched_request_cnfg.setup_present         = true;
+    cnfg->sched_request_cnfg.sr_pucch_resource_idx = n_1_p_pucch;
+    cnfg->sched_request_cnfg.sr_cnfg_idx           = i_sr;
+    cnfg->sched_request_cnfg.dsr_trans_max         = LIBLTE_RRC_DSR_TRANS_MAX_N16;
 }

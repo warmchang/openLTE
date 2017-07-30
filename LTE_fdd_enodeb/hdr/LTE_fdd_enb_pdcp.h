@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -31,6 +31,7 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Removed boost message queue include.
+    07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
 
 *******************************************************************************/
 
@@ -66,9 +67,9 @@
 class LTE_fdd_enb_pdcp
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_pdcp* get_instance(void);
-    static void cleanup(void);
+    // Constructor/Destructor
+    LTE_fdd_enb_pdcp();
+    ~LTE_fdd_enb_pdcp();
 
     // Start/Stop
     void start(LTE_fdd_enb_msgq *from_rlc, LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *from_gw, LTE_fdd_enb_msgq *to_rlc, LTE_fdd_enb_msgq *to_rrc, LTE_fdd_enb_msgq *to_gw, LTE_fdd_enb_interface *iface);
@@ -78,11 +79,6 @@ public:
     void update_sys_info(void);
 
 private:
-    // Singleton
-    static LTE_fdd_enb_pdcp *instance;
-    LTE_fdd_enb_pdcp();
-    ~LTE_fdd_enb_pdcp();
-
     // Start/Stop
     LTE_fdd_enb_interface *interface;
     sem_t                  start_sem;

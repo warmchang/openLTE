@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_user.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -48,6 +48,8 @@
                                    parameter for default data.
     08/14/2016    Ben Wojtowicz    Changed the QoS DL bytes per subframe for
                                    default data to ensure QPSK only for 5MHz.
+    07/29/2017    Ben Wojtowicz    Remove QOS support and fixed UL scheduling
+                                   and using the latest tools library.
 
 *******************************************************************************/
 
@@ -62,7 +64,7 @@
 #include "LTE_fdd_enb_rrc.h"
 #include "liblte_mme.h"
 #include "libtools_scoped_lock.h"
-#include <boost/lexical_cast.hpp>
+#include "libtools_helpers.h"
 
 /*******************************************************************************
                               DEFINES
@@ -134,16 +136,12 @@ LTE_fdd_enb_user::LTE_fdd_enb_user()
     // MAC
     sem_init(&harq_buffer_sem, 0, 1);
     harq_buffer.clear();
-    ul_sched_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
-    dl_ndi            = false;
-    ul_ndi            = false;
+    dl_ndi         = false;
+    ul_ndi         = false;
+    ul_buffer_size = 0;
 
     // Generic
     N_del_ticks         = 0;
-    avail_qos[0]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_NONE,          0,  0,   0,   0};
-    avail_qos[1]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_SIGNALLING,   20, 20,  22,  22};
-    avail_qos[2]        = (LTE_FDD_ENB_QOS_STRUCT){LTE_FDD_ENB_QOS_DEFAULT_DATA, 10,  5, 100, 325};
-    qos                 = LTE_FDD_ENB_QOS_NONE;
     inactivity_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
 }
 LTE_fdd_enb_user::~LTE_fdd_enb_user()
@@ -169,10 +167,6 @@ LTE_fdd_enb_user::~LTE_fdd_enb_user()
     delete srb1;
     delete srb0;
 
-    if(LTE_FDD_ENB_INVALID_TIMER_ID != ul_sched_timer_id)
-    {
-        timer_mgr->stop_timer(ul_sched_timer_id);
-    }
     if(LTE_FDD_ENB_INVALID_TIMER_ID != inactivity_timer_id)
     {
         timer_mgr->stop_timer(inactivity_timer_id);
@@ -257,7 +251,7 @@ uint64 LTE_fdd_enb_user::get_temp_id(void)
 }
 std::string LTE_fdd_enb_user::get_imsi_str(void)
 {
-    return(boost::lexical_cast<std::string>(id.imsi));
+    return(to_string(id.imsi, 15));
 }
 uint64 LTE_fdd_enb_user::get_imsi_num(void)
 {
@@ -265,7 +259,7 @@ uint64 LTE_fdd_enb_user::get_imsi_num(void)
 }
 std::string LTE_fdd_enb_user::get_imei_str(void)
 {
-    return(boost::lexical_cast<std::string>(id.imei));
+    return(to_string(id.imei, 15));
 }
 uint64 LTE_fdd_enb_user::get_imei_num(void)
 {
@@ -651,21 +645,6 @@ void LTE_fdd_enb_user::flip_ul_ndi(void)
 {
     ul_ndi ^= 1;
 }
-void LTE_fdd_enb_user::start_ul_sched_timer(uint32 m_seconds)
-{
-    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-    LTE_fdd_enb_timer_cb   timer_expiry_cb(&LTE_fdd_enb_timer_cb_wrapper<LTE_fdd_enb_user, &LTE_fdd_enb_user::handle_timer_expiry>, this);
-
-    ul_sched_timer_m_seconds = m_seconds;
-    timer_mgr->start_timer(ul_sched_timer_m_seconds, timer_expiry_cb, &ul_sched_timer_id);
-}
-void LTE_fdd_enb_user::stop_ul_sched_timer(void)
-{
-    LTE_fdd_enb_timer_mgr *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-
-    timer_mgr->stop_timer(ul_sched_timer_id);
-    ul_sched_timer_id = LTE_FDD_ENB_INVALID_TIMER_ID;
-}
 void LTE_fdd_enb_user::store_harq_info(uint32                        pucch_tti,
                                        LIBLTE_MAC_PDU_STRUCT        *mac_pdu,
                                        LIBLTE_PHY_ALLOCATION_STRUCT *alloc)
@@ -715,6 +694,23 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user::get_harq_info(uint32                   
 
     return(err);
 }
+void LTE_fdd_enb_user::set_ul_buffer_size(uint32 N_bytes_in_buffer)
+{
+    ul_buffer_size = N_bytes_in_buffer;
+}
+void LTE_fdd_enb_user::update_ul_buffer_size(uint32 N_bytes_received)
+{
+    if(N_bytes_received > ul_buffer_size)
+    {
+        ul_buffer_size = 0;
+    }else{
+        ul_buffer_size -= N_bytes_received;
+    }
+}
+uint32 LTE_fdd_enb_user::get_ul_buffer_size(void)
+{
+    return(ul_buffer_size);
+}
 
 /*****************/
 /*    Generic    */
@@ -733,14 +729,8 @@ void LTE_fdd_enb_user::handle_timer_expiry(uint32 timer_id)
     LTE_fdd_enb_rrc                      *rrc = LTE_fdd_enb_rrc::get_instance();
     LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT  cmd;
 
-    if(timer_id == ul_sched_timer_id)
+    if(timer_id == inactivity_timer_id)
     {
-        mac->sched_ul(this, avail_qos[qos].ul_bytes_per_subfn*8);
-        if(c_rnti_set)
-        {
-            start_ul_sched_timer(ul_sched_timer_m_seconds);
-        }
-    }else if(timer_id == inactivity_timer_id){
         if(NULL != srb1)
         {
             cmd.cmd  = LTE_FDD_ENB_RRC_CMD_RELEASE;
@@ -750,35 +740,15 @@ void LTE_fdd_enb_user::handle_timer_expiry(uint32 timer_id)
         }
     }
 }
-void LTE_fdd_enb_user::set_qos(LTE_FDD_ENB_QOS_ENUM _qos)
+uint32 LTE_fdd_enb_user::get_max_ul_bytes_per_subfn(void)
 {
-    qos = _qos;
-    if(qos != LTE_FDD_ENB_QOS_NONE)
-    {
-        start_ul_sched_timer(avail_qos[qos].ul_tti_frequency-1);
-    }else{
-        stop_ul_sched_timer();
-    }
+    // FIXME: Make this dynamic based on channel conditions
+    return(50);
 }
-LTE_FDD_ENB_QOS_ENUM LTE_fdd_enb_user::get_qos(void)
+uint32 LTE_fdd_enb_user::get_max_dl_bytes_per_subfn(void)
 {
-    return(qos);
-}
-uint32 LTE_fdd_enb_user::get_qos_ul_tti_freq(void)
-{
-    return(avail_qos[qos].ul_tti_frequency);
-}
-uint32 LTE_fdd_enb_user::get_qos_dl_tti_freq(void)
-{
-    return(avail_qos[qos].dl_tti_frequency);
-}
-uint32 LTE_fdd_enb_user::get_qos_ul_bytes_per_subfn(void)
-{
-    return(avail_qos[qos].ul_bytes_per_subfn);
-}
-uint32 LTE_fdd_enb_user::get_qos_dl_bytes_per_subfn(void)
-{
-    return(avail_qos[qos].dl_bytes_per_subfn);
+    // FIXME: Make this dynamic based on channel conditions
+    return(325);
 }
 void LTE_fdd_enb_user::start_inactivity_timer(uint32 m_seconds)
 {

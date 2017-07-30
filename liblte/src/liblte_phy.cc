@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2016 Ben Wojtowicz
+    Copyright 2012-2017 Ben Wojtowicz
     Copyright 2014 Andrew Murphy (DCI 1C Unpack)
 
     This program is free software: you can redistribute it and/or modify
@@ -125,8 +125,12 @@
     07/03/2016    Ben Wojtowicz    Added an error return to dci_1c_unpack, using
                                    new PDCCH size defines, and clearing
                                    punctured turbo decode bits before decoding.
-    12/18/2016    Ben Wojtowicz    Fixed turbo enocde tail bits (thanks to
+    12/18/2016    Ben Wojtowicz    Fixed turbo encode tail bits (thanks to
                                    Laurent Louf and Jeremy Quirke).
+    07/29/2017    Ben Wojtowicz    Added two codeword support, refactored PUCCH
+                                   channel decoding for PUCCH types, 1, 1A, and
+                                   1B, and added a function to map SR
+                                   configuration index.
 
 *******************************************************************************/
 
@@ -2696,8 +2700,8 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_encode(LIBLTE_PHY_STRUCT            *
 
         // Encode the PUSCH
         ulsch_channel_encode(phy_struct,
-                             alloc->msg.msg,
-                             alloc->msg.N_bits,
+                             alloc->msg[0].msg,
+                             alloc->msg[0].N_bits,
                              alloc->tbs,
                              alloc->tx_mode,
                              alloc->N_prb*phy_struct->N_sc_rb_ul*(N_ul_symb-1)*2,
@@ -2931,32 +2935,37 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
 }
 
 /*********************************************************************
-    Name: liblte_phy_pucch_channel_encode
+    Name: liblte_phy_pucch_format_1_1a_1b_channel_encode
 
     Description: Encodes and modulates the Physical Uplink Control
-                 Channel
+                 Channel for formats 1, 1a, and 1b
 
-    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.1
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
 
-    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+    Notes: Only handling normal CP and N_ant=1
 *********************************************************************/
 // FIXME
 
 /*********************************************************************
-    Name: liblte_phy_pucch_channel_decode
+    Name: liblte_phy_pucch_format_1_1a_1b_channel_decode
 
     Description: Demodulates and decodes the Physical Uplink Control
-                 Channel
+                 Channel for formats 1, 1a, and 1b
 
-    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.1
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
 
-    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+    Notes: Only handling normal CP and N_ant=1
 *********************************************************************/
-LIBLTE_ERROR_ENUM liblte_phy_pucch_channel_decode(LIBLTE_PHY_STRUCT          *phy_struct,
-                                                  LIBLTE_PHY_SUBFRAME_STRUCT *subframe,
-                                                  uint32                      N_id_cell,
-                                                  uint8                       N_ant,
-                                                  uint32                      N_1_p_pucch)
+LIBLTE_ERROR_ENUM liblte_phy_pucch_format_1_1a_1b_channel_decode(LIBLTE_PHY_STRUCT            *phy_struct,
+                                                                 LIBLTE_PHY_SUBFRAME_STRUCT   *subframe,
+                                                                 LIBLTE_PHY_PUCCH_FORMAT_ENUM  format,
+                                                                 uint32                        N_id_cell,
+                                                                 uint8                         N_ant,
+                                                                 uint32                        N_1_p_pucch,
+                                                                 uint8                        *out_bits,
+                                                                 uint32                       *N_out_bits)
 {
     LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
     uint32            m_prime;
@@ -2982,9 +2991,15 @@ LIBLTE_ERROR_ENUM liblte_phy_pucch_channel_decode(LIBLTE_PHY_STRUCT          *ph
     float             sd;
     float             r_u_v_re;
     float             r_u_v_im;
+    float             ang;
 
-    if(phy_struct != NULL &&
-       subframe   != NULL)
+    if(phy_struct != NULL                        &&
+       subframe   != NULL                        &&
+       (format    == LIBLTE_PHY_PUCCH_FORMAT_1   ||
+        format    == LIBLTE_PHY_PUCCH_FORMAT_1A  ||
+        format    == LIBLTE_PHY_PUCCH_FORMAT_1B) &&
+       out_bits   != NULL                        &&
+       N_out_bits != NULL)
     {
         // Extract resource elements and construct channel estimate
         z_idx   = 0;
@@ -3083,10 +3098,44 @@ LIBLTE_ERROR_ENUM liblte_phy_pucch_channel_decode(LIBLTE_PHY_STRUCT          *ph
         d_re *= sqrt(N_ant);
         d_im *= sqrt(N_ant);
 
-        // Quantify the bit that was sent
-        if(d_re < 0)
+        // Quantify the bits that were sent
+        if(format == LIBLTE_PHY_PUCCH_FORMAT_1 ||
+           format == LIBLTE_PHY_PUCCH_FORMAT_1A)
         {
-            sd = get_soft_decision(d_re, d_im, -1, 0, 1);
+            if(d_re < 0)
+            {
+                sd = get_soft_decision(d_re, d_im, -1, 0, 1);
+                out_bits[0] = 1;
+            }else{
+                sd = get_soft_decision(d_re, d_im, 1, 0, 1);
+                out_bits[0] = 0;
+            }
+            *N_out_bits = 1;
+            if(sd > 0.5)
+            {
+                err = LIBLTE_SUCCESS;
+            }
+        }else{
+            ang = atan2f(d_im, d_re);
+            if((ang >= M_PI/4) && (ang < 3*M_PI/4))
+            {
+                sd = get_soft_decision(d_re, d_im, 0, 1, 1);
+                out_bits[0] = 1;
+                out_bits[1] = 0;
+            }else if((ang >= -M_PI/4) && (ang < M_PI/4)){
+                sd = get_soft_decision(d_re, d_im, 1, 0, 1);
+                out_bits[0] = 0;
+                out_bits[1] = 0;
+            }else if((ang >= -3*M_PI/4) && (ang < -M_PI/4)){
+                sd = get_soft_decision(d_re, d_im, 0, -1, 1);
+                out_bits[0] = 0;
+                out_bits[1] = 1;
+            }else{
+                sd = get_soft_decision(d_re, d_im, -1, 0, 1);
+                out_bits[0] = 1;
+                out_bits[1] = 1;
+            }
+            *N_out_bits = 2;
             if(sd > 0.5)
             {
                 err = LIBLTE_SUCCESS;
@@ -3095,6 +3144,69 @@ LIBLTE_ERROR_ENUM liblte_phy_pucch_channel_decode(LIBLTE_PHY_STRUCT          *ph
     }
 
     return(err);
+}
+
+/*********************************************************************
+    Name: liblte_phy_pucch_format_2_2a_2b_channel_encode
+
+    Description: Encodes and modulates the Physical Uplink Control
+                 Channel for formats 2, 2a, and 2b
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.2
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
+
+    Notes: Only handling normal CP and N_ant=1
+*********************************************************************/
+// FIXME
+
+/*********************************************************************
+    Name: liblte_phy_pucch_format_2_2a_2b_channel_decode
+
+    Description: Demodulates and decodes the Physical Uplink Control
+                 Channel for formats 2, 2a, and 2b
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.2
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
+
+    Notes: Only handling normal CP and N_ant=1
+*********************************************************************/
+// FIXME
+
+/*********************************************************************
+    Name: liblte_phy_pucch_map_sr_config_idx
+
+    Description: Maps SR configuration index to SR periodicity and
+                 SR subframe offset
+
+    Document Reference: 3GPP TS 36.213 v10.3.0 table 10.1.5-1
+*********************************************************************/
+void liblte_phy_pucch_map_sr_config_idx(uint32  i_sr,
+                                        uint32 *sr_periodicity,
+                                        uint32 *N_offset_sr)
+{
+    if(i_sr < 5)
+    {
+        *sr_periodicity = 5;
+        *N_offset_sr    = i_sr;
+    }else if(i_sr < 15){
+        *sr_periodicity = 10;
+        *N_offset_sr    = i_sr - 5;
+    }else if(i_sr < 35){
+        *sr_periodicity = 20;
+        *N_offset_sr    = i_sr - 15;
+    }else if(i_sr < 75){
+        *sr_periodicity = 40;
+        *N_offset_sr    = i_sr - 35;
+    }else if(i_sr < 155){
+        *sr_periodicity = 80;
+        *N_offset_sr    = i_sr - 75;
+    }else if(i_sr < 157){
+        *sr_periodicity = 2;
+        *N_offset_sr    = i_sr - 155;
+    }else{
+        *sr_periodicity = 1;
+        *N_offset_sr    = i_sr - 157;
+    }
 }
 
 /*********************************************************************
@@ -3397,6 +3509,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_encode(LIBLTE_PHY_STRUCT          *ph
     uint32            first_sc;
     uint32            last_sc;
     uint32            Q_m;
+    uint32            scramb_bits_idx;
 
     if(phy_struct != NULL &&
        pdcch      != NULL &&
@@ -3452,26 +3565,29 @@ LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_encode(LIBLTE_PHY_STRUCT          *ph
                 }else{ // LIBLTE_PHY_MODULATION_TYPE_64QAM == pdcch->alloc[alloc_idx].mod_type
                     Q_m = 6;
                 }
-                // Encode the PDSCH
-                dlsch_channel_encode(phy_struct,
-                                     pdcch->alloc[alloc_idx].msg.msg,
-                                     pdcch->alloc[alloc_idx].msg.N_bits,
-                                     pdcch->alloc[alloc_idx].tbs,
-                                     pdcch->alloc[alloc_idx].tx_mode,
-                                     pdcch->alloc[alloc_idx].rv_idx,
-                                     N_bits_tot,
-                                     2,
-                                     Q_m,
-                                     8,
-                                     250368,
-                                     phy_struct->pdsch_encode_bits,
-                                     &N_bits);
-                // FIXME: Only handling 1 codeword
-                c_init = (pdcch->alloc[alloc_idx].rnti << 14) | (0 << 13) | (subframe->num << 9) | N_id_cell;
-                generate_prs_c(c_init, N_bits, phy_struct->pdsch_c);
-                for(i=0; i<N_bits; i++)
+                scramb_bits_idx = 0;
+                for(i=0; i<pdcch->alloc[alloc_idx].N_codewords; i++)
                 {
-                    phy_struct->pdsch_scramb_bits[i] = phy_struct->pdsch_encode_bits[i] ^ phy_struct->pdsch_c[i];
+                    // Encode the PDSCH
+                    dlsch_channel_encode(phy_struct,
+                                         pdcch->alloc[alloc_idx].msg[i].msg,
+                                         pdcch->alloc[alloc_idx].msg[i].N_bits,
+                                         pdcch->alloc[alloc_idx].tbs,
+                                         pdcch->alloc[alloc_idx].tx_mode,
+                                         pdcch->alloc[alloc_idx].rv_idx,
+                                         N_bits_tot,
+                                         2,
+                                         Q_m,
+                                         8,
+                                         250368,
+                                         phy_struct->pdsch_encode_bits,
+                                         &N_bits);
+                    c_init = (pdcch->alloc[alloc_idx].rnti << 14) | (i << 13) | (subframe->num << 9) | N_id_cell;
+                    generate_prs_c(c_init, N_bits, phy_struct->pdsch_c);
+                    for(j=0; j<N_bits; j++)
+                    {
+                        phy_struct->pdsch_scramb_bits[scramb_bits_idx++] = phy_struct->pdsch_encode_bits[j] ^ phy_struct->pdsch_c[j];
+                    }
                 }
                 modulation_mapper(phy_struct->pdsch_scramb_bits,
                                   N_bits,
@@ -3483,7 +3599,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_encode(LIBLTE_PHY_STRUCT          *ph
                                 phy_struct->pdsch_d_im,
                                 M_symb,
                                 N_ant,
-                                1,
+                                pdcch->alloc[alloc_idx].N_codewords,
                                 pdcch->alloc[alloc_idx].pre_coder_type,
                                 phy_struct->pdsch_x_re,
                                 phy_struct->pdsch_x_im,

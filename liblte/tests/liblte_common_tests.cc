@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015, 2017 Ben Wojtowicz
+    Copyright 2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -17,38 +17,24 @@
 
 *******************************************************************************
 
-    File: LTE_fdd_enb_gw.h
+    File: liblte_common_tests.cc
 
-    Description: Contains all the definitions for the LTE FDD eNodeB
-                 IP gateway.
+    Description: Contains all the tests for the LTE common library.
 
     Revision History
     ----------    -------------    --------------------------------------------
-    11/29/2014    Ben Wojtowicz    Created file
-    12/16/2014    Ben Wojtowicz    Added ol extension to message queue.
-    02/15/2015    Ben Wojtowicz    Moved to new message queue.
-    12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
-    07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
+    07/29/2017    Ben Wojtowicz    Created file.
 
 *******************************************************************************/
-
-#ifndef __LTE_FDD_ENB_GW_H__
-#define __LTE_FDD_ENB_GW_H__
 
 /*******************************************************************************
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_enb_interface.h"
-#include "LTE_fdd_enb_msgq.h"
+#include "liblte_common.h"
 
 /*******************************************************************************
                               DEFINES
-*******************************************************************************/
-
-
-/*******************************************************************************
-                              FORWARD DECLARATIONS
 *******************************************************************************/
 
 
@@ -58,41 +44,56 @@
 
 
 /*******************************************************************************
-                              CLASS DECLARATIONS
+                              GLOBAL VARIABLES
 *******************************************************************************/
 
-class LTE_fdd_enb_gw
+
+/*******************************************************************************
+                              FUNCTIONS
+*******************************************************************************/
+
+int main(int argc, char *argv[])
 {
-public:
-    // Constructor/Destructor
-    LTE_fdd_enb_gw();
-    ~LTE_fdd_enb_gw();
+    uint32  i;
+    uint32  j;
+    uint32  value;
+    uint8   bits[32];
+    uint8  *bits_ptr;
 
-    // Start/Stop
-    bool is_started(void);
-    LTE_FDD_ENB_ERROR_ENUM start(LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *to_pdcp, char *err_str, LTE_fdd_enb_interface *iface);
-    void stop(void);
+    // Check liblte_value_2_bits with single bit values
+    for(i=0; i<32; i++)
+    {
+        bits_ptr = &bits[0];
+        liblte_value_2_bits(1<<i, &bits_ptr, 32);
+        for(j=0; j<32; j++)
+        {
+            if(!((j == i &&
+                  bits[32-1-j] == 1) ||
+                 bits[32-1-j] == 0))
+            {
+                // Test failed
+                printf("Single bit tests for liblte_value_2_bits failed!\n");
+                exit(-1);
+            }
+        }
+    }
 
-private:
-    // Start/Stop
-    LTE_fdd_enb_interface *interface;
-    sem_t                  start_sem;
-    bool                   started;
+    // Check random values with liblte_value_2_bits and liblte_bits_2_value
+    for(i=0; i<32; i++)
+    {
+        value    = rand();
+        bits_ptr = &bits[0];
+        liblte_value_2_bits(value, &bits_ptr, 32);
+        bits_ptr = &bits[0];
+        if(value != liblte_bits_2_value(&bits_ptr, 32))
+        {
+            // Test failed
+            printf("Random tests for liblte_value_2_bits and liblte_bits_2_value failed!\n");
+            exit(-1);
+        }
+    }
 
-    // Communication
-    void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
-    LTE_fdd_enb_msgq *msgq_from_pdcp;
-    LTE_fdd_enb_msgq *msgq_to_pdcp;
-
-    // PDCP Message Handlers
-    void handle_gw_data(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT *gw_data);
-
-    // GW Receive
-    static void* receive_thread(void *inputs);
-    pthread_t rx_thread;
-
-    // TUN device
-    int32 tun_fd;
-};
-
-#endif /* __LTE_FDD_ENB_GW_H__ */
+    // All tests passed
+    printf("Tests passed!\n");
+    exit(0);
+}

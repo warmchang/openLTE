@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
     Copyright 2016 Przemek Bereski (send_ue_capability_enquiry)
 
     This program is free software: you can redistribute it and/or modify
@@ -43,6 +43,7 @@
                                    add support for connection reestablishment
                                    and connection reestablishment reject.
     07/03/2016    Przemek Bereski  Added send_ue_capability_enquiry.
+    07/29/2017    Ben Wojtowicz    Added SR support.
 
 *******************************************************************************/
 
@@ -134,9 +135,13 @@ private:
     void send_security_mode_command(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void send_ue_capability_enquiry(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
+    // Helpers
+    void increment_i_sr(void);
+
     // Parameters
     sem_t                       sys_info_sem;
     LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
+    uint32                      i_sr;
 };
 
 #endif /* __LTE_FDD_ENB_RRC_H__ */

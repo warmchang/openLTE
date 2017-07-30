@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -41,6 +41,7 @@
     03/11/2015    Ben Wojtowicz    Added detach handling.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Removed boost message queue include.
+    07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
 
 *******************************************************************************/
 
@@ -76,9 +77,9 @@
 class LTE_fdd_enb_mme
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_mme* get_instance(void);
-    static void cleanup(void);
+    // Constructor/Destructor
+    LTE_fdd_enb_mme();
+    ~LTE_fdd_enb_mme();
 
     // Start/Stop
     void start(LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *to_rrc, LTE_fdd_enb_interface *iface);
@@ -88,11 +89,6 @@ public:
     void update_sys_info(void);
 
 private:
-    // Singleton
-    static LTE_fdd_enb_mme *instance;
-    LTE_fdd_enb_mme();
-    ~LTE_fdd_enb_mme();
-
     // Start/Stop
     LTE_fdd_enb_interface *interface;
     sem_t                  start_sem;

@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_rb.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014-2016 Ben Wojtowicz
+    Copyright 2014-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -51,6 +51,9 @@
                                    sem_t and fixed the updating of VT(A) in the
                                    retransmission buffer.
     12/18/2016    Ben Wojtowicz    Properly handling multiple RLC AMD PDUs.
+    07/29/2017    Ben Wojtowicz    Remove last TTI storage and refactored AMD
+                                   reception buffer handling to support more
+                                   than one PDU with the same SN.
 
 *******************************************************************************/
 
@@ -64,6 +67,7 @@
 #include "LTE_fdd_enb_rlc.h"
 #include "LTE_fdd_enb_mac.h"
 #include "libtools_scoped_lock.h"
+#include "libtools_helpers.h"
 
 /*******************************************************************************
                               DEFINES
@@ -171,7 +175,6 @@ LTE_fdd_enb_rb::LTE_fdd_enb_rb(LTE_FDD_ENB_RB_ENUM  _rb,
     // MAC
     sem_init(&mac_sdu_queue_sem, 0, 1);
     mac_con_res_id = 0;
-    mac_last_tti   = 0xFFFFFFFF;
 }
 LTE_fdd_enb_rb::~LTE_fdd_enb_rb()
 {
@@ -540,10 +543,18 @@ void LTE_fdd_enb_rb::update_rlc_vrr(void)
 
     for(i=vrr; i<rlc_vrh; i++)
     {
-        iter = rlc_am_reception_buffer.find(i);
+        iter = rlc_am_reception_buffer.find(i * 10);
         if(rlc_am_reception_buffer.end() != iter)
         {
             rlc_vrr = i+1;
+        }else{
+            iter = rlc_am_reception_buffer.find(i * 10 + 1);
+            if(rlc_am_reception_buffer.end() != iter)
+            {
+                rlc_vrr = i+1;
+            }else{
+                break;
+            }
         }
     }
 }
@@ -568,13 +579,20 @@ void LTE_fdd_enb_rb::rlc_add_to_am_reception_buffer(LIBLTE_RLC_SINGLE_AMD_PDU_ST
 
     if(NULL != new_pdu)
     {
-        iter = rlc_am_reception_buffer.find(amd_pdu->hdr.sn);
+        iter = rlc_am_reception_buffer.find(amd_pdu->hdr.sn * 10);
         if(rlc_am_reception_buffer.end() == iter)
         {
             memcpy(new_pdu, amd_pdu, sizeof(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT));
-            rlc_am_reception_buffer[amd_pdu->hdr.sn] = new_pdu;
+            rlc_am_reception_buffer[amd_pdu->hdr.sn * 10] = new_pdu;
         }else{
-            delete new_pdu;
+            iter = rlc_am_reception_buffer.find(amd_pdu->hdr.sn * 10 + 1);
+            if(rlc_am_reception_buffer.end() == iter)
+            {
+                memcpy(new_pdu, amd_pdu, sizeof(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT));
+                rlc_am_reception_buffer[amd_pdu->hdr.sn * 10 + 1] = new_pdu;
+            }else{
+                delete new_pdu;
+            }
         }
     }
 }
@@ -597,7 +615,7 @@ void LTE_fdd_enb_rb::rlc_get_am_reception_buffer_status(LIBLTE_RLC_STATUS_PDU_ST
                 i -= 0x3FFFF;
             }
 
-            iter = rlc_am_reception_buffer.find(i);
+            iter = rlc_am_reception_buffer.find(i * 10);
             if(rlc_am_reception_buffer.end() == iter)
             {
                 status->nack_sn[status->N_nack++] = i;
@@ -613,73 +631,77 @@ void LTE_fdd_enb_rb::rlc_get_am_reception_buffer_status(LIBLTE_RLC_STATUS_PDU_ST
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_rb::rlc_am_reassemble(LIBLTE_BYTE_MSG_STRUCT *sdu)
 {
-    std::map<uint16, LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *>::iterator iter = rlc_am_reception_buffer.begin();
-    LTE_FDD_ENB_ERROR_ENUM                                         err  = LTE_FDD_ENB_ERROR_CANT_REASSEMBLE_SDU;
+    std::map<uint16, LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *>::iterator iter;
+    std::list<uint16>                                              first;
+    std::list<uint16>                                              last;
+    std::list<uint16>::iterator                                    first_iter;
+    std::list<uint16>::iterator                                    last_iter;
+    LTE_FDD_ENB_ERROR_ENUM                                         err = LTE_FDD_ENB_ERROR_CANT_REASSEMBLE_SDU;
     uint32                                                         i;
-    uint16                                                         first      = 0xFFFF;
-    uint16                                                         last       = 0xFFFF;
-    bool                                                           reassemble = true;
+    bool                                                           reassemble;
 
-    // Find the beginning of the SDU
-    while(iter != rlc_am_reception_buffer.end())
+    // Find all first and last SDUs
+    for(iter=rlc_am_reception_buffer.begin(); iter!=rlc_am_reception_buffer.end(); iter++)
     {
         if(LIBLTE_RLC_FI_FIELD_FULL_SDU == (*iter).second->hdr.fi)
         {
-            first = (*iter).second->hdr.sn;
-            last  = (*iter).second->hdr.sn;
-            break;
+            first.push_back((*iter).second->hdr.sn);
+            last.push_back((*iter).second->hdr.sn);
         }else if(LIBLTE_RLC_FI_FIELD_FIRST_SDU_SEGMENT == (*iter).second->hdr.fi){
-            first = (*iter).second->hdr.sn;
-            break;
+            first.push_back((*iter).second->hdr.sn);
+        }else if(LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT == (*iter).second->hdr.fi){
+            last.push_back((*iter).second->hdr.sn);
         }
-
-        // Somehow the first PDU in the RX buffer is not a full or first SDU
-        // Delete until this is true.
-        delete (*iter).second;
-        rlc_am_reception_buffer.erase(iter);
-        iter = rlc_am_reception_buffer.begin();
     }
 
-    // Find the end of the SDU
-    if(0xFFFF == last)
+    // Check all first segments to see if the complete SDU is present
+    for(first_iter=first.begin(); first_iter!=first.end(); first_iter++)
     {
-        for(iter=rlc_am_reception_buffer.begin(); iter!=rlc_am_reception_buffer.end(); iter++)
+        for(last_iter=last.begin(); last_iter!=last.end(); last_iter++)
         {
-            if(LIBLTE_RLC_FI_FIELD_LAST_SDU_SEGMENT == (*iter).second->hdr.fi)
+            if((*last_iter) >= (*first_iter))
             {
-                last = (*iter).second->hdr.sn;
                 break;
             }
         }
-    }
 
-    // Check that the whole SDU is present
-    if(0xFFFF != first &&
-       0xFFFF != last)
-    {
-        // Make sure all segments are available
-        for(i=first; i<=last; i++)
+        if(last_iter != last.end())
         {
-            iter = rlc_am_reception_buffer.find(i);
-            if(rlc_am_reception_buffer.end() == iter)
+            reassemble = true;
+            // Check that the whole SDU is present
+            for(i=(*first_iter); i<=(*last_iter); i++)
             {
-                reassemble = false;
+                iter = rlc_am_reception_buffer.find(i * 10);
+                if(rlc_am_reception_buffer.end() == iter)
+                {
+                    iter = rlc_am_reception_buffer.find(i * 10 + 1);
+                    if(rlc_am_reception_buffer.end() == iter)
+                    {
+                        reassemble = false;
+                        break;
+                    }
+                }
             }
-        }
 
-        if(reassemble)
-        {
-            // Reorder and reassemble the SDU
-            sdu->N_bytes = 0;
-            for(i=first; i<=last; i++)
+            if(reassemble)
             {
-                iter = rlc_am_reception_buffer.find(i);
-                memcpy(&sdu->msg[sdu->N_bytes], (*iter).second->data.msg, (*iter).second->data.N_bytes);
-                sdu->N_bytes += (*iter).second->data.N_bytes;
-                delete (*iter).second;
-                rlc_am_reception_buffer.erase(iter);
+                // Reorder and reassemble the SDU
+                sdu->N_bytes = 0;
+                for(i=(*first_iter); i<=(*last_iter); i++)
+                {
+                    iter = rlc_am_reception_buffer.find(i * 10);
+                    if(rlc_am_reception_buffer.end() == iter)
+                    {
+                        iter = rlc_am_reception_buffer.find(i * 10 + 1);
+                    }
+                    memcpy(&sdu->msg[sdu->N_bytes], (*iter).second->data.msg, (*iter).second->data.N_bytes);
+                    sdu->N_bytes += (*iter).second->data.N_bytes;
+                    delete (*iter).second;
+                    rlc_am_reception_buffer.erase(iter);
+                }
+                err = LTE_FDD_ENB_ERROR_NONE;
+                break;
             }
-            err = LTE_FDD_ENB_ERROR_NONE;
         }
     }
 
@@ -766,7 +788,7 @@ void LTE_fdd_enb_rb::rlc_start_t_poll_retransmit(void)
 
     if(LTE_FDD_ENB_INVALID_TIMER_ID == t_poll_retransmit_timer_id)
     {
-        timer_mgr->start_timer(45, timer_expiry_cb, &t_poll_retransmit_timer_id);
+        timer_mgr->start_timer(100, timer_expiry_cb, &t_poll_retransmit_timer_id);
     }
 }
 void LTE_fdd_enb_rb::rlc_stop_t_poll_retransmit(void)
@@ -912,14 +934,6 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_rb::delete_next_mac_sdu(void)
 LTE_FDD_ENB_MAC_CONFIG_ENUM LTE_fdd_enb_rb::get_mac_config(void)
 {
     return(mac_config);
-}
-void LTE_fdd_enb_rb::set_last_tti(uint32 last_tti)
-{
-    mac_last_tti = last_tti;
-}
-uint32 LTE_fdd_enb_rb::get_last_tti(void)
-{
-    return(mac_last_tti);
 }
 void LTE_fdd_enb_rb::set_con_res_id(uint64 con_res_id)
 {

@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_mac.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -63,6 +63,10 @@
     07/03/2016    Ben Wojtowicz    Fixed memcpy lengths.
     07/31/2016    Ben Wojtowicz    Reworked the RTS logic and limited the number
                                    of HARQ retransmissions.
+    07/29/2017    Ben Wojtowicz    Added SR support, added IPC direct to a UE
+                                   MAC, using the latest LTE library, and
+                                   refactored the UL scheduler from fixed
+                                   scheduling to using SR and BSR.
 
 *******************************************************************************/
 
@@ -80,6 +84,7 @@
                               DEFINES
 *******************************************************************************/
 
+#define BSR_GRANT_SIZE_BYTES 10
 
 /*******************************************************************************
                               TYPEDEFS
@@ -131,6 +136,7 @@ LTE_fdd_enb_mac::LTE_fdd_enb_mac()
     sem_init(&rar_sched_queue_sem, 0, 1);
     sem_init(&dl_sched_queue_sem, 0, 1);
     sem_init(&ul_sched_queue_sem, 0, 1);
+    sem_init(&ul_sr_sched_queue_sem, 0, 1);
     sem_init(&sys_info_sem, 0, 1);
     interface = NULL;
     started   = false;
@@ -139,6 +145,7 @@ LTE_fdd_enb_mac::~LTE_fdd_enb_mac()
 {
     stop();
     sem_destroy(&sys_info_sem);
+    sem_destroy(&ul_sr_sched_queue_sem);
     sem_destroy(&ul_sched_queue_sem);
     sem_destroy(&dl_sched_queue_sem);
     sem_destroy(&rar_sched_queue_sem);
@@ -153,11 +160,13 @@ void LTE_fdd_enb_mac::start(LTE_fdd_enb_msgq      *from_phy,
                             LTE_fdd_enb_msgq      *to_phy,
                             LTE_fdd_enb_msgq      *to_rlc,
                             LTE_fdd_enb_msgq      *to_timer,
+                            bool                   direct_to_ue,
                             LTE_fdd_enb_interface *iface)
 {
     libtools_scoped_lock  lock(start_sem);
     LTE_fdd_enb_msgq_cb   phy_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mac, &LTE_fdd_enb_mac::handle_phy_msg>, this);
     LTE_fdd_enb_msgq_cb   rlc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_mac, &LTE_fdd_enb_mac::handle_rlc_msg>, this);
+    libtools_ipc_msgq_cb  ue_cb(&libtools_ipc_msgq_cb_wrapper<LTE_fdd_enb_mac, &LTE_fdd_enb_mac::handle_ue_msg>, this);
     LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
     uint32                i;
 
@@ -173,6 +182,13 @@ void LTE_fdd_enb_mac::start(LTE_fdd_enb_msgq      *from_phy,
         msgq_from_phy->attach_rx(phy_cb, 90);
         msgq_from_rlc->attach_rx(rlc_cb);
 
+        if(direct_to_ue)
+        {
+            msgq_to_ue = new libtools_ipc_msgq("enb_ue", ue_cb);
+        }else{
+            msgq_to_ue = NULL;
+        }
+
         // Scheduler
         cnfg_db->get_sys_info(sys_info);
         for(i=0; i<10; i++)
@@ -187,9 +203,8 @@ void LTE_fdd_enb_mac::start(LTE_fdd_enb_msgq      *from_phy,
             sched_ul_subfr[i].N_avail_prbs    = sys_info.N_rb_ul;
             sched_ul_subfr[i].N_sched_prbs    = 0;
             sched_ul_subfr[i].current_tti     = i;
+            sched_ul_subfr[i].N_pucch         = 0;
             sched_ul_subfr[i].next_prb        = 0;
-            sched_ul_subfr[i].pucch.decode    = false;
-            sched_ul_subfr[i].pucch.rnti      = LIBLTE_MAC_INVALID_RNTI;
         }
         sched_dl_subfr[0].current_tti = 10;
         sched_dl_subfr[1].current_tti = 11;
@@ -205,6 +220,11 @@ void LTE_fdd_enb_mac::stop(void)
     if(started)
     {
         started = false;
+
+        if(NULL != msgq_to_ue)
+        {
+            delete msgq_to_ue;
+        }
     }
 }
 
@@ -268,6 +288,39 @@ void LTE_fdd_enb_mac::handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
         msgq_to_phy->send(msg);
     }
 }
+void LTE_fdd_enb_mac::handle_ue_msg(LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT *msg)
+{
+    LTE_FDD_ENB_PRACH_DECODE_MSG_STRUCT prach_decode;
+    LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT pusch_decode;
+
+    switch(msg->type)
+    {
+    case LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_KILL:
+        msgq_to_ue = NULL;
+        break;
+    case LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_RACH:
+        prach_decode.num_preambles = 1;
+        prach_decode.current_tti   = sched_ul_subfr[sched_cur_ul_subfn].current_tti;
+        prach_decode.timing_adv[0] = 0;
+        prach_decode.preamble[0]   = msg->msg.rach.preamble;
+        handle_prach_decode(&prach_decode);
+        break;
+    case LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_MAC_PDU:
+        memcpy(&pusch_decode.msg, &msg->msg.mac_pdu_msg.msg, sizeof(pusch_decode.msg));
+        pusch_decode.current_tti = sched_ul_subfr[sched_cur_ul_subfn].current_tti;
+        pusch_decode.rnti        = msg->msg.mac_pdu_msg.rnti;
+        handle_pusch_decode(&pusch_decode);
+        break;
+    default:
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                  __FILE__,
+                                  __LINE__,
+                                  "Received invalid UE message %s",
+                                  libtools_ipc_msgq_message_type_text[msg->type]);
+        break;
+    }
+}
 
 /****************************/
 /*    External Interface    */
@@ -279,59 +332,42 @@ void LTE_fdd_enb_mac::update_sys_info(void)
 
     cnfg_db->get_sys_info(sys_info);
 }
-void LTE_fdd_enb_mac::sched_ul(LTE_fdd_enb_user *user,
-                               uint32            requested_tbs)
+void LTE_fdd_enb_mac::add_periodic_sr_pucch(uint16 rnti,
+                                            uint32 i_sr,
+                                            uint32 n_1_p_pucch)
 {
-    LIBLTE_PHY_ALLOCATION_STRUCT alloc;
+    LTE_FDD_ENB_UL_SR_SCHED_QUEUE_STRUCT *sr = NULL;
 
-    alloc.pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
-    alloc.mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
-    alloc.chan_type      = LIBLTE_PHY_CHAN_TYPE_ULSCH;
-    alloc.rv_idx         = 0;
-    alloc.N_codewords    = 1;
-    alloc.N_layers       = 1;
-    alloc.tx_mode        = 1;
-    alloc.rnti           = user->get_c_rnti();
-    alloc.tpc            = LIBLTE_PHY_TPC_COMMAND_DCI_0_3_4_DB_NEG_1;
-    alloc.ndi            = user->get_ul_ndi();
-    user->flip_ul_ndi();
-    sem_wait(&sys_info_sem);
-    liblte_phy_get_tbs_mcs_and_n_prb_for_ul(requested_tbs,
-                                            sys_info.N_rb_ul,
-                                            &alloc.tbs,
-                                            &alloc.mcs,
-                                            &alloc.N_prb);
-    sem_post(&sys_info_sem);
-    if(11 > alloc.mcs)
-    {
-        alloc.mod_type = LIBLTE_PHY_MODULATION_TYPE_QPSK;
-    }else if(21 > alloc.mcs){
-        alloc.mod_type = LIBLTE_PHY_MODULATION_TYPE_16QAM;
-    }else{
-        alloc.mod_type = LIBLTE_PHY_MODULATION_TYPE_64QAM;
-    }
+    sr = new LTE_FDD_ENB_UL_SR_SCHED_QUEUE_STRUCT;
 
-    // Add the allocation to the scheduling queue
-    if(LTE_FDD_ENB_ERROR_NONE != add_to_ul_sched_queue(add_to_tti(sched_ul_subfr[sched_cur_ul_subfn].current_tti, 4),
-                                                       &alloc))
+    if(NULL != sr)
     {
-        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                  __FILE__,
-                                  __LINE__,
-                                  "Can't schedule UL");
-    }else{
-        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                  __FILE__,
-                                  __LINE__,
-                                  "UL scheduled (mcs=%u, tbs=%u, N_prb=%u) for RNTI=%u, UL_QUEUE_SIZE=%u",
-                                  alloc.mcs,
-                                  alloc.tbs,
-                                  alloc.N_prb,
-                                  alloc.rnti,
-                                  ul_sched_queue.size());
+        sr->i_sr        = i_sr;
+        sr->n_1_p_pucch = n_1_p_pucch - 1;
+        sr->rnti        = rnti;
+
+        sem_wait(&ul_sr_sched_queue_sem);
+        ul_sr_sched_queue.push_back(sr);
+        sem_post(&ul_sr_sched_queue_sem);
     }
+}
+void LTE_fdd_enb_mac::remove_periodic_sr_pucch(uint16 rnti)
+{
+    std::list<LTE_FDD_ENB_UL_SR_SCHED_QUEUE_STRUCT *>::iterator  iter;
+    LTE_FDD_ENB_UL_SR_SCHED_QUEUE_STRUCT                        *sr;
+
+    sem_wait(&ul_sr_sched_queue_sem);
+    for(iter=ul_sr_sched_queue.begin(); iter!=ul_sr_sched_queue.end(); iter++)
+    {
+        if(rnti == (*iter)->rnti)
+        {
+            sr = (*iter);
+            ul_sr_sched_queue.erase(iter);
+            delete sr;
+            break;
+        }
+    }
+    sem_post(&ul_sr_sched_queue_sem);
 }
 
 /**********************/
@@ -386,9 +422,8 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
             sched_dl_subfr[sched_cur_dl_subfn].N_sched_prbs           = 0;
             sched_ul_subfr[sched_cur_ul_subfn].decodes.N_alloc        = 0;
             sched_ul_subfr[sched_cur_ul_subfn].N_sched_prbs           = 0;
+            sched_ul_subfr[sched_cur_ul_subfn].N_pucch                = 0;
             sched_ul_subfr[sched_cur_ul_subfn].next_prb               = 0;
-            sched_ul_subfr[sched_cur_ul_subfn].pucch.decode           = false;
-            sched_ul_subfr[sched_cur_ul_subfn].pucch.rnti             = LIBLTE_MAC_INVALID_RNTI;
 
             // Advance the subframe numbers
             sched_cur_dl_subfn = (sched_cur_dl_subfn + 1) % 10;
@@ -413,9 +448,8 @@ void LTE_fdd_enb_mac::handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT 
         sched_dl_subfr[sched_cur_dl_subfn].N_sched_prbs           = 0;
         sched_ul_subfr[sched_cur_ul_subfn].decodes.N_alloc        = 0;
         sched_ul_subfr[sched_cur_ul_subfn].N_sched_prbs           = 0;
+        sched_ul_subfr[sched_cur_ul_subfn].N_pucch                = 0;
         sched_ul_subfr[sched_cur_ul_subfn].next_prb               = 0;
-        sched_ul_subfr[sched_cur_ul_subfn].pucch.decode           = false;
-        sched_ul_subfr[sched_cur_ul_subfn].pucch.rnti             = LIBLTE_MAC_INVALID_RNTI;
         sem_post(&sys_info_sem);
 
         // Advance the subframe numbers
@@ -449,79 +483,20 @@ void LTE_fdd_enb_mac::handle_prach_decode(LTE_FDD_ENB_PRACH_DECODE_MSG_STRUCT *p
 }
 void LTE_fdd_enb_mac::handle_pucch_decode(LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT *pucch_decode)
 {
-    LTE_fdd_enb_user_mgr         *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
-    LTE_fdd_enb_user             *user;
-    LIBLTE_MAC_PDU_STRUCT         mac_pdu;
-    LIBLTE_PHY_ALLOCATION_STRUCT  alloc;
-
-    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                              __FILE__,
-                              __LINE__,
-                              "PUCCH decode received %u for %u",
-                              pucch_decode->ack,
-                              pucch_decode->current_tti);
+    LTE_fdd_enb_user_mgr *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_user     *user;
 
     if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(pucch_decode->rnti, &user))
     {
-        if(pucch_decode->ack)
+        if(LTE_FDD_ENB_PUCCH_TYPE_ACK_NACK == pucch_decode->type)
         {
-            user->clear_harq_info(pucch_decode->current_tti);
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                      __FILE__,
-                                      __LINE__,
-                                      "Clearing HARQ info RNTI=%u TTI=%u",
-                                      pucch_decode->rnti,
-                                      pucch_decode->current_tti);
+            handle_pucch_ack_nack(user,
+                                  pucch_decode->current_tti,
+                                  &pucch_decode->msg);
         }else{
-            if(LTE_FDD_ENB_ERROR_NONE == user->get_harq_info(pucch_decode->current_tti,
-                                                             &mac_pdu,
-                                                             &alloc))
-            {
-                if(LTE_FDD_ENB_MAX_HARQ_RETX <= alloc.harq_retx_count)
-                {
-                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                              __FILE__,
-                                              __LINE__,
-                                              "Not resending HARQ due to max retx RNTI=%u TTI=%u",
-                                              pucch_decode->rnti,
-                                              pucch_decode->current_tti);
-                }else{
-                    alloc.harq_retx_count++;
-                    alloc.ndi = user->get_dl_ndi();
-                    if(LTE_FDD_ENB_ERROR_NONE == add_to_dl_sched_queue(add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti,
-                                                                                  4),
-                                                                       &mac_pdu,
-                                                                       &alloc))
-                    {
-                        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                                  __FILE__,
-                                                  __LINE__,
-                                                  "Resending HARQ info RNTI=%u TTI=%u",
-                                                  pucch_decode->rnti,
-                                                  pucch_decode->current_tti);
-                    }else{
-                        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                                  __FILE__,
-                                                  __LINE__,
-                                                  "Failed to resend HARQ info RNTI=%u TTI=%u",
-                                                  pucch_decode->rnti,
-                                                  pucch_decode->current_tti);
-                    }
-                }
-            }else{
-                interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                          LTE_FDD_ENB_DEBUG_LEVEL_MAC,
-                                          __FILE__,
-                                          __LINE__,
-                                          "Failed to find HARQ info RNTI=%u TTI=%u",
-                                          pucch_decode->rnti,
-                                          pucch_decode->current_tti);
-            }
+            handle_pucch_sr(user,
+                            pucch_decode->current_tti,
+                            &pucch_decode->msg);
         }
     }else{
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -531,6 +506,100 @@ void LTE_fdd_enb_mac::handle_pucch_decode(LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT *p
                                   "Failed to find PUCCH user RNTI=%u TTI=%u",
                                   pucch_decode->rnti,
                                   pucch_decode->current_tti);
+    }
+}
+void LTE_fdd_enb_mac::handle_pucch_ack_nack(LTE_fdd_enb_user      *user,
+                                            uint32                 current_tti,
+                                            LIBLTE_BIT_MSG_STRUCT *msg)
+{
+    LIBLTE_MAC_PDU_STRUCT        mac_pdu;
+    LIBLTE_PHY_ALLOCATION_STRUCT alloc;
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                              __FILE__,
+                              __LINE__,
+                              "PUCCH ACK/NACK received for %u RNTI=%u",
+                              current_tti,
+                              user->get_c_rnti());
+
+    if(msg->msg[0])
+    {
+        user->clear_harq_info(current_tti);
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                  __FILE__,
+                                  __LINE__,
+                                  "Clearing HARQ info RNTI=%u TTI=%u",
+                                  user->get_c_rnti(),
+                                  current_tti);
+    }else{
+        if(LTE_FDD_ENB_ERROR_NONE == user->get_harq_info(current_tti,
+                                                         &mac_pdu,
+                                                         &alloc))
+        {
+            if(LTE_FDD_ENB_MAX_HARQ_RETX <= alloc.harq_retx_count)
+            {
+                interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                          LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                          __FILE__,
+                                          __LINE__,
+                                          "Not resending HARQ due to max retx RNTI=%u TTI=%u",
+                                          user->get_c_rnti(),
+                                          current_tti);
+            }else{
+                alloc.harq_retx_count++;
+                alloc.ndi = user->get_dl_ndi();
+                if(LTE_FDD_ENB_ERROR_NONE == add_to_dl_sched_queue(add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti,
+                                                                              4),
+                                                                   &mac_pdu,
+                                                                   &alloc))
+                {
+                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                              __FILE__,
+                                              __LINE__,
+                                              "Resending HARQ info RNTI=%u TTI=%u (%u)",
+                                              user->get_c_rnti(),
+                                              current_tti,
+                                              alloc.harq_retx_count);
+                }else{
+                    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                              LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                              __FILE__,
+                                              __LINE__,
+                                              "Failed to resend HARQ info RNTI=%u TTI=%u",
+                                              user->get_c_rnti(),
+                                              current_tti);
+                }
+            }
+        }else{
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Failed to find HARQ info RNTI=%u TTI=%u",
+                                      user->get_c_rnti(),
+                                      current_tti);
+        }
+    }
+}
+void LTE_fdd_enb_mac::handle_pucch_sr(LTE_fdd_enb_user      *user,
+                                      uint32                 current_tti,
+                                      LIBLTE_BIT_MSG_STRUCT *msg)
+{
+    if(msg->msg[0])
+    {
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                  __FILE__,
+                                  __LINE__,
+                                  "PUCCH SR received for %u RNTI=%u",
+                                  current_tti,
+                                  user->get_c_rnti());
+
+        // Schedule a grant big enough to at least hold long BSR
+        sched_ul(user, BSR_GRANT_SIZE_BYTES*8);
     }
 }
 void LTE_fdd_enb_mac::handle_pusch_decode(LTE_FDD_ENB_PUSCH_DECODE_MSG_STRUCT *pusch_decode)
@@ -613,9 +682,6 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
     LIBLTE_MAC_PDU_STRUCT         mac_pdu;
     LIBLTE_PHY_ALLOCATION_STRUCT  alloc = {0};
     LIBLTE_BYTE_MSG_STRUCT       *sdu;
-    uint32                        current_tti;
-    uint32                        last_tti = sdu_ready->rb->get_last_tti();
-    uint32                        tti_freq = sdu_ready->user->get_qos_dl_tti_freq();
 
     if(LTE_FDD_ENB_ERROR_NONE == sdu_ready->rb->get_next_mac_sdu(&sdu))
     {
@@ -666,17 +732,9 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
             memcpy(&mac_pdu.subheader[0].payload.sdu, sdu, sizeof(LIBLTE_BYTE_MSG_STRUCT));
         }
 
-        // Determine the current_tti
-        current_tti = add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti, 4);
-        if(0xFFFFFFFF != last_tti &&
-           is_tti_in_future(add_to_tti(last_tti, tti_freq), current_tti))
-        {
-            current_tti = add_to_tti(last_tti, tti_freq);
-        }
-        sdu_ready->rb->set_last_tti(current_tti);
-
         // Add the PDU to the scheduling queue
-        if(LTE_FDD_ENB_ERROR_NONE != add_to_dl_sched_queue(current_tti,
+        if(LTE_FDD_ENB_ERROR_NONE != add_to_dl_sched_queue(add_to_tti(sched_dl_subfr[sched_cur_dl_subfn].current_tti,
+                                                                      4),
                                                            &mac_pdu,
                                                            &alloc))
         {
@@ -690,7 +748,7 @@ void LTE_fdd_enb_mac::handle_sdu_ready(LTE_FDD_ENB_MAC_SDU_READY_MSG_STRUCT *sdu
                                       LTE_FDD_ENB_DEBUG_LEVEL_MAC,
                                       __FILE__,
                                       __LINE__,
-                                      &alloc.msg,
+                                      &alloc.msg[0],
                                       "PDU scheduled for RNTI=%u, DL_QUEUE_SIZE=%u",
                                       alloc.rnti,
                                       dl_sched_queue.size());
@@ -753,6 +811,12 @@ void LTE_fdd_enb_mac::handle_ulsch_ccch_sdu(LTE_fdd_enb_user       *user,
                           LTE_FDD_ENB_DEST_LAYER_RLC,
                           (LTE_FDD_ENB_MESSAGE_UNION *)&rlc_pdu_ready,
                           sizeof(LTE_FDD_ENB_RLC_PDU_READY_MSG_STRUCT));
+
+        // Update the uplink buffer size
+        user->update_ul_buffer_size(sdu->N_bytes);
+
+        // Schedule uplink
+        sched_ul(user, user->get_ul_buffer_size()*8);
     }else{
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                   LTE_FDD_ENB_DEBUG_LEVEL_MAC,
@@ -812,6 +876,12 @@ void LTE_fdd_enb_mac::handle_ulsch_dcch_sdu(LTE_fdd_enb_user       *user,
                               (LTE_FDD_ENB_MESSAGE_UNION *)&rlc_pdu_ready,
                               sizeof(LTE_FDD_ENB_RLC_PDU_READY_MSG_STRUCT));
         }
+
+        // Update the uplink buffer size
+        user->update_ul_buffer_size(sdu->N_bytes);
+
+        // Schedule uplink
+        sched_ul(user, user->get_ul_buffer_size()*8);
     }else{
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                   LTE_FDD_ENB_DEBUG_LEVEL_MAC,
@@ -873,6 +943,10 @@ void LTE_fdd_enb_mac::handle_ulsch_truncated_bsr(LTE_fdd_enb_user               
                               truncated_bsr->min_buffer_size,
                               truncated_bsr->max_buffer_size,
                               user->get_c_rnti());
+
+    user->set_ul_buffer_size(truncated_bsr->max_buffer_size);
+
+    sched_ul(user, truncated_bsr->max_buffer_size*8);
 }
 void LTE_fdd_enb_mac::handle_ulsch_short_bsr(LTE_fdd_enb_user               *user,
                                              LIBLTE_MAC_SHORT_BSR_CE_STRUCT *short_bsr)
@@ -886,6 +960,10 @@ void LTE_fdd_enb_mac::handle_ulsch_short_bsr(LTE_fdd_enb_user               *use
                               short_bsr->min_buffer_size,
                               short_bsr->max_buffer_size,
                               user->get_c_rnti());
+
+    user->set_ul_buffer_size(short_bsr->max_buffer_size);
+
+    sched_ul(user, short_bsr->max_buffer_size*8);
 }
 void LTE_fdd_enb_mac::handle_ulsch_long_bsr(LTE_fdd_enb_user              *user,
                                             LIBLTE_MAC_LONG_BSR_CE_STRUCT *long_bsr)
@@ -904,6 +982,16 @@ void LTE_fdd_enb_mac::handle_ulsch_long_bsr(LTE_fdd_enb_user              *user,
                               long_bsr->min_buffer_size_3,
                               long_bsr->max_buffer_size_3,
                               user->get_c_rnti());
+
+    user->set_ul_buffer_size(long_bsr->max_buffer_size_0 +
+                             long_bsr->max_buffer_size_1 +
+                             long_bsr->max_buffer_size_2 +
+                             long_bsr->max_buffer_size_3);
+
+    sched_ul(user, (long_bsr->max_buffer_size_0 +
+                    long_bsr->max_buffer_size_1 +
+                    long_bsr->max_buffer_size_2 +
+                    long_bsr->max_buffer_size_3)*8);
 }
 
 /***************************/
@@ -963,7 +1051,7 @@ void LTE_fdd_enb_mac::construct_random_access_response(uint8  preamble,
 
         // Temporarily pack the RAR to determine the number of bits needed
         liblte_mac_pack_random_access_response_pdu(&rar,
-                                                   &dl_alloc.msg);
+                                                   &dl_alloc.msg[0]);
 
         // Add the RAR to the scheduling queue
         if(LTE_FDD_ENB_ERROR_NONE != add_to_rar_sched_queue(current_tti,
@@ -996,27 +1084,97 @@ void LTE_fdd_enb_mac::construct_random_access_response(uint8  preamble,
 /*******************/
 /*    Scheduler    */
 /*******************/
+void LTE_fdd_enb_mac::sched_ul(LTE_fdd_enb_user *user,
+                               uint32            requested_tbs)
+{
+    LIBLTE_PHY_ALLOCATION_STRUCT alloc;
+    uint32                       bits_req = requested_tbs;
+
+    if(requested_tbs != 0)
+    {
+        alloc.pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
+        alloc.mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
+        alloc.chan_type      = LIBLTE_PHY_CHAN_TYPE_ULSCH;
+        alloc.rv_idx         = 0;
+        alloc.N_codewords    = 1;
+        alloc.N_layers       = 1;
+        alloc.tx_mode        = 1;
+        alloc.rnti           = user->get_c_rnti();
+        alloc.tpc            = LIBLTE_PHY_TPC_COMMAND_DCI_0_3_4_DB_NEG_1;
+        alloc.ndi            = user->get_ul_ndi();
+        user->flip_ul_ndi();
+        if(bits_req > (user->get_max_ul_bytes_per_subfn()*8))
+        {
+            bits_req = user->get_max_ul_bytes_per_subfn()*8;
+        }
+        sem_wait(&sys_info_sem);
+        liblte_phy_get_tbs_mcs_and_n_prb_for_ul(bits_req,
+                                                sys_info.N_rb_ul,
+                                                &alloc.tbs,
+                                                &alloc.mcs,
+                                                &alloc.N_prb);
+        sem_post(&sys_info_sem);
+        if(11 > alloc.mcs)
+        {
+            alloc.mod_type = LIBLTE_PHY_MODULATION_TYPE_QPSK;
+        }else if(21 > alloc.mcs){
+            alloc.mod_type = LIBLTE_PHY_MODULATION_TYPE_16QAM;
+        }else{
+            alloc.mod_type = LIBLTE_PHY_MODULATION_TYPE_64QAM;
+        }
+
+        // Add the allocation to the scheduling queue
+        if(LTE_FDD_ENB_ERROR_NONE != add_to_ul_sched_queue(add_to_tti(sched_ul_subfr[sched_cur_ul_subfn].current_tti,
+                                                                      4),
+                                                           &alloc))
+        {
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                      __FILE__,
+                                      __LINE__,
+                                      "Can't schedule UL");
+        }else{
+            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                      LTE_FDD_ENB_DEBUG_LEVEL_MAC,
+                                      __FILE__,
+                                      __LINE__,
+                                      "UL scheduled (mcs=%u, tbs=%u, N_prb=%u) for RNTI=%u, UL_QUEUE_SIZE=%u",
+                                      alloc.mcs,
+                                      alloc.tbs,
+                                      alloc.N_prb,
+                                      alloc.rnti,
+                                      ul_sched_queue.size());
+        }
+    }
+}
 void LTE_fdd_enb_mac::scheduler(void)
 {
-    libtools_scoped_lock                lock(sys_info_sem);
-    LTE_fdd_enb_phy                    *phy      = LTE_fdd_enb_phy::get_instance();
-    LTE_fdd_enb_user_mgr               *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
-    LTE_fdd_enb_user                   *user;
-    LTE_FDD_ENB_RAR_SCHED_QUEUE_STRUCT *rar_sched;
-    LTE_FDD_ENB_DL_SCHED_QUEUE_STRUCT  *dl_sched;
-    LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT  *ul_sched;
-    uint32                              N_cce;
-    uint32                              N_pad;
-    uint32                              resp_win_start;
-    uint32                              resp_win_stop;
-    uint32                              i;
-    uint32                              rb_start;
-    uint32                              riv;
-    uint32                              mask;
-    int32                               N_avail_dl_prbs;
-    int32                               N_avail_ul_prbs;
-    int32                               N_avail_dcis;
-    bool                                sched_out_of_headroom;
+    libtools_scoped_lock                                         lock(sys_info_sem);
+    LTE_fdd_enb_phy                                             *phy      = LTE_fdd_enb_phy::get_instance();
+    LTE_fdd_enb_user_mgr                                        *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
+    LTE_fdd_enb_user                                            *user;
+    std::list<LTE_FDD_ENB_UL_SR_SCHED_QUEUE_STRUCT *>::iterator  iter;
+    LTE_FDD_ENB_RAR_SCHED_QUEUE_STRUCT                          *rar_sched;
+    LTE_FDD_ENB_DL_SCHED_QUEUE_STRUCT                           *dl_sched;
+    LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT                           *ul_sched;
+    LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT                          *dl_subfr;
+    LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT                          *ul_subfr;
+    LIBTOOLS_IPC_MSGQ_RAR_PDU_MSG_STRUCT                         rar_pdu_msg;
+    LIBTOOLS_IPC_MSGQ_UL_ALLOC_MSG_STRUCT                        ul_alloc_msg;
+    uint32                                                       N_cce;
+    uint32                                                       N_pad;
+    uint32                                                       resp_win_start;
+    uint32                                                       resp_win_stop;
+    uint32                                                       i;
+    uint32                                                       rb_start;
+    uint32                                                       riv;
+    uint32                                                       mask;
+    uint32                                                       sr_periodicity;
+    uint32                                                       N_offset_sr;
+    int32                                                        N_avail_dl_prbs;
+    int32                                                        N_avail_ul_prbs;
+    int32                                                        N_avail_dcis;
+    bool                                                         sched_out_of_headroom;
 
     // Get the number of CCEs for the next subframe
     N_cce = phy->get_n_cce();
@@ -1053,13 +1211,16 @@ void LTE_fdd_enb_mac::scheduler(void)
         if(resp_win_start <= sched_dl_subfr[sched_cur_dl_subfn].current_tti &&
            resp_win_stop  >= sched_dl_subfr[sched_cur_dl_subfn].current_tti)
         {
+            dl_subfr = &sched_dl_subfr[sched_cur_dl_subfn];
+            ul_subfr = &sched_ul_subfr[(sched_cur_dl_subfn+6)%10];
+
             // Determine how many PRBs are needed for the DL allocation, if using this subframe
             interface->send_lte_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_DL,
                                          rar_sched->dl_alloc.rnti,
-                                         sched_dl_subfr[sched_cur_dl_subfn].current_tti,
-                                         rar_sched->dl_alloc.msg.msg,
-                                         rar_sched->dl_alloc.msg.N_bits);
-            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(rar_sched->dl_alloc.msg.N_bits,
+                                         dl_subfr->current_tti,
+                                         rar_sched->dl_alloc.msg[0].msg,
+                                         rar_sched->dl_alloc.msg[0].N_bits);
+            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(rar_sched->dl_alloc.msg[0].N_bits,
                                                     sched_cur_dl_subfn,
                                                     sys_info.N_rb_dl,
                                                     rar_sched->dl_alloc.rnti,
@@ -1068,17 +1229,17 @@ void LTE_fdd_enb_mac::scheduler(void)
                                                     &rar_sched->dl_alloc.N_prb);
 
             // Determine how many PRBs and DCIs are available in this subframe
-            N_avail_dl_prbs = sched_dl_subfr[sched_cur_dl_subfn].N_avail_prbs - sched_dl_subfr[sched_cur_dl_subfn].N_sched_prbs;
-            N_avail_ul_prbs = sched_ul_subfr[(sched_cur_ul_subfn+6)%10].N_avail_prbs - sched_ul_subfr[(sched_cur_ul_subfn+6)%10].N_sched_prbs;
-            N_avail_dcis    = N_cce - (sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc + sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc);
+            N_avail_dl_prbs = dl_subfr->N_avail_prbs - dl_subfr->N_sched_prbs;
+            N_avail_ul_prbs = ul_subfr->N_avail_prbs - ul_subfr->N_sched_prbs;
+            N_avail_dcis    = N_cce - (dl_subfr->dl_allocations.N_alloc + dl_subfr->ul_allocations.N_alloc);
 
             if(rar_sched->dl_alloc.N_prb <= N_avail_dl_prbs &&
                rar_sched->ul_alloc.N_prb <= N_avail_ul_prbs &&
                1                         <= N_avail_dcis)
             {
                 // Determine the RB start for the UL allocation
-                rb_start                                            = sched_ul_subfr[(sched_cur_ul_subfn+6)%10].next_prb;
-                sched_ul_subfr[(sched_cur_ul_subfn+6)%10].next_prb += rar_sched->ul_alloc.N_prb;
+                rb_start            = ul_subfr->next_prb;
+                ul_subfr->next_prb += rar_sched->ul_alloc.N_prb;
 
                 // Fill in the PRBs for the UL allocation
                 for(i=0; i<rar_sched->ul_alloc.N_prb; i++)
@@ -1105,29 +1266,38 @@ void LTE_fdd_enb_mac::scheduler(void)
 
                 // Re-pack the RAR
                 liblte_mac_pack_random_access_response_pdu(&rar_sched->rar,
-                                                           &rar_sched->dl_alloc.msg);
+                                                           &rar_sched->dl_alloc.msg[0]);
 
                 interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                           LTE_FDD_ENB_DEBUG_LEVEL_MAC,
                                           __FILE__,
                                           __LINE__,
-                                          &rar_sched->dl_alloc.msg,
+                                          &rar_sched->dl_alloc.msg[0],
                                           "RAR sent %u %u %u %u",
                                           resp_win_start,
                                           resp_win_stop,
-                                          sched_dl_subfr[sched_cur_dl_subfn].current_tti,
-                                          sched_ul_subfr[(sched_cur_dl_subfn+6)%10].current_tti);
+                                          dl_subfr->current_tti,
+                                          ul_subfr->current_tti);
 
-                // Schedule DL
-                memcpy(&sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.alloc[sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc],
-                       &rar_sched->dl_alloc,
-                       sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
-                sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc++;
-                // Schedule UL decode 6 subframes from now
-                memcpy(&sched_ul_subfr[(sched_cur_dl_subfn+6)%10].decodes.alloc[sched_ul_subfr[(sched_cur_dl_subfn+6)%10].decodes.N_alloc],
-                       &rar_sched->ul_alloc,
-                       sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
-                sched_ul_subfr[(sched_cur_dl_subfn+6)%10].decodes.N_alloc++;
+                if(NULL == msgq_to_ue)
+                {
+                    // Schedule DL
+                    memcpy(&dl_subfr->dl_allocations.alloc[dl_subfr->dl_allocations.N_alloc],
+                           &rar_sched->dl_alloc,
+                           sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
+                    dl_subfr->dl_allocations.N_alloc++;
+                    // Schedule UL decode 6 subframes from now
+                    memcpy(&ul_subfr->decodes.alloc[ul_subfr->decodes.N_alloc],
+                           &rar_sched->ul_alloc,
+                           sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
+                    ul_subfr->decodes.N_alloc++;
+                }else{
+                    memcpy(&rar_pdu_msg.msg, &rar_sched->dl_alloc.msg, sizeof(rar_pdu_msg.msg));
+                    rar_pdu_msg.tti = ul_subfr->current_tti;
+                    msgq_to_ue->send(LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_RAR_PDU,
+                                     (LIBTOOLS_IPC_MSGQ_MESSAGE_UNION *)&rar_pdu_msg,
+                                     sizeof(rar_pdu_msg));
+                }
 
                 // Remove RAR from queue
                 rar_sched_queue.pop_front();
@@ -1160,14 +1330,20 @@ void LTE_fdd_enb_mac::scheduler(void)
     {
         dl_sched = dl_sched_queue.front();
 
-        if(dl_sched->current_tti == sched_dl_subfr[sched_cur_dl_subfn].current_tti)
+        if(dl_sched->current_tti >= sched_dl_subfr[sched_cur_dl_subfn].current_tti)
         {
+            dl_subfr = &sched_dl_subfr[sched_cur_dl_subfn];
+
+            // Determine how many PRBs and DCIs are available in this subframe
+            N_avail_dl_prbs = dl_subfr->N_avail_prbs - dl_subfr->N_sched_prbs;
+            N_avail_dcis    = N_cce - (dl_subfr->dl_allocations.N_alloc + dl_subfr->ul_allocations.N_alloc);
+
             // Pack the message and determine TBS
             liblte_mac_pack_mac_pdu(&dl_sched->mac_pdu,
-                                    &dl_sched->alloc.msg);
-            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(dl_sched->alloc.msg.N_bits,
-                                                    dl_sched->current_tti % 10,
-                                                    sys_info.N_rb_dl,
+                                    &dl_sched->alloc.msg[0]);
+            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(dl_sched->alloc.msg[0].N_bits,
+                                                    dl_subfr->current_tti % 10,
+                                                    N_avail_dl_prbs,
                                                     dl_sched->alloc.rnti,
                                                     &dl_sched->alloc.tbs,
                                                     &dl_sched->alloc.mcs,
@@ -1182,9 +1358,9 @@ void LTE_fdd_enb_mac::scheduler(void)
             }
 
             // Pad and repack if needed
-            if(dl_sched->alloc.tbs > dl_sched->alloc.msg.N_bits)
+            if(dl_sched->alloc.tbs > dl_sched->alloc.msg[0].N_bits)
             {
-                N_pad = (dl_sched->alloc.tbs - dl_sched->alloc.msg.N_bits)/8;
+                N_pad = (dl_sched->alloc.tbs - dl_sched->alloc.msg[0].N_bits)/8;
 
                 if(1 == N_pad)
                 {
@@ -1208,19 +1384,19 @@ void LTE_fdd_enb_mac::scheduler(void)
                 }
 
                 liblte_mac_pack_mac_pdu(&dl_sched->mac_pdu,
-                                        &dl_sched->alloc.msg);
+                                        &dl_sched->alloc.msg[0]);
             }
 
             // Send a PCAP message
             interface->send_lte_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_DL,
                                          dl_sched->alloc.rnti,
-                                         sched_dl_subfr[sched_cur_dl_subfn].current_tti,
-                                         dl_sched->alloc.msg.msg,
+                                         dl_subfr->current_tti,
+                                         dl_sched->alloc.msg[0].msg,
                                          dl_sched->alloc.tbs);
 
             // Determine how many PRBs and DCIs are available in this subframe
-            N_avail_dl_prbs = sched_dl_subfr[sched_cur_dl_subfn].N_avail_prbs - sched_dl_subfr[sched_cur_dl_subfn].N_sched_prbs;
-            N_avail_dcis    = N_cce - (sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc + sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc);
+            N_avail_dl_prbs = dl_subfr->N_avail_prbs - dl_subfr->N_sched_prbs;
+            N_avail_dcis    = N_cce - (dl_subfr->dl_allocations.N_alloc + dl_subfr->ul_allocations.N_alloc);
 
             if(dl_sched->alloc.N_prb <= N_avail_dl_prbs &&
                1                     <= N_avail_dcis)
@@ -1229,26 +1405,37 @@ void LTE_fdd_enb_mac::scheduler(void)
                                           LTE_FDD_ENB_DEBUG_LEVEL_MAC,
                                           __FILE__,
                                           __LINE__,
-                                          &dl_sched->alloc.msg,
+                                          &dl_sched->alloc.msg[0],
                                           "DL allocation (mcs=%u, tbs=%u, N_prb=%u) sent for RNTI=%u CURRENT_TTI=%u",
                                           dl_sched->alloc.mcs,
                                           dl_sched->alloc.tbs,
                                           dl_sched->alloc.N_prb,
                                           dl_sched->alloc.rnti,
-                                          sched_dl_subfr[sched_cur_dl_subfn].current_tti);
+                                          dl_subfr->current_tti);
 
-                // Schedule DL
-                memcpy(&sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.alloc[sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc],
-                       &dl_sched->alloc,
-                       sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
-                sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc++;
-
-                // Schedule PUCCH 4 subframes from now and store the DL allocation for potential H-ARQ retransmission
-                sched_ul_subfr[(sched_cur_dl_subfn+4)%10].pucch.decode = true;
-                sched_ul_subfr[(sched_cur_dl_subfn+4)%10].pucch.rnti   = dl_sched->alloc.rnti;
-                if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(dl_sched->alloc.rnti, &user))
+                if(NULL == msgq_to_ue)
                 {
-                    user->store_harq_info(sched_ul_subfr[(sched_cur_dl_subfn+4)%10].current_tti, &dl_sched->mac_pdu, &dl_sched->alloc);
+                    // Schedule DL
+                    memcpy(&dl_subfr->dl_allocations.alloc[dl_subfr->dl_allocations.N_alloc],
+                           &dl_sched->alloc,
+                           sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
+                    dl_subfr->dl_allocations.N_alloc++;
+
+                    // Schedule ACK/NACK PUCCH 4 subframes from now and store the DL allocation for potential H-ARQ retransmission
+                    ul_subfr = &sched_ul_subfr[(sched_cur_dl_subfn+4)%10];
+                    ul_subfr->pucch[ul_subfr->N_pucch].type        = LTE_FDD_ENB_PUCCH_TYPE_ACK_NACK;
+                    ul_subfr->pucch[ul_subfr->N_pucch].rnti        = dl_sched->alloc.rnti;
+                    ul_subfr->pucch[ul_subfr->N_pucch].n_1_p_pucch = sys_info.sib2.rr_config_common_sib.pucch_cnfg.n1_pucch_an;
+                    ul_subfr->pucch[ul_subfr->N_pucch].decode      = true;
+                    ul_subfr->N_pucch++;
+                    if(LTE_FDD_ENB_ERROR_NONE == user_mgr->find_user(dl_sched->alloc.rnti, &user))
+                    {
+                        user->store_harq_info(ul_subfr->current_tti, &dl_sched->mac_pdu, &dl_sched->alloc);
+                    }
+                }else{
+                    msgq_to_ue->send(LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_MAC_PDU,
+                                     (LIBTOOLS_IPC_MSGQ_MESSAGE_UNION *)&dl_sched->alloc.msg,
+                                     sizeof(dl_sched->alloc.msg));
                 }
 
                 // Remove DL schedule from queue
@@ -1286,17 +1473,19 @@ void LTE_fdd_enb_mac::scheduler(void)
           false == sched_out_of_headroom)
     {
         ul_sched = ul_sched_queue.front();
+        dl_subfr = &sched_dl_subfr[sched_cur_dl_subfn];
+        ul_subfr = &sched_ul_subfr[(sched_cur_dl_subfn+4)%10];
 
         // Determine how many PRBs and DCIs are available in this subframe
-        N_avail_ul_prbs = sched_ul_subfr[(sched_cur_dl_subfn+4)%10].N_avail_prbs - sched_ul_subfr[(sched_cur_dl_subfn+4)%10].N_sched_prbs;
-        N_avail_dcis    = N_cce - (sched_dl_subfr[sched_cur_dl_subfn].dl_allocations.N_alloc + sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc);
+        N_avail_ul_prbs = ul_subfr->N_avail_prbs - ul_subfr->N_sched_prbs;
+        N_avail_dcis    = N_cce - (dl_subfr->dl_allocations.N_alloc + dl_subfr->ul_allocations.N_alloc);
 
         if(ul_sched->alloc.N_prb <= N_avail_ul_prbs &&
            1                     <= N_avail_dcis)
         {
             // Determine the RB start
-            rb_start                                            = sched_ul_subfr[(sched_cur_dl_subfn+4)%10].next_prb;
-            sched_ul_subfr[(sched_cur_dl_subfn+4)%10].next_prb += ul_sched->alloc.N_prb;
+            rb_start            = ul_subfr->next_prb;
+            ul_subfr->next_prb += ul_sched->alloc.N_prb;
 
             // Fill in the PRBs
             for(i=0; i<ul_sched->alloc.N_prb; i++)
@@ -1311,18 +1500,27 @@ void LTE_fdd_enb_mac::scheduler(void)
                                       __LINE__,
                                       "UL allocation sent for RNTI=%u CURRENT_TTI=%u",
                                       ul_sched->alloc.rnti,
-                                      sched_ul_subfr[(sched_cur_dl_subfn+4)%10].current_tti);
+                                      ul_subfr->current_tti);
 
-            // Schedule UL decode 4 subframes from now
-            memcpy(&sched_ul_subfr[(sched_cur_dl_subfn+4)%10].decodes.alloc[sched_ul_subfr[(sched_cur_dl_subfn+4)%10].decodes.N_alloc],
-                   &ul_sched->alloc,
-                   sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
-            sched_ul_subfr[(sched_cur_dl_subfn+4)%10].decodes.N_alloc++;
-            // Schedule UL allocation
-            memcpy(&sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.alloc[sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc],
-                   &ul_sched->alloc,
-                   sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
-            sched_dl_subfr[sched_cur_dl_subfn].ul_allocations.N_alloc++;
+            if(NULL == msgq_to_ue)
+            {
+                // Schedule UL decode 4 subframes from now
+                memcpy(&ul_subfr->decodes.alloc[ul_subfr->decodes.N_alloc],
+                       &ul_sched->alloc,
+                       sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
+                ul_subfr->decodes.N_alloc++;
+                // Schedule UL allocation
+                memcpy(&dl_subfr->ul_allocations.alloc[dl_subfr->ul_allocations.N_alloc],
+                       &ul_sched->alloc,
+                       sizeof(LIBLTE_PHY_ALLOCATION_STRUCT));
+                dl_subfr->ul_allocations.N_alloc++;
+            }else{
+                ul_alloc_msg.size = ul_sched->alloc.tbs;
+                ul_alloc_msg.tti  = ul_subfr->current_tti;
+                msgq_to_ue->send(LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_UL_ALLOC,
+                                 (LIBTOOLS_IPC_MSGQ_MESSAGE_UNION *)&ul_alloc_msg,
+                                 sizeof(ul_alloc_msg));
+            }
 
             // Remove UL schedule from queue
             ul_sched_queue.pop_front();
@@ -1332,6 +1530,23 @@ void LTE_fdd_enb_mac::scheduler(void)
         }
     }
     sem_post(&ul_sched_queue_sem);
+
+    // Schedule UL SR for the next subframe
+    sem_wait(&ul_sr_sched_queue_sem);
+    ul_subfr = &sched_ul_subfr[sched_cur_ul_subfn];
+    for(iter=ul_sr_sched_queue.begin(); iter!=ul_sr_sched_queue.end(); iter++)
+    {
+        liblte_phy_pucch_map_sr_config_idx((*iter)->i_sr, &sr_periodicity, &N_offset_sr);
+        if(((ul_subfr->current_tti - N_offset_sr) % sr_periodicity) == 0)
+        {
+            ul_subfr->pucch[ul_subfr->N_pucch].type        = LTE_FDD_ENB_PUCCH_TYPE_SR;
+            ul_subfr->pucch[ul_subfr->N_pucch].rnti        = (*iter)->rnti;
+            ul_subfr->pucch[ul_subfr->N_pucch].n_1_p_pucch = (*iter)->n_1_p_pucch;
+            ul_subfr->pucch[ul_subfr->N_pucch].decode      = true;
+            ul_subfr->N_pucch++;
+        }
+    }
+    sem_post(&ul_sr_sched_queue_sem);
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_mac::add_to_rar_sched_queue(uint32                        current_tti,
                                                                LIBLTE_PHY_ALLOCATION_STRUCT *dl_alloc,
@@ -1398,6 +1613,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_mac::add_to_ul_sched_queue(uint32            
     std::list<LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT *>::iterator  iter;
     LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT                        *ul_sched = NULL;
     LTE_FDD_ENB_ERROR_ENUM                                    err      = LTE_FDD_ENB_ERROR_CANT_SCHEDULE;
+    bool                                                      sched    = true;
 
     ul_sched = new LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT;
 
@@ -1412,13 +1628,15 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_mac::add_to_ul_sched_queue(uint32            
             if((*iter)->alloc.rnti  == alloc->rnti &&
                (*iter)->current_tti == ul_sched->current_tti)
             {
-                ul_sched->current_tti = add_to_tti(ul_sched->current_tti, 1);
+                sched = false;
             }
         }
-        ul_sched_queue.push_back(ul_sched);
+        if(sched)
+        {
+            ul_sched_queue.push_back(ul_sched);
+            err = LTE_FDD_ENB_ERROR_NONE;
+        }
         sem_post(&ul_sched_queue_sem);
-
-        err = LTE_FDD_ENB_ERROR_NONE;
     }
 
     return(err);
@@ -1448,8 +1666,8 @@ uint32 LTE_fdd_enb_mac::get_n_reserved_prbs(uint32 current_tti)
     // Reserve PRBs for all other SIBs
     for(i=0; i<sys_info.sib1.N_sched_info; i++)
     {
-        if(0                             != sys_info.sib_alloc[i].msg.N_bits &&
-           (i * sys_info.si_win_len)%10  == (current_tti % 10)               &&
+        if(0                             != sys_info.sib_alloc[i].msg[0].N_bits &&
+           (i * sys_info.si_win_len)%10  == (current_tti % 10)                  &&
            ((i * sys_info.si_win_len)/10 == ((current_tti / 10) % sys_info.si_periodicity_T)))
         {
             N_reserved_prbs += sys_info.sib_alloc[i].N_prb;

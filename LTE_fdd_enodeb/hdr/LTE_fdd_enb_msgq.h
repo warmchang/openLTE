@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -44,6 +44,7 @@
                                    boost::interprocess::interprocess_semaphore
                                    to sem_t.
     03/12/2016    Ben Wojtowicz    Added PUCCH support.
+    07/29/2017    Ben Wojtowicz    Added SR Support.
 
 *******************************************************************************/
 
@@ -64,7 +65,8 @@
                               DEFINES
 *******************************************************************************/
 
-#define LTE_FDD_ENB_N_SIB_ALLOCS 7
+#define LTE_FDD_ENB_N_SIB_ALLOCS      7
+#define LTE_FDD_ENB_N_PUCCH_PER_SUBFR 12
 
 /*******************************************************************************
                               FORWARD DECLARATIONS
@@ -177,16 +179,26 @@ typedef struct{
     uint32                  N_sched_prbs;
     uint32                  current_tti;
 }LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT;
+typedef enum{
+    LTE_FDD_ENB_PUCCH_TYPE_ACK_NACK = 0,
+    LTE_FDD_ENB_PUCCH_TYPE_SR,
+    LTE_FDD_ENB_PUCCH_TYPE_N_ITEMS,
+}LTE_FDD_ENB_PUCCH_TYPE_ENUM;
+static const char LTE_fdd_enb_pucch_type_text[LTE_FDD_ENB_PUCCH_TYPE_N_ITEMS][100] = {"ACK_NACK",
+                                                                                      "SR"};
 typedef struct{
-    uint16 rnti;
-    bool   decode;
+    LTE_FDD_ENB_PUCCH_TYPE_ENUM type;
+    uint32                      n_1_p_pucch;
+    uint16                      rnti;
+    bool                        decode;
 }LTE_FDD_ENB_PUCCH_STRUCT;
 typedef struct{
     LIBLTE_PHY_PDCCH_STRUCT  decodes;
-    LTE_FDD_ENB_PUCCH_STRUCT pucch;
+    LTE_FDD_ENB_PUCCH_STRUCT pucch[LTE_FDD_ENB_N_PUCCH_PER_SUBFR];
     uint32                   N_avail_prbs;
     uint32                   N_sched_prbs;
     uint32                   current_tti;
+    uint32                   N_pucch;
     uint8                    next_prb;
 }LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT;
 typedef struct{
@@ -207,9 +219,10 @@ typedef struct{
     uint32 num_preambles;
 }LTE_FDD_ENB_PRACH_DECODE_MSG_STRUCT;
 typedef struct{
-    uint32 current_tti;
-    uint16 rnti;
-    bool   ack;
+    LIBLTE_BIT_MSG_STRUCT       msg;
+    LTE_FDD_ENB_PUCCH_TYPE_ENUM type;
+    uint32                      current_tti;
+    uint16                      rnti;
 }LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT;
 typedef struct{
     LIBLTE_BIT_MSG_STRUCT msg;

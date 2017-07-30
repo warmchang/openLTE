@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_interface.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -50,6 +50,8 @@
                                    sem_t.
     02/13/2016    Ben Wojtowicz    Added a command to print all registered
                                    users.
+    07/29/2017    Ben Wojtowicz    Added input parameters for direct IPC to a UE
+                                   and using the latest tools library.
 
 *******************************************************************************/
 
@@ -72,8 +74,8 @@
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "liblte_interface.h"
 #include "libtools_scoped_lock.h"
+#include "libtools_helpers.h"
 #include <boost/lexical_cast.hpp>
-#include <iomanip>
 #include <arpa/inet.h>
 #include <sys/time.h>
 #include <stdarg.h>
@@ -146,6 +148,9 @@ LTE_fdd_enb_interface::LTE_fdd_enb_interface()
     debug_connected = false;
 
     // Variables
+    pdcp = NULL;
+    mme  = NULL;
+    gw   = NULL;
     sem_init(&start_sem, 0, 1);
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_BANDWIDTH]]          = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_DOUBLE, LTE_FDD_ENB_PARAM_BANDWIDTH, 0, 0, 0, 0, true, false, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_FREQ_BAND]]          = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_FREQ_BAND, 0, 0, 0, 0, true, true, false};
@@ -170,6 +175,8 @@ LTE_fdd_enb_interface::LTE_fdd_enb_interface()
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SIB7_PRESENT]]       = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_SIB7_PRESENT, 0, 0, 0, 1, false, true, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SIB8_PRESENT]]       = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_SIB8_PRESENT, 0, 0, 0, 1, false, true, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SEARCH_WIN_SIZE]]    = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_SEARCH_WIN_SIZE, 0, 0, 0, 15, false, true, false};
+    var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE]]   = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE, 0, 0, 0, 1, false, false, false};
+    var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE]]   = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE, 0, 0, 0, 1, false, false, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_DEBUG_TYPE]]         = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_UINT32, LTE_FDD_ENB_PARAM_DEBUG_TYPE, 0, 0, 0, 0, true, true, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_DEBUG_LEVEL]]        = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_UINT32, LTE_FDD_ENB_PARAM_DEBUG_LEVEL, 0, 0, 0, 0, true, true, false};
     var_map[LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_ENABLE_PCAP]]        = (LTE_FDD_ENB_VAR_STRUCT){LTE_FDD_ENB_VAR_TYPE_INT64, LTE_FDD_ENB_PARAM_ENABLE_PCAP, 0, 0, 0, 1, false, true, false};
@@ -367,7 +374,7 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM  type,
         tmp_msg += " ";
         tmp_msg += file_name.c_str();
         tmp_msg += " ";
-        tmp_msg += boost::lexical_cast<std::string>(line);
+        tmp_msg += to_string(line);
         tmp_msg += " ";
         va_start(args, msg);
         if(-1 != vasprintf(&args_msg, msg.c_str(), args))
@@ -410,7 +417,7 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
         tmp_msg += " ";
         tmp_msg += file_name.c_str();
         tmp_msg += " ";
-        tmp_msg += boost::lexical_cast<std::string>(line);
+        tmp_msg += to_string(line);
         tmp_msg += " ";
         va_start(args, msg);
         if(-1 != vasprintf(&args_msg, msg.c_str(), args))
@@ -466,8 +473,6 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
     libtools_scoped_lock  lock(debug_connect_mutex);
     std::string           tmp_msg;
     va_list               args;
-    uint32                i;
-    uint32                hex_val;
     char                 *args_msg;
 
     if(debug_connected                 &&
@@ -483,32 +488,14 @@ void LTE_fdd_enb_interface::send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM   type,
         tmp_msg += " ";
         tmp_msg += file_name.c_str();
         tmp_msg += " ";
-        tmp_msg += boost::lexical_cast<std::string>(line);
+        tmp_msg += to_string(line);
         tmp_msg += " ";
         va_start(args, msg);
         if(-1 != vasprintf(&args_msg, msg.c_str(), args))
         {
             tmp_msg += args_msg;
         }
-        tmp_msg += " ";
-        for(i=0; i<lte_msg->N_bytes; i++)
-        {
-            hex_val = (lte_msg->msg[i] >> 4) & 0xF;
-            if(hex_val < 0xA)
-            {
-                tmp_msg += (char)(hex_val + '0');
-            }else{
-                tmp_msg += (char)((hex_val-0xA) + 'A');
-            }
-            hex_val = lte_msg->msg[i] & 0xF;
-            if(hex_val < 0xA)
-            {
-                tmp_msg += (char)(hex_val + '0');
-            }else{
-                tmp_msg += (char)((hex_val-0xA) + 'A');
-            }
-        }
-        tmp_msg += "\n";
+        tmp_msg += " " + to_string(lte_msg->msg, lte_msg->N_bytes) + "\n";
 
         // Cleanup the variable argument string
         free(args_msg);
@@ -724,8 +711,13 @@ void LTE_fdd_enb_interface::handle_ctrl_msg(std::string msg)
             interface->send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, "");
         }
     }else if(std::string::npos != msg.find("construct_si")){
-        cnfg_db->construct_sys_info();
-        interface->send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, "");
+        if(interface->app_is_started())
+        {
+            cnfg_db->construct_sys_info(interface->pdcp, interface->mme);
+            interface->send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, "");
+        }else{
+            interface->send_ctrl_error_msg(LTE_FDD_ENB_ERROR_ALREADY_STOPPED, "");
+        }
     }else if(std::string::npos != msg.find("help")){
         interface->handle_help();
     }else if(std::string::npos != msg.find("add_user")){
@@ -816,85 +808,80 @@ void LTE_fdd_enb_interface::handle_read(std::string msg)
     uint32                                                   u_value;
     uint32                                                   i;
 
-    try
+    if(var_map.end() != iter)
     {
-        if(var_map.end() != iter)
+        // Handle all system parameters
+        switch((*iter).second.var_type)
         {
-            // Handle all system parameters
-            switch((*iter).second.var_type)
+        case LTE_FDD_ENB_VAR_TYPE_DOUBLE:
+            cnfg_db->get_param((*iter).second.param, d_value);
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, to_string(d_value));
+            break;
+        case LTE_FDD_ENB_VAR_TYPE_INT64:
+            cnfg_db->get_param((*iter).second.param, i_value);
+            if(LTE_FDD_ENB_PARAM_FREQ_BAND == (*iter).second.param)
             {
-            case LTE_FDD_ENB_VAR_TYPE_DOUBLE:
-                cnfg_db->get_param((*iter).second.param, d_value);
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(d_value));
-                break;
-            case LTE_FDD_ENB_VAR_TYPE_INT64:
-                cnfg_db->get_param((*iter).second.param, i_value);
-                if(LTE_FDD_ENB_PARAM_FREQ_BAND == (*iter).second.param)
-                {
-                    send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, liblte_interface_band_text[i_value]);
-                }else{
-                    send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(i_value));
-                }
-                break;
-            case LTE_FDD_ENB_VAR_TYPE_HEX:
-                cnfg_db->get_param((*iter).second.param, s_value);
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, s_value);
-                break;
-            case LTE_FDD_ENB_VAR_TYPE_UINT32:
-                cnfg_db->get_param((*iter).second.param, u_value);
-                if(LTE_FDD_ENB_PARAM_DEBUG_TYPE == (*iter).second.param)
-                {
-                    for(i=0; i<LTE_FDD_ENB_DEBUG_TYPE_N_ITEMS; i++)
-                    {
-                        if((u_value & (1 << i)))
-                        {
-                            tmp_str += LTE_fdd_enb_debug_type_text[i];
-                            tmp_str += " ";
-                        }
-                    }
-                    send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, tmp_str);
-                }else if(LTE_FDD_ENB_PARAM_DEBUG_LEVEL == (*iter).second.param){
-                    for(i=0; i<LTE_FDD_ENB_DEBUG_LEVEL_N_ITEMS; i++)
-                    {
-                        if((u_value & (1 << i)))
-                        {
-                            tmp_str += LTE_fdd_enb_debug_level_text[i];
-                            tmp_str += " ";
-                        }
-                    }
-                    send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, tmp_str);
-                }else{
-                    send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(u_value));
-                }
-                break;
-            default:
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_INVALID_PARAM, "");
-                break;
-            }
-        }else{
-            // Handle all radio parameters
-            if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_AVAILABLE_RADIOS]))
-            {
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(avail_radios.num_radios));
-                for(i=0; i<avail_radios.num_radios; i++)
-                {
-                    tmp_str  = boost::lexical_cast<std::string>(i);
-                    tmp_str += ":";
-                    tmp_str += avail_radios.radio[i].name;
-                    send_ctrl_msg(tmp_str);
-                }
-            }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SELECTED_RADIO_NAME])){
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, selected_radio.name);
-            }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SELECTED_RADIO_IDX])){
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, boost::lexical_cast<std::string>(radio->get_selected_radio_idx()));
-            }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_CLOCK_SOURCE])){
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, radio->get_clock_source());
+                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, liblte_interface_band_text[i_value]);
             }else{
-                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_INVALID_PARAM, "");
+                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, to_string(i_value));
             }
+            break;
+        case LTE_FDD_ENB_VAR_TYPE_HEX:
+            cnfg_db->get_param((*iter).second.param, s_value);
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, s_value);
+            break;
+        case LTE_FDD_ENB_VAR_TYPE_UINT32:
+            cnfg_db->get_param((*iter).second.param, u_value);
+            if(LTE_FDD_ENB_PARAM_DEBUG_TYPE == (*iter).second.param)
+            {
+                for(i=0; i<LTE_FDD_ENB_DEBUG_TYPE_N_ITEMS; i++)
+                {
+                    if((u_value & (1 << i)))
+                    {
+                        tmp_str += LTE_fdd_enb_debug_type_text[i];
+                        tmp_str += " ";
+                    }
+                }
+                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, tmp_str);
+            }else if(LTE_FDD_ENB_PARAM_DEBUG_LEVEL == (*iter).second.param){
+                for(i=0; i<LTE_FDD_ENB_DEBUG_LEVEL_N_ITEMS; i++)
+                {
+                    if((u_value & (1 << i)))
+                    {
+                        tmp_str += LTE_fdd_enb_debug_level_text[i];
+                        tmp_str += " ";
+                    }
+                }
+                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, tmp_str);
+            }else{
+                send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, to_string(u_value));
+            }
+            break;
+        default:
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_INVALID_PARAM, "");
+            break;
         }
-    }catch(...){
-        send_ctrl_error_msg(LTE_FDD_ENB_ERROR_EXCEPTION, "");
+    }else{
+        // Handle all radio parameters
+        if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_AVAILABLE_RADIOS]))
+        {
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, to_string(avail_radios.num_radios));
+            for(i=0; i<avail_radios.num_radios; i++)
+            {
+                tmp_str  = to_string(i);
+                tmp_str += ":";
+                tmp_str += avail_radios.radio[i].name;
+                send_ctrl_msg(tmp_str);
+            }
+        }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SELECTED_RADIO_NAME])){
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, selected_radio.name);
+        }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SELECTED_RADIO_IDX])){
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, to_string(radio->get_selected_radio_idx()));
+        }else if(std::string::npos != msg.find(LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_CLOCK_SOURCE])){
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, radio->get_clock_source());
+        }else{
+            send_ctrl_error_msg(LTE_FDD_ENB_ERROR_INVALID_PARAM, "");
+        }
     }
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_interface::handle_write(std::string msg)
@@ -986,14 +973,13 @@ void LTE_fdd_enb_interface::handle_start(void)
     LTE_fdd_enb_cnfg_db    *cnfg_db   = LTE_fdd_enb_cnfg_db::get_instance();
     LTE_fdd_enb_mac        *mac       = LTE_fdd_enb_mac::get_instance();
     LTE_fdd_enb_rlc        *rlc       = LTE_fdd_enb_rlc::get_instance();
-    LTE_fdd_enb_pdcp       *pdcp      = LTE_fdd_enb_pdcp::get_instance();
     LTE_fdd_enb_rrc        *rrc       = LTE_fdd_enb_rrc::get_instance();
-    LTE_fdd_enb_mme        *mme       = LTE_fdd_enb_mme::get_instance();
-    LTE_fdd_enb_gw         *gw        = LTE_fdd_enb_gw::get_instance();
     LTE_fdd_enb_phy        *phy       = LTE_fdd_enb_phy::get_instance();
     LTE_fdd_enb_radio      *radio     = LTE_fdd_enb_radio::get_instance();
     LTE_fdd_enb_timer_mgr  *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
     LTE_FDD_ENB_ERROR_ENUM  err;
+    int64                   mac_direct_to_ue;
+    int64                   phy_direct_to_ue;
     char                    err_str[LTE_FDD_ENB_MAX_LINE_SIZE];
 
     sem_wait(&start_sem);
@@ -1001,9 +987,6 @@ void LTE_fdd_enb_interface::handle_start(void)
     {
         started = true;
         sem_post(&start_sem);
-
-        // Construct the system information
-        cnfg_db->construct_sys_info();
 
         // Initialize inter-stack communication
         phy_to_mac_comm   = new LTE_fdd_enb_msgq("phy_to_mac");
@@ -1020,12 +1003,23 @@ void LTE_fdd_enb_interface::handle_start(void)
         pdcp_to_gw_comm   = new LTE_fdd_enb_msgq("pdcp_to_gw");
         gw_to_pdcp_comm   = new LTE_fdd_enb_msgq("gw_to_pdcp");
 
+        // Construct layers
+        pdcp = new LTE_fdd_enb_pdcp();
+        mme  = new LTE_fdd_enb_mme();
+        gw   = new LTE_fdd_enb_gw();
+
+        // Construct the system information
+        cnfg_db->construct_sys_info(pdcp, mme);
+
         // Start layers
         err = gw->start(pdcp_to_gw_comm, gw_to_pdcp_comm, err_str, this);
         if(LTE_FDD_ENB_ERROR_NONE == err)
         {
-            phy->start(mac_to_phy_comm, phy_to_mac_comm, this);
-            mac->start(phy_to_mac_comm, rlc_to_mac_comm, mac_to_phy_comm, mac_to_rlc_comm, mac_to_timer_comm, this);
+            cnfg_db->get_param(LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE, mac_direct_to_ue);
+            cnfg_db->get_param(LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE, phy_direct_to_ue);
+
+            phy->start(mac_to_phy_comm, phy_to_mac_comm, phy_direct_to_ue, this);
+            mac->start(phy_to_mac_comm, rlc_to_mac_comm, mac_to_phy_comm, mac_to_rlc_comm, mac_to_timer_comm, mac_direct_to_ue, this);
             timer_mgr->start(mac_to_timer_comm, this);
             rlc->start(mac_to_rlc_comm, pdcp_to_rlc_comm, rlc_to_mac_comm, rlc_to_pdcp_comm, this);
             pdcp->start(rlc_to_pdcp_comm, rrc_to_pdcp_comm, gw_to_pdcp_comm, pdcp_to_rlc_comm, pdcp_to_rrc_comm, pdcp_to_gw_comm, this);
@@ -1065,10 +1059,7 @@ void LTE_fdd_enb_interface::handle_stop(void)
     LTE_fdd_enb_phy        *phy       = LTE_fdd_enb_phy::get_instance();
     LTE_fdd_enb_mac        *mac       = LTE_fdd_enb_mac::get_instance();
     LTE_fdd_enb_rlc        *rlc       = LTE_fdd_enb_rlc::get_instance();
-    LTE_fdd_enb_pdcp       *pdcp      = LTE_fdd_enb_pdcp::get_instance();
     LTE_fdd_enb_rrc        *rrc       = LTE_fdd_enb_rrc::get_instance();
-    LTE_fdd_enb_mme        *mme       = LTE_fdd_enb_mme::get_instance();
-    LTE_fdd_enb_gw         *gw        = LTE_fdd_enb_gw::get_instance();
     LTE_FDD_ENB_ERROR_ENUM  err;
 
     sem_wait(&start_sem);
@@ -1163,10 +1154,12 @@ void LTE_fdd_enb_interface::handle_stop(void)
             LTE_fdd_enb_mac::cleanup();
             LTE_fdd_enb_timer_mgr::cleanup();
             LTE_fdd_enb_rlc::cleanup();
-            LTE_fdd_enb_pdcp::cleanup();
             LTE_fdd_enb_rrc::cleanup();
-            LTE_fdd_enb_mme::cleanup();
-            LTE_fdd_enb_gw::cleanup();
+
+            // Delete layers
+            delete pdcp;
+            delete mme;
+            delete gw;
 
             send_ctrl_error_msg(LTE_FDD_ENB_ERROR_NONE, "");
         }else{
@@ -1214,15 +1207,10 @@ void LTE_fdd_enb_interface::handle_help(void)
     send_ctrl_msg(tmp_str);
     for(i=0; i<avail_radios.num_radios; i++)
     {
-        try
-        {
-            tmp_str  = "\t\t\t";
-            tmp_str += boost::lexical_cast<std::string>(i);
-            tmp_str += ": ";
-            tmp_str += avail_radios.radio[i].name;
-        }catch(...){
-            // Intentionally do nothing
-        }
+        tmp_str  = "\t\t\t";
+        tmp_str += to_string(i);
+        tmp_str += ": ";
+        tmp_str += avail_radios.radio[i].name;
         send_ctrl_msg(tmp_str);
     }
     tmp_str  = "\t\t";
@@ -1233,12 +1221,7 @@ void LTE_fdd_enb_interface::handle_help(void)
     tmp_str  = "\t\t";
     tmp_str += LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_SELECTED_RADIO_IDX];
     tmp_str += " = ";
-    try
-    {
-        tmp_str += boost::lexical_cast<std::string>(radio->get_selected_radio_idx());
-    }catch(...){
-        // Intentionally do nothing
-    }
+    tmp_str += to_string(radio->get_selected_radio_idx());
     send_ctrl_msg(tmp_str);
     tmp_str  = "\t\t";
     tmp_str += LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_CLOCK_SOURCE];
@@ -1253,56 +1236,51 @@ void LTE_fdd_enb_interface::handle_help(void)
         tmp_str  = "\t\t";
         tmp_str += LTE_fdd_enb_param_text[(*iter).second.param];
         tmp_str += " = ";
-        try
+        switch((*iter).second.var_type)
         {
-            switch((*iter).second.var_type)
+        case LTE_FDD_ENB_VAR_TYPE_DOUBLE:
+            cnfg_db->get_param((*iter).second.param, d_value);
+            tmp_str += to_string(d_value);
+            break;
+        case LTE_FDD_ENB_VAR_TYPE_INT64:
+            cnfg_db->get_param((*iter).second.param, i_value);
+            if(LTE_FDD_ENB_PARAM_FREQ_BAND == (*iter).second.param)
             {
-            case LTE_FDD_ENB_VAR_TYPE_DOUBLE:
-                cnfg_db->get_param((*iter).second.param, d_value);
-                tmp_str += boost::lexical_cast<std::string>(d_value);
-                break;
-            case LTE_FDD_ENB_VAR_TYPE_INT64:
-                cnfg_db->get_param((*iter).second.param, i_value);
-                if(LTE_FDD_ENB_PARAM_FREQ_BAND == (*iter).second.param)
-                {
-                    tmp_str += liblte_interface_band_text[i_value];
-                }else{
-                    tmp_str += boost::lexical_cast<std::string>(i_value);
-                }
-                break;
-            case LTE_FDD_ENB_VAR_TYPE_HEX:
-                s_value.clear();
-                cnfg_db->get_param((*iter).second.param, s_value);
-                tmp_str += s_value;
-                break;
-            case LTE_FDD_ENB_VAR_TYPE_UINT32:
-                cnfg_db->get_param((*iter).second.param, u_value);
-                if(LTE_FDD_ENB_PARAM_DEBUG_TYPE == (*iter).second.param)
-                {
-                    for(i=0; i<LTE_FDD_ENB_DEBUG_TYPE_N_ITEMS; i++)
-                    {
-                        if((u_value & (1 << i)))
-                        {
-                            tmp_str += LTE_fdd_enb_debug_type_text[i];
-                            tmp_str += " ";
-                        }
-                    }
-                }else if(LTE_FDD_ENB_PARAM_DEBUG_LEVEL == (*iter).second.param){
-                    for(i=0; i<LTE_FDD_ENB_DEBUG_LEVEL_N_ITEMS; i++)
-                    {
-                        if((u_value & (1 << i)))
-                        {
-                            tmp_str += LTE_fdd_enb_debug_level_text[i];
-                            tmp_str += " ";
-                        }
-                    }
-                }else{
-                    tmp_str += boost::lexical_cast<std::string>(u_value);
-                }
-                break;
+                tmp_str += liblte_interface_band_text[i_value];
+            }else{
+                tmp_str += to_string(i_value);
             }
-        }catch(...){
-            // Intentionally do nothing
+            break;
+        case LTE_FDD_ENB_VAR_TYPE_HEX:
+            s_value.clear();
+            cnfg_db->get_param((*iter).second.param, s_value);
+            tmp_str += s_value;
+            break;
+        case LTE_FDD_ENB_VAR_TYPE_UINT32:
+            cnfg_db->get_param((*iter).second.param, u_value);
+            if(LTE_FDD_ENB_PARAM_DEBUG_TYPE == (*iter).second.param)
+            {
+                for(i=0; i<LTE_FDD_ENB_DEBUG_TYPE_N_ITEMS; i++)
+                {
+                    if((u_value & (1 << i)))
+                    {
+                        tmp_str += LTE_fdd_enb_debug_type_text[i];
+                        tmp_str += " ";
+                    }
+                }
+            }else if(LTE_FDD_ENB_PARAM_DEBUG_LEVEL == (*iter).second.param){
+                for(i=0; i<LTE_FDD_ENB_DEBUG_LEVEL_N_ITEMS; i++)
+                {
+                    if((u_value & (1 << i)))
+                    {
+                        tmp_str += LTE_fdd_enb_debug_level_text[i];
+                        tmp_str += " ";
+                    }
+                }
+            }else{
+                tmp_str += to_string(u_value);
+            }
+            break;
         }
         send_ctrl_msg(tmp_str);
     }
@@ -1320,17 +1298,17 @@ void LTE_fdd_enb_interface::handle_add_user(std::string msg)
     // Extract IMSI and check
     imsi_str   = msg.substr(msg.find("imsi")+sizeof("imsi"), std::string::npos);
     imsi_str   = imsi_str.substr(0, imsi_str.find(" "));
-    imsi_valid = is_string_valid_as_number(imsi_str, 15, 0x9);
+    imsi_valid = is_string_valid_as_number(imsi_str, 15, 10);
 
     // Extract IMEI and check
     imei_str   = msg.substr(msg.find("imei")+sizeof("imei"), std::string::npos);
     imei_str   = imei_str.substr(0, imei_str.find(" "));
-    imei_valid = is_string_valid_as_number(imei_str, 15, 0x9);
+    imei_valid = is_string_valid_as_number(imei_str, 15, 10);
 
     // Extract K and check
     k_str   = msg.substr(msg.find("k")+sizeof("k"), std::string::npos);
     k_str   = k_str.substr(0, k_str.find(" "));
-    k_valid = is_string_valid_as_number(k_str, 32, 0xF);
+    k_valid = is_string_valid_as_number(k_str, 32, 16);
 
     if(imsi_valid && imei_valid && k_valid)
     {
@@ -1348,7 +1326,7 @@ void LTE_fdd_enb_interface::handle_del_user(std::string msg)
     imsi_str = msg.substr(msg.find("imsi")+sizeof("imsi"), std::string::npos);
     imsi_str = imsi_str.substr(0, imsi_str.find(" "));
 
-    if(is_string_valid_as_number(imsi_str, 15, 0x9))
+    if(is_string_valid_as_number(imsi_str, 15, 10))
     {
         send_ctrl_error_msg(hss->del_user(imsi_str), "");
     }else{
@@ -1461,7 +1439,10 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_interface::write_value(LTE_FDD_ENB_VAR_STRUCT
                     {
                         err = cnfg_db->set_param(var->param, (int64)i);
                         err = cnfg_db->set_param(LTE_FDD_ENB_PARAM_DL_EARFCN, (int64)liblte_interface_first_dl_earfcn[i]);
-                        cnfg_db->construct_sys_info();
+                        if(app_is_started())
+                        {
+                            cnfg_db->construct_sys_info(pdcp, mme);
+                        }
                         break;
                     }
                 }
@@ -1543,71 +1524,4 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_interface::write_value(LTE_FDD_ENB_VAR_STRUCT
     }
 
     return(err);
-}
-bool LTE_fdd_enb_interface::is_string_valid_as_number(std::string str,
-                                                      uint32      length,
-                                                      uint8       max_value)
-{
-    uint32      i;
-    const char *c_str = str.c_str();
-    bool        ret   = false;
-
-    if(length == str.length())
-    {
-        ret = true;
-
-        if(max_value < 0xA)
-        {
-            for(i=0; i<length; i++)
-            {
-                if(!(c_str[i] >= '0' && c_str[i] <= '9'))
-                {
-                    ret = false;
-                }
-            }
-        }else{
-            for(i=0; i<length; i++)
-            {
-                if(!((c_str[i] >= '0' && c_str[i] <= '9') ||
-                     (c_str[i] >= 'a' && c_str[i] <= 'f') ||
-                     (c_str[i] >= 'A' && c_str[i] <= 'F')))
-                {
-                    ret = false;
-                }
-            }
-        }
-    }
-
-    return(ret);
-}
-void LTE_fdd_enb_interface::get_formatted_time(std::string &time_string)
-{
-    std::stringstream  tmp_ss1;
-    std::stringstream  tmp_ss2;
-    struct timeval     tv;
-    struct tm         *local_time;
-    time_t             tmp_time;
-
-    tmp_time   = time(NULL);
-    local_time = localtime(&tmp_time);
-    gettimeofday(&tv, NULL);
-    tmp_ss1     << std::setw(2) << std::setfill('0') << (local_time->tm_mon + 1);
-    time_string  = tmp_ss1.str() + "/";
-    tmp_ss1.seekp(0);
-    tmp_ss1     << std::setw(2) << std::setfill('0') << local_time->tm_mday;
-    time_string += tmp_ss1.str() + "/";
-    tmp_ss1.seekp(0);
-    tmp_ss1     << std::setw(4) << std::setfill('0') << (local_time->tm_year + 1900);
-    time_string += tmp_ss1.str() + " ";
-    tmp_ss2     << std::setw(2) << std::setfill('0') << local_time->tm_hour;
-    time_string += tmp_ss2.str() + ":";
-    tmp_ss2.seekp(0);
-    tmp_ss2     << std::setw(2) << std::setfill('0') << ((tv.tv_sec / 60) % 60);
-    time_string += tmp_ss2.str() + ":";
-    tmp_ss2.seekp(0);
-    tmp_ss2     << std::setw(2) << std::setfill('0') << (tv.tv_sec % 60);
-    time_string += tmp_ss2.str() + ".";
-    tmp_ss2.seekp(0);
-    tmp_ss2     << std::setw(6) << std::setfill('0') << tv.tv_usec;
-    time_string += tmp_ss2.str();
 }

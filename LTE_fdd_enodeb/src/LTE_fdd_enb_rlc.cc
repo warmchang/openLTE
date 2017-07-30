@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_rlc.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -45,6 +45,8 @@
                                    sem_t.
     07/03/2016    Ben Wojtowicz    Added error log for AMD PDU segments.
     12/18/2016    Ben Wojtowicz    Properly handling multiple AMD PDUs.
+    07/29/2017    Ben Wojtowicz    Try more than one reassembly and always send
+                                   poll frames.
 
 *******************************************************************************/
 
@@ -514,7 +516,7 @@ void LTE_fdd_enb_rlc::handle_am_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
                             rb->update_rlc_vrr();
                             // FIXME: Handle AMD PDU Segments
 
-                            if(LTE_FDD_ENB_ERROR_NONE == rb->rlc_am_reassemble(&pdcp_pdu))
+                            while(LTE_FDD_ENB_ERROR_NONE == rb->rlc_am_reassemble(&pdcp_pdu))
                             {
                                 // Queue the SDU for PDCP
                                 rb->queue_pdcp_pdu(&pdcp_pdu);
@@ -529,7 +531,7 @@ void LTE_fdd_enb_rlc::handle_am_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
                             }
                         }
 
-                        if(amd_pdus.pdu[i].hdr.p)
+//                        if(amd_pdus.pdu[i].hdr.p)
                         {
                             // Send a STATUS PDU to ACK/NACK SNs
                             rb->rlc_get_am_reception_buffer_status(&status);
@@ -549,7 +551,7 @@ void LTE_fdd_enb_rlc::handle_am_pdu(LIBLTE_BYTE_MSG_STRUCT *pdu,
                                                   vrmr,
                                                   liblte_rlc_p_field_text[amd_pdus.pdu[i].hdr.p]);
 
-                        if(amd_pdus.pdu[i].hdr.p)
+//                        if(amd_pdus.pdu[i].hdr.p)
                         {
                             // Send a STATUS PDU to ACK/NACK SNs
                             rb->rlc_get_am_reception_buffer_status(&status);
@@ -670,7 +672,7 @@ void LTE_fdd_enb_rlc::handle_um_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
     LIBLTE_RLC_UMD_PDU_STRUCT            umd;
     LIBLTE_BYTE_MSG_STRUCT               pdu;
     uint32                               byte_idx        = 0;
-    uint32                               bytes_per_subfn = user->get_qos_dl_bytes_per_subfn();
+    uint32                               bytes_per_subfn = user->get_max_dl_bytes_per_subfn();
     uint16                               vtus            = rb->get_rlc_vtus();
 
     if(sdu->N_bytes <= bytes_per_subfn)
@@ -764,7 +766,7 @@ void LTE_fdd_enb_rlc::handle_am_sdu(LIBLTE_BYTE_MSG_STRUCT *sdu,
 {
     LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT amd;
     uint32                           byte_idx        = 0;
-    uint32                           bytes_per_subfn = user->get_qos_dl_bytes_per_subfn();
+    uint32                           bytes_per_subfn = user->get_max_dl_bytes_per_subfn();
     uint16                           vts             = rb->get_rlc_vts();
 
     if(sdu->N_bytes <= bytes_per_subfn)

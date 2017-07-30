@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
     Copyright 2016 Przemek Bereski (bladeRF support)
 
     This program is free software: you can redistribute it and/or modify
@@ -37,6 +37,7 @@
     07/03/2016    Ben Wojtowicz    Massive restructuring to support the addition
                                    of bladeRF as a radio choice.
     07/03/2016    Przemek Bereski  Addition of bladeRF as a radio choice.
+    07/29/2017    Ben Wojtowicz    Using the latest tools library.
 
 *******************************************************************************/
 
@@ -49,6 +50,7 @@
 
 #include "LTE_fdd_enb_interface.h"
 #include "liblte_phy.h"
+#include "libtools_ipc_msgq.h"
 #include <gnuradio/gr_complex.h>
 #include <uhd/usrp/multi_usrp.hpp>
 #include <libbladeRF.h>
@@ -83,19 +85,8 @@ typedef struct{
     uint32                   num_radios;
 }LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT;
 
-typedef struct{
-    float  i_buf[4][LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
-    float  q_buf[4][LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
-    uint32 N_samps_per_ant;
-    uint16 current_tti;
-    uint8  N_ant;
-}LTE_FDD_ENB_RADIO_TX_BUF_STRUCT;
-
-typedef struct{
-    float  i_buf[LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
-    float  q_buf[LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
-    uint16 current_tti;
-}LTE_FDD_ENB_RADIO_RX_BUF_STRUCT;
+typedef LIBTOOLS_IPC_MSGQ_PHY_SAMPS_MSG_STRUCT LTE_FDD_ENB_RADIO_TX_BUF_STRUCT;
+typedef LIBTOOLS_IPC_MSGQ_PHY_SAMPS_MSG_STRUCT LTE_FDD_ENB_RADIO_RX_BUF_STRUCT;
 
 class LTE_fdd_enb_phy;
 typedef struct{

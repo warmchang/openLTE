@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_hss.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014-2016 Ben Wojtowicz
+    Copyright 2014-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -38,6 +38,7 @@
                                    sem_t.
     07/03/2016    Ben Wojtowicz    Fixed a bug in print_all_users.  Thanks to
                                    Sultan Qasim Khan for finding this.
+    07/29/2017    Ben Wojtowicz    Using the latest tools library.
 
 *******************************************************************************/
 
@@ -49,8 +50,7 @@
 #include "LTE_fdd_enb_cnfg_db.h"
 #include "liblte_security.h"
 #include "libtools_scoped_lock.h"
-#include <boost/lexical_cast.hpp>
-#include <iomanip>
+#include "libtools_helpers.h"
 
 /*******************************************************************************
                               DEFINES
@@ -130,50 +130,15 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
     LTE_FDD_ENB_HSS_USER_STRUCT                        *new_user = new LTE_FDD_ENB_HSS_USER_STRUCT;
     LTE_FDD_ENB_ERROR_ENUM                              err      = LTE_FDD_ENB_ERROR_BAD_ALLOC;
-    const char                                         *imsi_str = imsi.c_str();
-    const char                                         *imei_str = imei.c_str();
-    const char                                         *k_str    = k.c_str();
-    uint32                                              i;
 
     if(NULL != new_user      &&
        15   == imsi.length() &&
        15   == imei.length() &&
        32   == k.length())
     {
-        new_user->id.imsi = 0;
-        for(i=0; i<15; i++)
-        {
-            new_user->id.imsi *= 10;
-            new_user->id.imsi += imsi_str[i] - '0';
-        }
-
-        new_user->id.imei = 0;
-        for(i=0; i<15; i++)
-        {
-            new_user->id.imei *= 10;
-            new_user->id.imei += imei_str[i] - '0';
-        }
-
-        for(i=0; i<16; i++)
-        {
-            if(k_str[i*2+0] >= '0' && k_str[i*2+0] <= '9')
-            {
-                new_user->stored_data.k[i] = (k_str[i*2+0] - '0') << 4;
-            }else if(k_str[i*2+0] >= 'A' && k_str[i*2+0] <= 'F'){
-                new_user->stored_data.k[i] = ((k_str[i*2+0] - 'A') + 0xA) << 4;
-            }else{
-                new_user->stored_data.k[i] = ((k_str[i*2+0] - 'a') + 0xA) << 4;
-            }
-
-            if(k_str[i*2+1] >= '0' && k_str[i*2+1] <= '9')
-            {
-                new_user->stored_data.k[i] |= k_str[i*2+1] - '0';
-            }else if(k_str[i*2+1] >= 'A' && k_str[i*2+1] <= 'F'){
-                new_user->stored_data.k[i] |= (k_str[i*2+1] - 'A') + 0xA;
-            }else{
-                new_user->stored_data.k[i] |= (k_str[i*2+1] - 'a') + 0xA;
-            }
-        }
+        to_number(imsi, 15, &new_user->id.imsi);
+        to_number(imei, 15, &new_user->id.imei);
+        to_number(k, 16, new_user->stored_data.k);
 
         new_user->generated_data.sqn_he = 0;
         new_user->generated_data.seq_he = 0;
@@ -183,7 +148,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
         err = LTE_FDD_ENB_ERROR_NONE;
         for(iter=user_list.begin(); iter!=user_list.end(); iter++)
         {
-            if((*iter)->id.imsi == new_user->id.imsi ||
+            if((*iter)->id.imsi == new_user->id.imsi &&
                (*iter)->id.imei == new_user->id.imei)
             {
                 err = LTE_FDD_ENB_ERROR_DUPLICATE_ENTRY;
@@ -208,19 +173,12 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::del_user(std::string imsi)
 {
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_HSS_USER_STRUCT                        *user     = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                              err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
-    const char                                         *imsi_str = imsi.c_str();
+    LTE_FDD_ENB_HSS_USER_STRUCT                        *user = NULL;
+    LTE_FDD_ENB_ERROR_ENUM                              err  = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
     uint64                                              imsi_num;
-    uint32                                              i;
     bool                                                update_user_file = false;
 
-    imsi_num = 0;
-    for(i=0; i<15; i++)
-    {
-        imsi_num *= 10;
-        imsi_num += imsi_str[i] - '0';
-    }
+    to_number(imsi, 15, &imsi_num);
 
     sem_wait(&user_sem);
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
@@ -251,38 +209,14 @@ std::string LTE_fdd_enb_hss::print_all_users(void)
     libtools_scoped_lock                               lock(user_sem);
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
     std::string                                        output;
-    std::stringstream                                  tmp_ss;
-    uint32                                             i;
-    uint32                                             hex_val;
 
-    output = boost::lexical_cast<std::string>(user_list.size());
+    output = to_string((uint32)user_list.size());
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
         output += "\n";
-        tmp_ss.seekp(0);
-        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->id.imsi;
-        output += "imsi=" + tmp_ss.str();
-        tmp_ss.seekp(0);
-        tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->id.imei;
-        output += " imei=" + tmp_ss.str();
-        output += " k=";
-        for(i=0; i<16; i++)
-        {
-            hex_val = ((*iter)->stored_data.k[i] >> 4) & 0xF;
-            if(hex_val < 0xA)
-            {
-                output += (char)(hex_val + '0');
-            }else{
-                output += (char)((hex_val-0xA) + 'A');
-            }
-            hex_val = (*iter)->stored_data.k[i] & 0xF;
-            if(hex_val < 0xA)
-            {
-                output += (char)(hex_val + '0');
-            }else{
-                output += (char)((hex_val-0xA) + 'A');
-            }
-        }
+        output += "imsi=" + to_string((*iter)->id.imsi, 15) + " ";
+        output += "imei=" + to_string((*iter)->id.imei, 15) + " ";
+        output += "k=" + to_string((*iter)->stored_data.k, 16);
     }
 
     return(output);

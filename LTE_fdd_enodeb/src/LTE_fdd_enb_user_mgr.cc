@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_user_mgr.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -49,6 +49,7 @@
     07/03/2016    Ben Wojtowicz    Added logic to use the C-RNTI instead of
                                    IMSI/IMEI when printing a user that doesn't
                                    have IMSI/IMEI set.
+    07/29/2017    Ben Wojtowicz    Using the latest tools library.
 
 *******************************************************************************/
 
@@ -60,8 +61,7 @@
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "liblte_mac.h"
 #include "libtools_scoped_lock.h"
-#include <boost/lexical_cast.hpp>
-#include <iomanip>
+#include "libtools_helpers.h"
 
 /*******************************************************************************
                               DEFINES
@@ -330,17 +330,11 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(std::string        imsi,
     libtools_scoped_lock                    lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
-    const char                             *imsi_str = imsi.c_str();
     uint64                                  imsi_num = 0;
-    uint32                                  i;
 
     if(imsi.length() == 15)
     {
-        for(i=0; i<15; i++)
-        {
-            imsi_num *= 10;
-            imsi_num += imsi_str[i] - '0';
-        }
+        to_number(imsi, 15, &imsi_num);
 
         for(iter=user_list.begin(); iter!=user_list.end(); iter++)
         {
@@ -500,17 +494,11 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
     LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
-    const char                             *imsi_str = imsi.c_str();
     uint64                                  imsi_num = 0;
-    uint32                                  i;
 
     if(imsi.length() == 15)
     {
-        for(i=0; i<15; i++)
-        {
-            imsi_num *= 10;
-            imsi_num += imsi_str[i] - '0';
-        }
+        to_number(imsi, 15, &imsi_num);
 
         for(iter=user_list.begin(); iter!=user_list.end(); iter++)
         {
@@ -581,24 +569,20 @@ std::string LTE_fdd_enb_user_mgr::print_all_users(void)
     libtools_scoped_lock                    lock(user_sem);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     std::string                             output;
-    std::stringstream                       tmp_ss;
     LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT   *guti;
     uint32                                  i;
     uint32                                  hex_val;
 
-    output = boost::lexical_cast<std::string>(user_list.size());
+    output = to_string((uint32)user_list.size());
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
         output += "\n";
         if((*iter)->is_id_set())
         {
-            tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imsi_str();
-            output += "imsi=" + tmp_ss.str();
-            tmp_ss.seekp(0);
-            tmp_ss << std::setw(15) << std::setfill('0') << (*iter)->get_imei_str();
-            output += " imei=" + tmp_ss.str();
+            output += "imsi=" + to_string((*iter)->get_imsi_num(), 15) + " ";
+            output += "imei=" + to_string((*iter)->get_imei_num(), 15) + " ";
         }else{
-            output += "c-rnti=" + boost::lexical_cast<std::string>((*iter)->get_c_rnti());
+            output += "c-rnti=" + to_string((*iter)->get_c_rnti()) + " ";
         }
         if((*iter)->is_guti_set())
         {

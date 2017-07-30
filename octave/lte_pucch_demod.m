@@ -1,5 +1,5 @@
 %
-% Copyright 2016 Ben Wojtowicz
+% Copyright 2016-2017 Ben Wojtowicz
 %
 %    This program is free software: you can redistribute it and/or modify
 %    it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,7 @@
 % Spec:        3GPP TS 36.211 section 5.4, 5.5, and 5.6 v10.1.0
 % Notes:       Only handling normal CP and 1 antenna
 % Rev History: Ben Wojtowicz 03/12/2016 Created
+%              Ben Wojtowicz 07/29/2017 Fixed a typo
 %
 function [soft_bit] = lte_pucch_demod(pucch_bb, N_1_p_pucch, N_id_cell, N_subfr, delta_ss, group_hop_en, seq_hop_en, N_cs_1, delta_pucch_shift, N_ul_rb, fs, N_ant)
 
@@ -188,7 +189,7 @@ function [soft_bit] = lte_pucch_demod(pucch_bb, N_1_p_pucch, N_id_cell, N_subfr,
     % Apply channel estimate to recover signal
     z_est  = [symbs(0+1,:), symbs(1+1,:), symbs(5+1,:), symbs(6+1,:), symbs(7+1,:), symbs(8+1,:), symbs(12+1,:), symbs(13+1,:)];
     ce_tot = [ce(0+1,:),    ce(1+1,:),    ce(5+1,:),    ce(6+1,:),    ce(7+1,:),    ce(8+1,:),    ce(12+1,:),    ce(13+1,:)];
-    y      = lte_pre_decoder_and_matched_filter_ul(z_est, ce_tot, 1);
+    z      = lte_pre_decoder_and_matched_filter_ul(z_est, ce_tot, 1);
 
     % Calculate n_prime_p
     % FIXME: Only supporting normal cyclic prefix

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -48,6 +48,8 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Added a command to print all registered
                                    users.
+    07/29/2017    Ben Wojtowicz    Added input parameters for direct IPC to a UE
+                                   and using the latest tools library.
 
 *******************************************************************************/
 
@@ -75,6 +77,9 @@
                               FORWARD DECLARATIONS
 *******************************************************************************/
 
+class LTE_fdd_enb_pdcp;
+class LTE_fdd_enb_mme;
+class LTE_fdd_enb_gw;
 
 /*******************************************************************************
                               TYPEDEFS
@@ -174,6 +179,8 @@ typedef enum{
     LTE_FDD_ENB_PARAM_PHICH_RESOURCE,
     LTE_FDD_ENB_PARAM_N_SCHED_INFO,
     LTE_FDD_ENB_PARAM_SYSTEM_INFO_PERIODICITY,
+    LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE,
+    LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE,
     LTE_FDD_ENB_PARAM_DEBUG_TYPE,
     LTE_FDD_ENB_PARAM_DEBUG_LEVEL,
     LTE_FDD_ENB_PARAM_ENABLE_PCAP,
@@ -227,6 +234,8 @@ static const char LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_N_ITEMS][100] = {"ban
                                                                             "phich_resource",
                                                                             "n_sched_info",
                                                                             "system_info_periodicity",
+                                                                            "mac_direct_to_ue",
+                                                                            "phy_direct_to_ue",
                                                                             "debug_type",
                                                                             "debug_level",
                                                                             "enable_pcap",
@@ -321,20 +330,21 @@ private:
     void handle_print_registered_users(void);
 
     // Variables
-    std::map<std::string, LTE_FDD_ENB_VAR_STRUCT> var_map;
-    sem_t                                         start_sem;
-    uint32                                        debug_type_mask;
-    uint32                                        debug_level_mask;
-    bool                                          shutdown;
-    bool                                          started;
+    std::map<std::string, LTE_FDD_ENB_VAR_STRUCT>  var_map;
+    LTE_fdd_enb_pdcp                              *pdcp;
+    LTE_fdd_enb_mme                               *mme;
+    LTE_fdd_enb_gw                                *gw;
+    sem_t                                          start_sem;
+    uint32                                         debug_type_mask;
+    uint32                                         debug_level_mask;
+    bool                                           shutdown;
+    bool                                           started;
 
     // Helpers
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, double value);
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, int64 value);
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, std::string value);
     LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, uint32 value);
-    bool is_string_valid_as_number(std::string str, uint32 length, uint8 max_value);
-    void get_formatted_time(std::string &time_string);
 
     // Inter-stack communication
     LTE_fdd_enb_msgq *phy_to_mac_comm;

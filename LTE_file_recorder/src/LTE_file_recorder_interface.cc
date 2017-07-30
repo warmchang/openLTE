@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013,2015 Ben Wojtowicz
+    Copyright 2013,2015,2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -26,6 +26,7 @@
     ----------    -------------    --------------------------------------------
     08/26/2013    Ben Wojtowicz    Created file
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
+    07/29/2017    Ben Wojtowicz    Using the latest tools library.
 
 *******************************************************************************/
 
@@ -36,7 +37,7 @@
 #include "LTE_file_recorder_interface.h"
 #include "LTE_file_recorder_flowgraph.h"
 #include "libtools_scoped_lock.h"
-#include <boost/lexical_cast.hpp>
+#include "libtools_helpers.h"
 
 /*******************************************************************************
                               DEFINES
@@ -310,15 +311,10 @@ void LTE_file_recorder_interface::handle_help(void)
     send_ctrl_msg("\tParameters:");
 
     // EARFCN
-    try
-    {
-        tmp_str  = "\t\t";
-        tmp_str += EARFCN_PARAM;
-        tmp_str += " = ";
-        tmp_str += boost::lexical_cast<std::string>(earfcn);
-    }catch(boost::bad_lexical_cast &){
-        // Intentionally do nothing
-    }
+    tmp_str  = "\t\t";
+    tmp_str += EARFCN_PARAM;
+    tmp_str += " = ";
+    tmp_str += to_string(earfcn);
     send_ctrl_msg(tmp_str);
 
     // FILE_NAME
@@ -337,23 +333,13 @@ bool LTE_file_recorder_interface::get_shutdown(void)
 // Reads/Writes
 void LTE_file_recorder_interface::read_earfcn(void)
 {
-    try
-    {
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, boost::lexical_cast<std::string>(earfcn).c_str());
-    }catch(boost::bad_lexical_cast &){
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "bad earfcn");
-    }
+    send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, to_string(earfcn).c_str());
 }
 void LTE_file_recorder_interface::write_earfcn(std::string earfcn_str)
 {
     uint16 tmp_earfcn = LIBLTE_INTERFACE_DL_EARFCN_INVALID;
 
-    try
-    {
-        tmp_earfcn = boost::lexical_cast<uint16>(earfcn_str);
-    }catch(boost::bad_lexical_cast &){
-        // Intentionally do nothing
-    }
+    to_number(earfcn_str, &tmp_earfcn);
 
     if(0 != liblte_interface_dl_earfcn_to_frequency(tmp_earfcn) ||
        0 != liblte_interface_ul_earfcn_to_frequency(tmp_earfcn))

@@ -11,3 +11,9 @@ add_library(lte
   src/liblte_security.cc
 )
 include_directories(hdr ${CMAKE_SOURCE_DIR}/cmn_hdr)
+
+add_executable(liblte_common_test
+  tests/liblte_common_tests.cc
+  src/liblte_common.cc
+)
+add_test(liblte_common_test liblte_common_test)

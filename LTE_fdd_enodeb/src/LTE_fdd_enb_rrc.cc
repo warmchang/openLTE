@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_rrc.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
     Copyright 2016 Przemek Bereski (UE capability information and UE capability
                                     enquiry support)
 
@@ -53,6 +53,9 @@
                                    machine.
     07/03/2016    Przemek Bereski  Added UE capability information and UE
                                    capability enquiry support.
+    07/29/2017    Ben Wojtowicz    Add SR support, populate physical layer
+                                   dedicated configurations, remove QOS and
+                                   fixed UL scheduling.
 
 *******************************************************************************/
 
@@ -62,6 +65,7 @@
 
 #include "LTE_fdd_enb_rrc.h"
 #include "LTE_fdd_enb_pdcp.h"
+#include "LTE_fdd_enb_mac.h"
 #include "LTE_fdd_enb_user_mgr.h"
 #include "libtools_scoped_lock.h"
 
@@ -69,6 +73,10 @@
                               DEFINES
 *******************************************************************************/
 
+// SR configuration
+#define I_SR_MIN       15
+#define I_SR_MAX       34
+#define N_1_P_PUCCH_SR 1
 
 /*******************************************************************************
                               TYPEDEFS
@@ -144,6 +152,7 @@ void LTE_fdd_enb_rrc::start(LTE_fdd_enb_msgq      *from_pdcp,
     {
         interface      = iface;
         started        = true;
+        i_sr           = I_SR_MIN;
         msgq_from_pdcp = from_pdcp;
         msgq_from_mme  = from_mme;
         msgq_to_pdcp   = to_pdcp;
@@ -352,9 +361,6 @@ void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
             drb1->set_lc_id(3);
             drb1->set_log_chan_group(2);
 
-            // Setup QoS for default data
-            cmd->user->set_qos(LTE_FDD_ENB_QOS_DEFAULT_DATA);
-
             if(LTE_FDD_ENB_ERROR_NONE == cmd->rb->get_next_rrc_nas_msg(&msg))
             {
                 send_rrc_con_reconfig(cmd->user, cmd->rb, msg);
@@ -393,9 +399,6 @@ void LTE_fdd_enb_rrc::handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd)
             drb2->set_drb_id(2);
             drb2->set_lc_id(4);
             drb2->set_log_chan_group(3);
-
-            // Setup QoS for default data
-            cmd->user->set_qos(LTE_FDD_ENB_QOS_DEFAULT_DATA);
 
             if(LTE_FDD_ENB_ERROR_NONE == cmd->rb->get_next_rrc_nas_msg(&msg))
             {
@@ -450,11 +453,8 @@ void LTE_fdd_enb_rrc::ccch_sm(LIBLTE_BIT_MSG_STRUCT *msg,
             {
                 loc_rb->set_rrc_state(LTE_FDD_ENB_RRC_STATE_SRB1_SETUP);
                 send_rrc_con_setup(loc_user, loc_rb);
-
-                // Setup uplink scheduling
                 srb1->set_rrc_procedure(LTE_FDD_ENB_RRC_PROC_RRC_CON_REQ);
                 srb1->set_rrc_state(LTE_FDD_ENB_RRC_STATE_WAIT_FOR_CON_SETUP_COMPLETE);
-                user->set_qos(LTE_FDD_ENB_QOS_SIGNALLING);
             }else{
                 interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                           LTE_FDD_ENB_DEBUG_LEVEL_RRC,
@@ -482,11 +482,8 @@ void LTE_fdd_enb_rrc::ccch_sm(LIBLTE_BIT_MSG_STRUCT *msg,
             {
                 loc_rb->set_rrc_state(LTE_FDD_ENB_RRC_STATE_SRB1_SETUP);
                 send_rrc_con_reest(loc_user, loc_rb);
-
-                // Setup uplink scheduling
                 srb1->set_rrc_procedure(LTE_FDD_ENB_RRC_PROC_RRC_CON_REEST_REQ);
                 srb1->set_rrc_state(LTE_FDD_ENB_RRC_STATE_WAIT_FOR_CON_REEST_COMPLETE);
-                user->set_qos(LTE_FDD_ENB_QOS_SIGNALLING);
             }else{
                 send_rrc_con_reest_reject(loc_user, loc_rb);
             }
@@ -765,8 +762,10 @@ void LTE_fdd_enb_rrc::send_rrc_con_reconfig(LTE_fdd_enb_user       *user,
                                             LTE_fdd_enb_rb         *rb,
                                             LIBLTE_BYTE_MSG_STRUCT *msg)
 {
-    LTE_fdd_enb_rb                               *drb1 = NULL;
-    LTE_fdd_enb_rb                               *drb2 = NULL;
+    LTE_fdd_enb_rb                               *drb1    = NULL;
+    LTE_fdd_enb_rb                               *drb2    = NULL;
+    LTE_fdd_enb_cnfg_db                          *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    LTE_fdd_enb_mac                              *mac     = LTE_fdd_enb_mac::get_instance();
     LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT         pdcp_sdu_ready;
     LIBLTE_RRC_CONNECTION_RECONFIGURATION_STRUCT *rrc_con_recnfg;
     LIBLTE_BIT_MSG_STRUCT                         pdcp_sdu;
@@ -860,10 +859,13 @@ void LTE_fdd_enb_rrc::send_rrc_con_reconfig(LTE_fdd_enb_user       *user,
         rrc_con_recnfg->rr_cnfg_ded.drb_to_add_mod_list[idx].lc_cnfg.log_chan_sr_mask_present                  = false;
         rrc_con_recnfg->rr_cnfg_ded.drb_to_add_mod_list_size++;
     }
-    rrc_con_recnfg->rr_cnfg_ded.drb_to_release_list_size         = 0;
-    rrc_con_recnfg->rr_cnfg_ded.mac_main_cnfg_present            = false;
-    rrc_con_recnfg->rr_cnfg_ded.sps_cnfg_present                 = false;
-    rrc_con_recnfg->rr_cnfg_ded.phy_cnfg_ded_present             = false;
+    rrc_con_recnfg->rr_cnfg_ded.drb_to_release_list_size = 0;
+    rrc_con_recnfg->rr_cnfg_ded.mac_main_cnfg_present    = false;
+    rrc_con_recnfg->rr_cnfg_ded.sps_cnfg_present         = false;
+    rrc_con_recnfg->rr_cnfg_ded.phy_cnfg_ded_present     = true;
+    cnfg_db->populate_rrc_phy_config_dedicated(&rrc_con_recnfg->rr_cnfg_ded.phy_cnfg_ded, 0, 0, i_sr, N_1_P_PUCCH_SR);
+    mac->add_periodic_sr_pucch(user->get_c_rnti(), i_sr, N_1_P_PUCCH_SR);
+    increment_i_sr();
     rrc_con_recnfg->rr_cnfg_ded.rlf_timers_and_constants_present = false;
     rrc_con_recnfg->sec_cnfg_ho_present                          = false;
     liblte_rrc_pack_dl_dcch_msg(&rb->dl_dcch_msg, &pdcp_sdu);
@@ -890,6 +892,8 @@ void LTE_fdd_enb_rrc::send_rrc_con_reconfig(LTE_fdd_enb_user       *user,
 void LTE_fdd_enb_rrc::send_rrc_con_reest(LTE_fdd_enb_user *user,
                                          LTE_fdd_enb_rb   *rb)
 {
+    LTE_fdd_enb_cnfg_db                          *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    LTE_fdd_enb_mac                              *mac     = LTE_fdd_enb_mac::get_instance();
     LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT         pdcp_sdu_ready;
     LIBLTE_RRC_CONNECTION_REESTABLISHMENT_STRUCT *rrc_con_reest;
     LIBLTE_BIT_MSG_STRUCT                         pdcp_sdu;
@@ -917,8 +921,11 @@ void LTE_fdd_enb_rrc::send_rrc_con_reest(LTE_fdd_enb_user *user,
     rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.phr_cnfg_present                      = false;
     rrc_con_reest->rr_cnfg.mac_main_cnfg.explicit_value.time_alignment_timer                  = LIBLTE_RRC_TIME_ALIGNMENT_TIMER_SF10240;
     rrc_con_reest->rr_cnfg.sps_cnfg_present                                                   = false;
-    rrc_con_reest->rr_cnfg.phy_cnfg_ded_present                                               = false;
-    rrc_con_reest->rr_cnfg.rlf_timers_and_constants_present                                   = false;
+    rrc_con_reest->rr_cnfg.phy_cnfg_ded_present                                               = true;
+    cnfg_db->populate_rrc_phy_config_dedicated(&rrc_con_reest->rr_cnfg.phy_cnfg_ded, 0, 0, i_sr, N_1_P_PUCCH_SR);
+    mac->add_periodic_sr_pucch(user->get_c_rnti(), i_sr, N_1_P_PUCCH_SR);
+    increment_i_sr();
+    rrc_con_reest->rr_cnfg.rlf_timers_and_constants_present = false;
     liblte_rrc_pack_dl_ccch_msg(&rb->dl_ccch_msg, &pdcp_sdu);
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_RRC,
@@ -970,8 +977,9 @@ void LTE_fdd_enb_rrc::send_rrc_con_reest_reject(LTE_fdd_enb_user *user,
 void LTE_fdd_enb_rrc::send_rrc_con_release(LTE_fdd_enb_user *user,
                                            LTE_fdd_enb_rb   *rb)
 {
-    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT pdcp_sdu_ready;
-    LIBLTE_BIT_MSG_STRUCT                 pdcp_sdu;
+    LTE_fdd_enb_mac                       *mac = LTE_fdd_enb_mac::get_instance();
+    LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT  pdcp_sdu_ready;
+    LIBLTE_BIT_MSG_STRUCT                  pdcp_sdu;
 
     rb->dl_dcch_msg.msg_type                               = LIBLTE_RRC_DL_DCCH_MSG_TYPE_RRC_CON_RELEASE;
     rb->dl_dcch_msg.msg.rrc_con_release.rrc_transaction_id = rb->get_rrc_transaction_id();
@@ -985,6 +993,8 @@ void LTE_fdd_enb_rrc::send_rrc_con_release(LTE_fdd_enb_user *user,
                               "Sending RRC Connection Release for RNTI=%u, RB=%s",
                               user->get_c_rnti(),
                               LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    mac->remove_periodic_sr_pucch(user->get_c_rnti());
 
     // Queue the PDU for PDCP
     rb->queue_pdcp_sdu(&pdcp_sdu);
@@ -1000,6 +1010,8 @@ void LTE_fdd_enb_rrc::send_rrc_con_release(LTE_fdd_enb_user *user,
 void LTE_fdd_enb_rrc::send_rrc_con_setup(LTE_fdd_enb_user *user,
                                          LTE_fdd_enb_rb   *rb)
 {
+    LTE_fdd_enb_cnfg_db                   *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
+    LTE_fdd_enb_mac                       *mac     = LTE_fdd_enb_mac::get_instance();
     LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT  pdcp_sdu_ready;
     LIBLTE_RRC_CONNECTION_SETUP_STRUCT    *rrc_con_setup;
     LIBLTE_BIT_MSG_STRUCT                  pdcp_sdu;
@@ -1027,8 +1039,11 @@ void LTE_fdd_enb_rrc::send_rrc_con_setup(LTE_fdd_enb_user *user,
     rrc_con_setup->rr_cnfg.mac_main_cnfg.explicit_value.phr_cnfg_present                      = false;
     rrc_con_setup->rr_cnfg.mac_main_cnfg.explicit_value.time_alignment_timer                  = LIBLTE_RRC_TIME_ALIGNMENT_TIMER_SF10240;
     rrc_con_setup->rr_cnfg.sps_cnfg_present                                                   = false;
-    rrc_con_setup->rr_cnfg.phy_cnfg_ded_present                                               = false;
-    rrc_con_setup->rr_cnfg.rlf_timers_and_constants_present                                   = false;
+    rrc_con_setup->rr_cnfg.phy_cnfg_ded_present                                               = true;
+    cnfg_db->populate_rrc_phy_config_dedicated(&rrc_con_setup->rr_cnfg.phy_cnfg_ded, 0, 0, i_sr, N_1_P_PUCCH_SR);
+    mac->add_periodic_sr_pucch(user->get_c_rnti(), i_sr, N_1_P_PUCCH_SR);
+    increment_i_sr();
+    rrc_con_setup->rr_cnfg.rlf_timers_and_constants_present = false;
     liblte_rrc_pack_dl_ccch_msg(&rb->dl_ccch_msg, &pdcp_sdu);
     interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                               LTE_FDD_ENB_DEBUG_LEVEL_RRC,
@@ -1119,4 +1134,16 @@ void LTE_fdd_enb_rrc::send_ue_capability_enquiry(LTE_fdd_enb_user *user,
                        LTE_FDD_ENB_DEST_LAYER_PDCP,
                        (LTE_FDD_ENB_MESSAGE_UNION *)&pdcp_sdu_ready,
                        sizeof(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT));
+}
+
+/*****************/
+/*    Helpers    */
+/*****************/
+void LTE_fdd_enb_rrc::increment_i_sr(void)
+{
+    i_sr++;
+    if(i_sr > I_SR_MAX)
+    {
+        i_sr = I_SR_MIN;
+    }
 }

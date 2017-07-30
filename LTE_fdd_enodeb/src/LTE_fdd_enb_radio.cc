@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_radio.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
     Copyright 2016 Przemek Bereski (bladeRF support)
 
     This program is free software: you can redistribute it and/or modify
@@ -52,6 +52,7 @@
                                    processor affinity.
     07/03/2016    Przemek Bereski  Addition of bladeRF as a radio choice.
     10/09/2016    Ben Wojtowicz    Added typecast for bladerf_get_timestamp().
+    07/29/2017    Ben Wojtowicz    Using the latest tools library.
 
 *******************************************************************************/
 
@@ -498,8 +499,8 @@ void LTE_fdd_enb_radio_usrp_b2x0::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio
                     {
                         for(i=0; i<radio_params->num_samps; i++)
                         {
-                            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].real();
-                            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].imag();
+                            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].real();
+                            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].imag();
                         }
                         radio_params->samp_idx += radio_params->num_samps;
 
@@ -527,8 +528,8 @@ void LTE_fdd_enb_radio_usrp_b2x0::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio
                     }else{
                         for(i=0; i<(radio_params->N_samps_per_subfr - radio_params->samp_idx); i++)
                         {
-                            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].real();
-                            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].imag();
+                            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].real();
+                            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].imag();
                         }
 #if EXTRA_RADIO_DEBUG
                         radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
@@ -1014,8 +1015,8 @@ void LTE_fdd_enb_radio_bladerf::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_p
     }else{
         for(i=0; i<radio_params->N_samps_per_subfr; i++)
         {
-            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[i] = rx_buf[(i*2)  ] / 40.0;
-            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[i] = rx_buf[(i*2)+1] / 40.0;
+            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[0][i] = rx_buf[(i*2)  ] / 40.0;
+            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[0][i] = rx_buf[(i*2)+1] / 40.0;
         }
         metadata_rx.timestamp                                         += radio_params->N_samps_per_subfr;
         radio_params->rx_radio_buf[radio_params->buf_idx].current_tti  = radio_params->rx_current_tti;

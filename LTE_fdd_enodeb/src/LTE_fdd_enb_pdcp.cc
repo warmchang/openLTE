@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_pdcp.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2015, 2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -36,6 +36,7 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
 
 *******************************************************************************/
 
@@ -63,37 +64,10 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_pdcp*      LTE_fdd_enb_pdcp::instance = NULL;
-static pthread_mutex_t pdcp_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
 *******************************************************************************/
-
-/*******************/
-/*    Singleton    */
-/*******************/
-LTE_fdd_enb_pdcp* LTE_fdd_enb_pdcp::get_instance(void)
-{
-    libtools_scoped_lock lock(pdcp_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_fdd_enb_pdcp();
-    }
-
-    return(instance);
-}
-void LTE_fdd_enb_pdcp::cleanup(void)
-{
-    libtools_scoped_lock lock(pdcp_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
-    }
-}
 
 /********************************/
 /*    Constructor/Destructor    */

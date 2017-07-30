@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_gw.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014-2016 Ben Wojtowicz
+    Copyright 2014-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -35,6 +35,7 @@
                                    parsing the IP packet header (thanks to
                                    Damian Jarek for finding this).
     07/03/2016    Ben Wojtowicz    Setting processor affinity.
+    07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
 
 *******************************************************************************/
 
@@ -69,37 +70,10 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_gw*        LTE_fdd_enb_gw::instance = NULL;
-static pthread_mutex_t gw_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
 *******************************************************************************/
-
-/*******************/
-/*    Singleton    */
-/*******************/
-LTE_fdd_enb_gw* LTE_fdd_enb_gw::get_instance(void)
-{
-    libtools_scoped_lock lock(gw_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_fdd_enb_gw();
-    }
-
-    return(instance);
-}
-void LTE_fdd_enb_gw::cleanup(void)
-{
-    libtools_scoped_lock lock(gw_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
-    }
-}
 
 /********************************/
 /*    Constructor/Destructor    */

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -36,6 +36,7 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     07/31/2016    Ben Wojtowicz    Added an external interface for getting the
                                    current TTIs.
+    07/29/2017    Ben Wojtowicz    Added IPC direct to a UE PHY.
 
 *******************************************************************************/
 
@@ -80,7 +81,7 @@ public:
     static void cleanup(void);
 
     // Start/Stop
-    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *to_mac, LTE_fdd_enb_interface *iface);
+    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *to_mac, bool direct_to_ue, LTE_fdd_enb_interface *iface);
     void stop(void);
 
     // External interface
@@ -104,8 +105,10 @@ private:
 
     // Communication
     void handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
-    LTE_fdd_enb_msgq *msgq_from_mac;
-    LTE_fdd_enb_msgq *msgq_to_mac;
+    void handle_ue_msg(LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT *msg);
+    LTE_fdd_enb_msgq  *msgq_from_mac;
+    LTE_fdd_enb_msgq  *msgq_to_mac;
+    libtools_ipc_msgq *msgq_to_ue;
 
     // Generic parameters
     LIBLTE_PHY_STRUCT *phy_struct;

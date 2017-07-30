@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2014 Ben Wojtowicz
+    Copyright 2012-2014, 2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -48,6 +48,7 @@
     04/12/2014    Ben Wojtowicz    Using the latest LTE library.
     05/04/2014    Ben Wojtowicz    Added PHICH support.
     11/01/2014    Ben Wojtowicz    Using the latest LTE library.
+    07/29/2017    Ben Wojtowicz    Using the latest LTE library.
 
 *******************************************************************************/
 
@@ -379,8 +380,8 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                     bcch_dlsch_msg.sibs[0].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1;
                     memcpy(&bcch_dlsch_msg.sibs[0].sib, &sib1, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1_STRUCT));
                     liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                                   &pdcch.alloc[pdcch.N_alloc].msg);
-                    liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg.N_bits,
+                                                   &pdcch.alloc[pdcch.N_alloc].msg[0]);
+                    liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg[0].N_bits,
                                                             subframe.num,
                                                             N_rb_dl,
                                                             LIBLTE_MAC_SI_RNTI,
@@ -427,10 +428,10 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                         }
                     }
                     liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                                   &pdcch.alloc[pdcch.N_alloc].msg);
+                                                   &pdcch.alloc[pdcch.N_alloc].msg[0]);
 
                     // FIXME: This was a hack to allow SIB2 decoding with 1.4MHz BW due to overlap with MIB
-                    if(LIBLTE_SUCCESS == liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg.N_bits,
+                    if(LIBLTE_SUCCESS == liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg[0].N_bits,
                                                                                  subframe.num,
                                                                                  N_rb_dl,
                                                                                  LIBLTE_MAC_SI_RNTI,
@@ -477,8 +478,8 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                         if(0 != bcch_dlsch_msg.N_sibs)
                         {
                             liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                                           &pdcch.alloc[pdcch.N_alloc].msg);
-                            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg.N_bits,
+                                                           &pdcch.alloc[pdcch.N_alloc].msg[0]);
+                            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg[0].N_bits,
                                                                     subframe.num,
                                                                     N_rb_dl,
                                                                     LIBLTE_MAC_SI_RNTI,
@@ -498,8 +499,8 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                 // Add test load
                 if(0 == pdcch.N_alloc)
                 {
-                    pdcch.alloc[0].msg.N_bits = 0;
-                    pdcch.alloc[0].N_prb      = 0;
+                    pdcch.alloc[0].msg[0].N_bits = 0;
+                    pdcch.alloc[0].N_prb         = 0;
                     liblte_phy_get_tbs_mcs_and_n_prb_for_dl(1480,
                                                             subframe.num,
                                                             N_rb_dl,
@@ -509,8 +510,8 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                                                             &max_N_prb);
                     while(pdcch.alloc[0].N_prb < (uint32)((float)(max_N_prb*percent_load)/100.0))
                     {
-                        pdcch.alloc[0].msg.N_bits += 8;
-                        liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[0].msg.N_bits,
+                        pdcch.alloc[0].msg[0].N_bits += 8;
+                        liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[0].msg[0].N_bits,
                                                                 subframe.num,
                                                                 N_rb_dl,
                                                                 LIBLTE_MAC_P_RNTI,
@@ -518,9 +519,9 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                                                                 &pdcch.alloc[0].mcs,
                                                                 &pdcch.alloc[0].N_prb);
                     }
-                    for(i=0; i<pdcch.alloc[0].msg.N_bits; i++)
+                    for(i=0; i<pdcch.alloc[0].msg[0].N_bits; i++)
                     {
-                        pdcch.alloc[0].msg.msg[i] = liblte_rrc_test_fill[i%8];
+                        pdcch.alloc[0].msg[0].msg[i] = liblte_rrc_test_fill[i%8];
                     }
                     if(0 != pdcch.alloc[0].N_prb)
                     {

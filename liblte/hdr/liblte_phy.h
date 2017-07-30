@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2016 Ben Wojtowicz
+    Copyright 2012-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -74,6 +74,10 @@
     03/12/2016    Ben Wojtowicz    Added PUCCH channel decode support.
     07/03/2016    Ben Wojtowicz    Added PDCCH size defines.
     07/31/2016    Ben Wojtowicz    Added harq_retx_count to allocation struct.
+    07/29/2017    Ben Wojtowicz    Added two codeword support, refactored PUCCH
+                                   channel decoding for PUCCH types 1, 1A, and
+                                   1B, and added a function to map the SR
+                                   configuration index.
 
 *******************************************************************************/
 
@@ -678,7 +682,7 @@ typedef enum{
 static const char liblte_phy_tpc_command_dci_1_1a_1b_1d_2_3_text[LIBLTE_PHY_TPC_COMMAND_DCI_1_1A_1B_1D_2_3_N_ITEMS][20] = {"-1dB", "0dB", "1dB", "3dB"};
 // Structs
 typedef struct{
-    LIBLTE_BIT_MSG_STRUCT           msg;
+    LIBLTE_BIT_MSG_STRUCT           msg[2];
     LIBLTE_PHY_PRE_CODER_TYPE_ENUM  pre_coder_type;
     LIBLTE_PHY_MODULATION_TYPE_ENUM mod_type;
     LIBLTE_PHY_CHAN_TYPE_ENUM       chan_type;
@@ -724,14 +728,15 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
                                                   uint32                       *N_out_bits);
 
 /*********************************************************************
-    Name: liblte_phy_pucch_channel_encode
+    Name: liblte_phy_pucch_format_1_1a_1b_channel_encode
 
     Description: Encodes and modulates the Physical Uplink Control
-                 Channel
+                 Channel for formats 1, 1a, and 1b
 
-    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.1
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
 
-    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+    Notes: Only handling normal CP and N_ant=1
 *********************************************************************/
 // Defines
 // Enums
@@ -740,24 +745,91 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
 // FIXME
 
 /*********************************************************************
-    Name: liblte_phy_pucch_channel_decode
+    Name: liblte_phy_pucch_format_1_1a_1b_channel_decode
 
     Description: Demodulates and decodes the Physical Uplink Control
-                 Channel
+                 Channel for formats 1, 1a, and 1b
 
-    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.1
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
 
-    Notes: Only handling normal CP, N_ant=1, and Format 1, 1a, 1b
+    Notes: Only handling normal CP and N_ant=1
+*********************************************************************/
+// Defines
+// Enums
+typedef enum{
+    LIBLTE_PHY_PUCCH_FORMAT_1 = 0,
+    LIBLTE_PHY_PUCCH_FORMAT_1A,
+    LIBLTE_PHY_PUCCH_FORMAT_1B,
+    LIBLTE_PHY_PUCCH_FORMAT_2,
+    LIBLTE_PHY_PUCCH_FORMAT_2A,
+    LIBLTE_PHY_PUCCH_FORMAT_2B,
+    LIBLTE_PHY_PUCCH_FORMAT_3,
+    LIBLTE_PHY_PUCCH_FORMAT_N_ITEMS,
+}LIBLTE_PHY_PUCCH_FORMAT_ENUM;
+static const char liblte_phy_pucch_format_text[LIBLTE_PHY_PUCCH_FORMAT_N_ITEMS][20] = { "1", "1a", "1b",
+                                                                                        "2", "2a", "2b",
+                                                                                        "3"};
+// Structs
+// Functions
+LIBLTE_ERROR_ENUM liblte_phy_pucch_format_1_1a_1b_channel_decode(LIBLTE_PHY_STRUCT            *phy_struct,
+                                                                 LIBLTE_PHY_SUBFRAME_STRUCT   *subframe,
+                                                                 LIBLTE_PHY_PUCCH_FORMAT_ENUM  format,
+                                                                 uint32                        N_id_cell,
+                                                                 uint8                         N_ant,
+                                                                 uint32                        N_1_p_pucch,
+                                                                 uint8                        *out_bits,
+                                                                 uint32                       *N_out_bits);
+
+/*********************************************************************
+    Name: liblte_phy_pucch_format_2_2a_2b_channel_encode
+
+    Description: Encodes and modulates the Physical Uplink Control
+                 Channel for formats 2, 2a, and 2b
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.2
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
+
+    Notes: Only handling normal CP and N_ant=1
 *********************************************************************/
 // Defines
 // Enums
 // Structs
 // Functions
-LIBLTE_ERROR_ENUM liblte_phy_pucch_channel_decode(LIBLTE_PHY_STRUCT          *phy_struct,
-                                                  LIBLTE_PHY_SUBFRAME_STRUCT *subframe,
-                                                  uint32                      N_id_cell,
-                                                  uint8                       N_ant,
-                                                  uint32                      N_1_p_pucch);
+// FIXME
+
+/*********************************************************************
+    Name: liblte_phy_pucch_format_2_2a_2b_channel_decode
+
+    Description: Demodulates and decodes the Physical Uplink Control
+                 Channel for formats 2, 2a, and 2b
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.2
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
+
+    Notes: Only handling normal CP and N_ant=1
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+// FIXME
+
+/*********************************************************************
+    Name: liblte_phy_pucch_map_sr_config_idx
+
+    Description: Maps SR configuration index to SR periodicity and
+                 SR subframe offset
+
+    Document Reference: 3GPP TS 36.213 v10.3.0 table 10.1.5-1
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+void liblte_phy_pucch_map_sr_config_idx(uint32  i_sr,
+                                        uint32 *sr_periodicity,
+                                        uint32 *N_offset_sr);
 
 /*********************************************************************
     Name: liblte_phy_generate_prach

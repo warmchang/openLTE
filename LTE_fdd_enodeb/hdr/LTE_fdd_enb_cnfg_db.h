@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2014, 2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,8 @@
     08/03/2014    Ben Wojtowicz    Added support for limiting PCAP output.
     09/03/2014    Ben Wojtowicz    Added better MCC/MNC support.
     11/01/2014    Ben Wojtowicz    Added config file support.
+    07/29/2017    Ben Wojtowicz    Added a routine for filling RRC physical
+                                   layer dedicated configurations.
 
 *******************************************************************************/
 
@@ -56,6 +58,8 @@
                               FORWARD DECLARATIONS
 *******************************************************************************/
 
+class LTE_fdd_enb_pdcp;
+class LTE_fdd_enb_mme;
 
 /*******************************************************************************
                               TYPEDEFS
@@ -119,11 +123,18 @@ public:
     LTE_FDD_ENB_ERROR_ENUM get_param(LTE_FDD_ENB_PARAM_ENUM param, uint32 &value);
 
     // MIB/SIB Construction
-    void construct_sys_info(void);
+    void construct_sys_info(LTE_fdd_enb_pdcp *pdcp, LTE_fdd_enb_mme *mme);
     void get_sys_info(LTE_FDD_ENB_SYS_INFO_STRUCT &_sys_info);
 
     // Config File
     void read_cnfg_file(void);
+
+    // Helpers
+    void populate_rrc_phy_config_dedicated(LIBLTE_RRC_PHYSICAL_CONFIG_DEDICATED_STRUCT *cnfg,
+                                           uint32                                       i_cqi_pmi,
+                                           uint32                                       i_ri,
+                                           uint32                                       i_sr,
+                                           uint32                                       n_1_p_pucch);
 
 private:
     // Singleton

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -42,6 +42,7 @@
                                    procedures.
     02/13/2016    Ben Wojtowicz    Added an inactivity timer.
     03/12/2016    Ben Wojtowicz    Added H-ARQ support.
+    07/29/2017    Ben Wojtowicz    Remove QOS support and fixed UL scheduling.
 
 *******************************************************************************/
 
@@ -92,24 +93,6 @@ typedef struct{
     uint8  k_rrc_enc[32];
     uint8  k_rrc_int[32];
 }LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT;
-
-typedef enum{
-    LTE_FDD_ENB_QOS_NONE = 0,
-    LTE_FDD_ENB_QOS_SIGNALLING,
-    LTE_FDD_ENB_QOS_DEFAULT_DATA,
-    LTE_FDD_ENB_QOS_N_ITEMS,
-}LTE_FDD_ENB_QOS_ENUM;
-static const char LTE_fdd_enb_qos_text[LTE_FDD_ENB_QOS_N_ITEMS][20] = {"None",
-                                                                       "Signalling",
-                                                                       "Default Data"};
-
-typedef struct{
-    LTE_FDD_ENB_QOS_ENUM qos;
-    uint32               ul_tti_frequency;
-    uint32               dl_tti_frequency;
-    uint32               ul_bytes_per_subfn;
-    uint32               dl_bytes_per_subfn;
-}LTE_FDD_ENB_QOS_STRUCT;
 
 typedef struct{
     LIBLTE_MAC_PDU_STRUCT        mac_pdu;
@@ -208,21 +191,18 @@ public:
     void flip_dl_ndi(void);
     bool get_ul_ndi(void);
     void flip_ul_ndi(void);
-    void start_ul_sched_timer(uint32 m_seconds);
-    void stop_ul_sched_timer(void);
     void store_harq_info(uint32 pucch_tti, LIBLTE_MAC_PDU_STRUCT *mac_pdu, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
     void clear_harq_info(uint32 pucch_tti);
     LTE_FDD_ENB_ERROR_ENUM get_harq_info(uint32 pucch_tti, LIBLTE_MAC_PDU_STRUCT *mac_pdu, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
+    void set_ul_buffer_size(uint32 N_bytes_in_buffer);
+    void update_ul_buffer_size(uint32 N_bytes_received);
+    uint32 get_ul_buffer_size(void);
 
     // Generic
     void set_N_del_ticks(uint32 N_ticks);
     uint32 get_N_del_ticks(void);
-    void set_qos(LTE_FDD_ENB_QOS_ENUM _qos);
-    LTE_FDD_ENB_QOS_ENUM get_qos(void);
-    uint32 get_qos_ul_tti_freq(void);
-    uint32 get_qos_dl_tti_freq(void);
-    uint32 get_qos_ul_bytes_per_subfn(void);
-    uint32 get_qos_dl_bytes_per_subfn(void);
+    uint32 get_max_ul_bytes_per_subfn(void);
+    uint32 get_max_dl_bytes_per_subfn(void);
     void start_inactivity_timer(uint32 m_seconds);
     void reset_inactivity_timer(uint32 m_seconds);
     void stop_inactivity_timer(void);
@@ -271,17 +251,14 @@ private:
     // MAC
     sem_t                                           harq_buffer_sem;
     std::map<uint32, LTE_FDD_ENB_HARQ_INFO_STRUCT*> harq_buffer;
-    uint32                                          ul_sched_timer_m_seconds;
-    uint32                                          ul_sched_timer_id;
+    uint32                                          ul_buffer_size;
     bool                                            dl_ndi;
     bool                                            ul_ndi;
 
     // Generic
     void handle_timer_expiry(uint32 timer_id);
-    LTE_FDD_ENB_QOS_STRUCT avail_qos[LTE_FDD_ENB_QOS_N_ITEMS];
-    LTE_FDD_ENB_QOS_ENUM   qos;
-    uint32                 N_del_ticks;
-    uint32                 inactivity_timer_id;
+    uint32 N_del_ticks;
+    uint32 inactivity_timer_id;
 };
 
 #endif /* __LTE_FDD_ENB_USER_H__ */

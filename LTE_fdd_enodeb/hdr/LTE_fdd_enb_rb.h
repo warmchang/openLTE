@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2016 Ben Wojtowicz
+    Copyright 2014-2017 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -49,6 +49,7 @@
     02/13/2016    Ben Wojtowicz    Added a wait for RRC connection
                                    reestablishment complete RRC state.
     12/18/2016    Ben Wojtowicz    Properly handling multiple RLC AMD PDUs.
+    07/29/2017    Ben Wojtowicz    Remove last TTI storage.
 
 *******************************************************************************/
 
@@ -294,8 +295,6 @@ public:
     LTE_FDD_ENB_ERROR_ENUM get_next_mac_sdu(LIBLTE_BYTE_MSG_STRUCT **sdu);
     LTE_FDD_ENB_ERROR_ENUM delete_next_mac_sdu(void);
     LTE_FDD_ENB_MAC_CONFIG_ENUM get_mac_config(void);
-    void set_last_tti(uint32 last_tti);
-    uint32 get_last_tti(void);
     void set_con_res_id(uint64 con_res_id);
     uint64 get_con_res_id(void);
     void set_send_con_res_id(bool send_con_res_id);
@@ -374,7 +373,6 @@ private:
     std::list<LIBLTE_BYTE_MSG_STRUCT *> mac_sdu_queue;
     LTE_FDD_ENB_MAC_CONFIG_ENUM         mac_config;
     uint64                              mac_con_res_id;
-    uint32                              mac_last_tti;
     bool                                mac_send_con_res_id;
 
     // DRB

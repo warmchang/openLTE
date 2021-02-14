@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2017 Ben Wojtowicz
+    Copyright 2012-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -78,6 +78,11 @@
                                    channel decoding for PUCCH types 1, 1A, and
                                    1B, and added a function to map the SR
                                    configuration index.
+    02/14/2021    Ben Wojtowicz    Massive reformat, using the new RRC library,
+                                   using complex, improved turbo decoder, added
+                                   PUCCH format 1/1a/1b encoder, added UL
+                                   subframe creator, added TBS/MCS helper, and
+                                   added TTI math helpers.
 
 *******************************************************************************/
 
@@ -89,7 +94,7 @@
 *******************************************************************************/
 
 #include "liblte_common.h"
-#include "liblte_rrc.h"
+#include "EUTRA_RRC_Definitions.h"
 #include "fftw3.h"
 
 /*******************************************************************************
@@ -214,7 +219,10 @@ typedef enum{
     LIBLTE_PHY_MODULATION_TYPE_QPSK,
     LIBLTE_PHY_MODULATION_TYPE_16QAM,
     LIBLTE_PHY_MODULATION_TYPE_64QAM,
+    LIBLTE_PHY_MODULATION_TYPE_N_ITEMS,
 }LIBLTE_PHY_MODULATION_TYPE_ENUM;
+static const char liblte_phy_modulation_type_text[LIBLTE_PHY_MODULATION_TYPE_N_ITEMS][20] = {"BPSK", "QPSK", "16QAM", "64QAM"};
+static const uint32 liblte_phy_modulation_type_to_q_m[LIBLTE_PHY_MODULATION_TYPE_N_ITEMS] = {1, 2, 4, 6};
 
 typedef enum{
     LIBLTE_PHY_CHAN_TYPE_DLSCH = 0,
@@ -225,14 +233,11 @@ typedef enum{
 
 typedef struct{
     // Receive
-    float rx_symb_re[16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float rx_symb_im[16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float rx_ce_re[LIBLTE_PHY_N_ANT_MAX][16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float rx_ce_im[LIBLTE_PHY_N_ANT_MAX][16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex rx_symb[16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex rx_ce[LIBLTE_PHY_N_ANT_MAX][16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
 
     // Transmit
-    float tx_symb_re[LIBLTE_PHY_N_ANT_MAX][16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float tx_symb_im[LIBLTE_PHY_N_ANT_MAX][16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex tx_symb[LIBLTE_PHY_N_ANT_MAX][16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
 
     // Common
     uint32 num;
@@ -254,27 +259,28 @@ typedef struct{
 // Enums
 // Structs
 typedef struct{
+    uint8  bits[5][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint32 N_bits[5];
+}LIBLTE_PHY_C_BITS_STRUCT;
+typedef struct{
+    float  rx_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint8  tx_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    uint32 N_bits[5];
+}LIBLTE_PHY_E_BITS_STRUCT;
+typedef struct{
     // PUSCH
     fftwf_complex *transform_precoding_in;
     fftwf_complex *transform_precoding_out;
     fftwf_plan     transform_precoding_plan[LIBLTE_PHY_N_RB_UL_MAX];
     fftwf_plan     transform_pre_decoding_plan[LIBLTE_PHY_N_RB_UL_MAX];
-    float          pusch_z_est_re[14400];
-    float          pusch_z_est_im[14400];
-    float          pusch_c_est_0_re[LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float          pusch_c_est_0_im[LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float          pusch_c_est_1_re[LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float          pusch_c_est_1_im[LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float          pusch_c_est_re[14400];
-    float          pusch_c_est_im[14400];
-    float          pusch_z_re[LIBLTE_PHY_N_ANT_MAX][14400];
-    float          pusch_z_im[LIBLTE_PHY_N_ANT_MAX][14400];
-    float          pusch_y_re[14400];
-    float          pusch_y_im[14400];
-    float          pusch_x_re[14400];
-    float          pusch_x_im[14400];
-    float          pusch_d_re[14400];
-    float          pusch_d_im[14400];
+    complex        pusch_z_est[14400];
+    complex        pusch_c_est_0[LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    complex        pusch_c_est_1[LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    complex        pusch_c_est[14400];
+    complex        pusch_z[LIBLTE_PHY_N_ANT_MAX][14400];
+    complex        pusch_y[14400];
+    complex        pusch_x[14400];
+    complex        pusch_d[14400];
     float          pusch_descramb_bits[28800];
     uint32         pusch_c[28800];
     uint8          pusch_encode_bits[28800];
@@ -282,39 +288,27 @@ typedef struct{
     int8           pusch_soft_bits[28800];
 
     // PUCCH
-    float pucch_z_est_re[LIBLTE_PHY_N_SC_RB_UL*14];
-    float pucch_z_est_im[LIBLTE_PHY_N_SC_RB_UL*14];
-    float pucch_c_est_0_re[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float pucch_c_est_0_im[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float pucch_c_est_1_re[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float pucch_c_est_1_im[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float pucch_c_est_re[LIBLTE_PHY_N_SC_RB_UL*14];
-    float pucch_c_est_im[LIBLTE_PHY_N_SC_RB_UL*14];
-    float pucch_z_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_N_SC_RB_UL*14];
-    float pucch_z_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_N_SC_RB_UL*14];
+    complex pucch_z_est[LIBLTE_PHY_N_SC_RB_UL*14];
+    complex pucch_c_est_0[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    complex pucch_c_est_1[LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    complex pucch_c_est[LIBLTE_PHY_N_SC_RB_UL*14];
+    complex pucch_z[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_N_SC_RB_UL*14];
 
     // UL Reference Signals
-    float  ulrs_x_q_re[2048];
-    float  ulrs_x_q_im[2048];
-    float  ulrs_r_bar_u_v_re[2048];
-    float  ulrs_r_bar_u_v_im[2048];
-    uint32 ulrs_c[160];
+    complex ulrs_x_q[2048];
+    complex ulrs_r_bar_u_v[2048];
+    uint32  ulrs_c[160];
 
     // DMRS
-    float  pusch_dmrs_0_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float  pusch_dmrs_0_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float  pusch_dmrs_1_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float  pusch_dmrs_1_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
-    float  pucch_dmrs_0_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float  pucch_dmrs_0_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float  pucch_dmrs_1_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float  pucch_dmrs_1_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
-    float  pucch_r_u_v_alpha_p_re[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2][7][LIBLTE_PHY_N_SC_RB_UL];
-    float  pucch_r_u_v_alpha_p_im[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2][7][LIBLTE_PHY_N_SC_RB_UL];
-    uint32 pusch_dmrs_c[1120];
-    uint32 pucch_dmrs_c[1120];
-    uint32 pucch_n_prime_p[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2];
-    uint32 pucch_n_oc_p[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2];
+    complex pusch_dmrs_0[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    complex pusch_dmrs_1[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX][LIBLTE_PHY_N_RB_UL_MAX*LIBLTE_PHY_N_SC_RB_UL];
+    complex pucch_dmrs_0[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    complex pucch_dmrs_1[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][LIBLTE_PHY_M_PUCCH_RS*LIBLTE_PHY_N_SC_RB_UL];
+    complex pucch_r_u_v_alpha_p[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2][7][LIBLTE_PHY_N_SC_RB_UL];
+    uint32  pusch_dmrs_c[1120];
+    uint32  pucch_dmrs_c[1120];
+    uint32  pucch_n_prime_p[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2];
+    uint32  pucch_n_oc_p[LIBLTE_PHY_N_SUBFR_PER_FRAME][LIBLTE_PHY_N_RB_UL_MAX/2][2];
 
     // PRACH
     fftwf_complex *prach_dft_in;
@@ -325,14 +319,10 @@ typedef struct{
     fftwf_plan     prach_ifft_plan;
     fftwf_plan     prach_fft_plan;
     fftwf_plan     prach_idft_plan;
-    float          prach_x_u_v_re[64][839];
-    float          prach_x_u_v_im[64][839];
-    float          prach_x_u_re[64][839];
-    float          prach_x_u_im[64][839];
-    float          prach_x_u_fft_re[64][839];
-    float          prach_x_u_fft_im[64][839];
-    float          prach_x_hat_re[839];
-    float          prach_x_hat_im[839];
+    complex        prach_x_u_v[64][839];
+    complex        prach_x_u[64][839];
+    complex        prach_x_u_fft[64][839];
+    complex        prach_x_hat[839];
     uint32         prach_zczc;
     uint32         prach_preamble_format;
     uint32         prach_root_seq_idx;
@@ -346,138 +336,101 @@ typedef struct{
     bool           prach_hs_flag;
 
     // PDSCH
-    float  pdsch_y_est_re[5000];
-    float  pdsch_y_est_im[5000];
-    float  pdsch_c_est_re[LIBLTE_PHY_N_ANT_MAX][5000];
-    float  pdsch_c_est_im[LIBLTE_PHY_N_ANT_MAX][5000];
-    float  pdsch_y_re[LIBLTE_PHY_N_ANT_MAX][5000];
-    float  pdsch_y_im[LIBLTE_PHY_N_ANT_MAX][5000];
-    float  pdsch_x_re[10000];
-    float  pdsch_x_im[10000];
-    float  pdsch_d_re[10000];
-    float  pdsch_d_im[10000];
-    float  pdsch_descramb_bits[10000];
-    uint32 pdsch_c[10000];
-    uint8  pdsch_encode_bits[10000];
-    uint8  pdsch_scramb_bits[10000];
-    int8   pdsch_soft_bits[10000];
+    complex pdsch_y_est[5000];
+    complex pdsch_c_est[LIBLTE_PHY_N_ANT_MAX][5000];
+    complex pdsch_y[LIBLTE_PHY_N_ANT_MAX][5000];
+    complex pdsch_x[10000];
+    complex pdsch_d[10000];
+    float   pdsch_descramb_bits[10000];
+    uint32  pdsch_c[10000];
+    uint8   pdsch_encode_bits[10000];
+    uint8   pdsch_scramb_bits[10000];
+    int8    pdsch_soft_bits[10000];
 
     // BCH
-    float  bch_y_est_re[240];
-    float  bch_y_est_im[240];
-    float  bch_c_est_re[LIBLTE_PHY_N_ANT_MAX][240];
-    float  bch_c_est_im[LIBLTE_PHY_N_ANT_MAX][240];
-    float  bch_y_re[LIBLTE_PHY_N_ANT_MAX][240];
-    float  bch_y_im[LIBLTE_PHY_N_ANT_MAX][240];
-    float  bch_x_re[480];
-    float  bch_x_im[480];
-    float  bch_d_re[480];
-    float  bch_d_im[480];
-    float  bch_descramb_bits[1920];
-    float  bch_rx_d_bits[1920];
-    uint32 bch_c[1920];
-    uint32 bch_N_bits;
-    uint8  bch_tx_d_bits[1920];
-    uint8  bch_c_bits[40];
-    uint8  bch_encode_bits[1920];
-    uint8  bch_scramb_bits[480];
-    int8   bch_soft_bits[480];
+    complex bch_y_est[240];
+    complex bch_c_est[LIBLTE_PHY_N_ANT_MAX][240];
+    complex bch_y[LIBLTE_PHY_N_ANT_MAX][240];
+    complex bch_x[480];
+    complex bch_d[480];
+    float   bch_descramb_bits[1920];
+    float   bch_rx_d_bits[1920];
+    uint32  bch_c[1920];
+    uint32  bch_N_bits;
+    uint8   bch_tx_d_bits[1920];
+    uint8   bch_c_bits[40];
+    uint8   bch_encode_bits[1920];
+    uint8   bch_scramb_bits[480];
+    int8    bch_soft_bits[480];
 
     // PDCCH
-    float  pdcch_reg_y_est_re[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_reg_y_est_im[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_reg_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_reg_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_shift_y_est_re[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_shift_y_est_im[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_shift_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_shift_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_perm_y_est_re[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_perm_y_est_im[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_perm_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_perm_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_cce_y_est_re[LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
-    float  pdcch_cce_y_est_im[LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
-    float  pdcch_cce_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
-    float  pdcch_cce_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
-    float  pdcch_y_est_re[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_y_est_im[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_c_est_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_c_est_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_y_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_y_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_cce_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
-    float  pdcch_cce_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
-    float  pdcch_reg_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_reg_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_perm_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_perm_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_shift_re[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_shift_im[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
-    float  pdcch_x_re[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_x_im[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_d_re[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_d_im[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
-    float  pdcch_descramb_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
-    uint32 pdcch_c[LIBLTE_PHY_PDCCH_N_BITS_MAX * 2];
-    uint32 pdcch_permute_map[LIBLTE_PHY_PDCCH_N_REGS_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX];
-    uint16 pdcch_reg_vec[LIBLTE_PHY_PDCCH_N_REGS_MAX];
-    uint16 pdcch_reg_perm_vec[LIBLTE_PHY_PDCCH_N_REGS_MAX];
-    uint8  pdcch_dci[LIBLTE_PHY_PDCCH_N_BITS_MAX];
-    uint8  pdcch_encode_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
-    uint8  pdcch_scramb_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
-    int8   pdcch_soft_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
-    bool   pdcch_cce_used[LIBLTE_PHY_PDCCH_N_CCE_MAX];
+    complex pdcch_reg_y_est[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_reg_c_est[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_shift_y_est[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_shift_c_est[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_perm_y_est[LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_perm_c_est[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_cce_y_est[LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    complex pdcch_cce_c_est[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    complex pdcch_y_est[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    complex pdcch_c_est[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    complex pdcch_y[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    complex pdcch_cce[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_CCE_MAX][LIBLTE_PHY_PDCCH_N_RE_CCE];
+    complex pdcch_reg[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_perm[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_shift[LIBLTE_PHY_N_ANT_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX][4];
+    complex pdcch_x[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    complex pdcch_d[LIBLTE_PHY_PDCCH_N_BITS_MAX / 2];
+    float   pdcch_descramb_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    uint32  pdcch_c[LIBLTE_PHY_PDCCH_N_BITS_MAX * 2];
+    uint32  pdcch_permute_map[LIBLTE_PHY_PDCCH_N_REGS_MAX][LIBLTE_PHY_PDCCH_N_REGS_MAX];
+    uint16  pdcch_reg_vec[LIBLTE_PHY_PDCCH_N_REGS_MAX];
+    uint16  pdcch_reg_perm_vec[LIBLTE_PHY_PDCCH_N_REGS_MAX];
+    uint8   pdcch_dci[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    uint8   pdcch_encode_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    uint8   pdcch_scramb_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    int8    pdcch_soft_bits[LIBLTE_PHY_PDCCH_N_BITS_MAX];
+    bool    pdcch_cce_used[LIBLTE_PHY_PDCCH_N_CCE_MAX];
 
     // PHICH
     uint32 N_group_phich;
     uint32 N_sf_phich;
 
     // CRS & Channel Estimate
-    float crs_re[14][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float crs_im[14][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float dl_ce_crs_re[16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float dl_ce_crs_im[16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float dl_ce_mag[5][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float dl_ce_ang[5][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex crs[14][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex dl_ce_crs[16][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    float   dl_ce_mag[5][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    float   dl_ce_ang[5][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
 
     // PSS
-    float pss_mod_re_n1[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float pss_mod_im_n1[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float pss_mod_re[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float pss_mod_im[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float pss_mod_re_p1[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float pss_mod_im_p1[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex pss_mod_n1[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex pss_mod[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex pss_mod_p1[3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
 
     // SSS
-    float sss_mod_re_0[168][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float sss_mod_im_0[168][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float sss_mod_re_5[168][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float sss_mod_im_5[168][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float sss_re_0[63];
-    float sss_im_0[63];
-    float sss_re_5[63];
-    float sss_im_5[63];
-    uint8 sss_x_s_tilda[31];
-    uint8 sss_x_c_tilda[31];
-    uint8 sss_x_z_tilda[31];
-    int8  sss_s_tilda[31];
-    int8  sss_c_tilda[31];
-    int8  sss_z_tilda[31];
-    int8  sss_s0_m0[31];
-    int8  sss_s1_m1[31];
-    int8  sss_c0[31];
-    int8  sss_c1[31];
-    int8  sss_z1_m0[31];
-    int8  sss_z1_m1[31];
+    complex sss_mod_0[168][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex sss_mod_5[168][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    complex sss_0[63];
+    complex sss_5[63];
+    uint8   sss_x_s_tilda[31];
+    uint8   sss_x_c_tilda[31];
+    uint8   sss_x_z_tilda[31];
+    int8    sss_s_tilda[31];
+    int8    sss_c_tilda[31];
+    int8    sss_z_tilda[31];
+    int8    sss_s0_m0[31];
+    int8    sss_s1_m1[31];
+    int8    sss_c0[31];
+    int8    sss_c1[31];
+    int8    sss_z1_m0[31];
+    int8    sss_z1_m1[31];
 
     // Timing
     float dl_timing_abs_corr[LIBLTE_PHY_N_SAMPS_PER_SLOT_30_72MHZ*2];
 
     // CRS Storage
-    float  crs_re_storage[20][3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float  crs_im_storage[20][3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    uint32 N_id_cell_crs;
+    complex crs_storage[20][3][LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    uint32  N_id_cell_crs;
 
     // Samples to Symbols & Symbols to Samples
     fftwf_complex *s2s_in;
@@ -505,20 +458,11 @@ typedef struct{
     uint8 te_x_prime[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // Turbo decode
-    int8 td_vitdec_in[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_in_int[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_in_calc_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_in_calc_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_in_calc_3[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_in_int_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_int_calc_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_int_calc_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_in_act_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_fb_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_int_act_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_int_act_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_fb_int_1[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    int8 td_fb_int_2[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_vitdec_apriori_in[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_vitdec_in_1[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_vitdec_in_2[LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_vitdec_out[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    int8 td_fb[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
 
     // Rate Match Turbo
     uint8 rmt_tmp[LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
@@ -552,31 +496,25 @@ typedef struct{
 
     // ULSCH
     // FIXME: Sizes
-    float  ulsch_y_idx[92160];
-    float  ulsch_y_mat[92160];
-    float  ulsch_rx_d_bits[75376];
-    float  ulsch_rx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    float  ulsch_rx_f_bits[92160];
-    float  ulsch_rx_g_bits[92160];
-    uint32 ulsch_N_c_bits[5];
-    uint32 ulsch_N_e_bits[5];
-    uint8  ulsch_b_bits[30720];
-    uint8  ulsch_c_bits[5][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    uint8  ulsch_tx_d_bits[75376];
-    uint8  ulsch_tx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    uint8  ulsch_tx_f_bits[92160];
-    uint8  ulsch_tx_g_bits[92160];
+    LIBLTE_PHY_C_BITS_STRUCT ulsch_c;
+    LIBLTE_PHY_E_BITS_STRUCT ulsch_e;
+    float                    ulsch_y_idx[92160];
+    float                    ulsch_y_mat[92160];
+    float                    ulsch_rx_d_bits[75376];
+    float                    ulsch_rx_f_bits[92160];
+    float                    ulsch_rx_g_bits[92160];
+    uint8                    ulsch_b_bits[30720];
+    uint8                    ulsch_tx_d_bits[75376];
+    uint8                    ulsch_tx_f_bits[92160];
+    uint8                    ulsch_tx_g_bits[92160];
 
     // DLSCH
     // FIXME: Sizes
-    float  dlsch_rx_d_bits[75376];
-    float  dlsch_rx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    uint32 dlsch_N_c_bits[5];
-    uint32 dlsch_N_e_bits[5];
-    uint8  dlsch_b_bits[30720];
-    uint8  dlsch_c_bits[5][LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
-    uint8  dlsch_tx_d_bits[75376];
-    uint8  dlsch_tx_e_bits[5][LIBLTE_PHY_BASE_CODING_RATE*LIBLTE_PHY_MAX_CODE_BLOCK_SIZE];
+    LIBLTE_PHY_C_BITS_STRUCT dlsch_c;
+    LIBLTE_PHY_E_BITS_STRUCT dlsch_e;
+    float                    dlsch_rx_d_bits[75376];
+    uint8                    dlsch_b_bits[30720];
+    uint8                    dlsch_tx_d_bits[75376];
 
     // DCI
     float dci_rx_d_bits[576];
@@ -584,25 +522,31 @@ typedef struct{
     uint8 dci_c_bits[192];
 
     // Generic
-    float  rx_symb_re[LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    float  rx_symb_im[LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
-    uint32 fs;
-    uint32 N_samps_per_symb;
-    uint32 N_samps_cp_l_0;
-    uint32 N_samps_cp_l_else;
-    uint32 N_samps_per_slot;
-    uint32 N_samps_per_subfr;
-    uint32 N_samps_per_frame;
-    uint32 N_rb_dl;
-    uint32 N_rb_ul;
-    uint32 N_sc_rb_dl;
-    uint32 N_sc_rb_ul;
-    uint32 FFT_pad_size;
-    uint32 FFT_size;
-    uint8  N_ant;
-    bool   ul_init;
+    complex rx_symb[LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP];
+    uint32  fs;
+    uint32  N_samps_per_symb;
+    uint32  N_samps_cp_l_0;
+    uint32  N_samps_cp_l_else;
+    uint32  N_samps_per_slot;
+    uint32  N_samps_per_subfr;
+    uint32  N_samps_per_frame;
+    uint32  N_rb_dl;
+    uint32  N_rb_ul;
+    uint32  N_sc_rb_dl;
+    uint32  N_sc_rb_ul;
+    uint32  FFT_pad_size;
+    uint32  FFT_size;
+    uint8   N_ant;
+    bool    ul_init;
 }LIBLTE_PHY_STRUCT;
 // Functions
+LIBLTE_ERROR_ENUM liblte_phy_init(LIBLTE_PHY_STRUCT                 **phy_struct,
+                                  uint32                              samp_rate,
+                                  uint16                              N_id_cell,
+                                  uint8                               N_ant,
+                                  uint32                              N_rb_dl,
+                                  uint32                              N_sc_rb_dl,
+                                  PHICH_Config::phich_Resource_Enum   phich_res);
 LIBLTE_ERROR_ENUM liblte_phy_init(LIBLTE_PHY_STRUCT  **phy_struct,
                                   LIBLTE_PHY_FS_ENUM   fs,
                                   uint16               N_id_cell,
@@ -610,6 +554,9 @@ LIBLTE_ERROR_ENUM liblte_phy_init(LIBLTE_PHY_STRUCT  **phy_struct,
                                   uint32               N_rb_dl,
                                   uint32               N_sc_rb_dl,
                                   float                phich_res);
+LIBLTE_ERROR_ENUM liblte_phy_ul_init(LIBLTE_PHY_STRUCT                  *phy_struct,
+                                     uint16                              N_id_cell,
+                                     const RadioResourceConfigCommonSIB &rr_cnfg);
 LIBLTE_ERROR_ENUM liblte_phy_ul_init(LIBLTE_PHY_STRUCT *phy_struct,
                                      uint16             N_id_cell,
                                      uint32             prach_root_seq_idx,
@@ -697,6 +644,7 @@ typedef struct{
     uint16                          rnti;
     uint8                           mcs;
     uint8                           tpc;
+    uint8                           harq_process;
     bool                            ndi;
     bool                            dl_alloc;
 }LIBLTE_PHY_ALLOCATION_STRUCT;
@@ -724,6 +672,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
                                                   LIBLTE_PHY_ALLOCATION_STRUCT *alloc,
                                                   uint32                        N_id_cell,
                                                   uint8                         N_ant,
+                                                  uint32                        N_turbo_iterations,
                                                   uint8                        *out_bits,
                                                   uint32                       *N_out_bits);
 
@@ -731,23 +680,6 @@ LIBLTE_ERROR_ENUM liblte_phy_pusch_channel_decode(LIBLTE_PHY_STRUCT            *
     Name: liblte_phy_pucch_format_1_1a_1b_channel_encode
 
     Description: Encodes and modulates the Physical Uplink Control
-                 Channel for formats 1, 1a, and 1b
-
-    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.1
-                        3GPP TS 36.212 v10.1.0 section 5.2.3
-
-    Notes: Only handling normal CP and N_ant=1
-*********************************************************************/
-// Defines
-// Enums
-// Structs
-// Functions
-// FIXME
-
-/*********************************************************************
-    Name: liblte_phy_pucch_format_1_1a_1b_channel_decode
-
-    Description: Demodulates and decodes the Physical Uplink Control
                  Channel for formats 1, 1a, and 1b
 
     Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.1
@@ -772,10 +704,32 @@ static const char liblte_phy_pucch_format_text[LIBLTE_PHY_PUCCH_FORMAT_N_ITEMS][
                                                                                         "3"};
 // Structs
 // Functions
+LIBLTE_ERROR_ENUM liblte_phy_pucch_format_1_1a_1b_channel_encode(LIBLTE_PHY_STRUCT            *phy_struct,
+                                                                 uint8                        *in_bits,
+                                                                 uint32                        N_in_bits,
+                                                                 uint8                         N_ant,
+                                                                 uint32                        N_1_p_pucch,
+                                                                 LIBLTE_PHY_PUCCH_FORMAT_ENUM  format,
+                                                                 LIBLTE_PHY_SUBFRAME_STRUCT   *subframe);
+
+/*********************************************************************
+    Name: liblte_phy_pucch_format_1_1a_1b_channel_decode
+
+    Description: Demodulates and decodes the Physical Uplink Control
+                 Channel for formats 1, 1a, and 1b
+
+    Document Reference: 3GPP TS 36.211 v10.1.0 section 5.4.1
+                        3GPP TS 36.212 v10.1.0 section 5.2.3
+
+    Notes: Only handling normal CP and N_ant=1
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
 LIBLTE_ERROR_ENUM liblte_phy_pucch_format_1_1a_1b_channel_decode(LIBLTE_PHY_STRUCT            *phy_struct,
                                                                  LIBLTE_PHY_SUBFRAME_STRUCT   *subframe,
                                                                  LIBLTE_PHY_PUCCH_FORMAT_ENUM  format,
-                                                                 uint32                        N_id_cell,
                                                                  uint8                         N_ant,
                                                                  uint32                        N_1_p_pucch,
                                                                  uint8                        *out_bits,
@@ -813,7 +767,14 @@ LIBLTE_ERROR_ENUM liblte_phy_pucch_format_1_1a_1b_channel_decode(LIBLTE_PHY_STRU
 // Enums
 // Structs
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_phy_pucch_format_2_2a_2b_channel_decode(LIBLTE_PHY_STRUCT            *phy_struct,
+                                                                 LIBLTE_PHY_SUBFRAME_STRUCT   *subframe,
+                                                                 LIBLTE_PHY_PUCCH_FORMAT_ENUM  format,
+                                                                 uint32                        N_id_cell,
+                                                                 uint8                         N_ant,
+                                                                 uint32                        N_1_p_pucch,
+                                                                 uint8                        *out_bits,
+                                                                 uint32                       *N_out_bits);
 
 /*********************************************************************
     Name: liblte_phy_pucch_map_sr_config_idx
@@ -845,8 +806,7 @@ void liblte_phy_pucch_map_sr_config_idx(uint32  i_sr,
 LIBLTE_ERROR_ENUM liblte_phy_generate_prach(LIBLTE_PHY_STRUCT *phy_struct,
                                             uint32             preamble_idx,
                                             uint32             freq_offset,
-                                            float             *samps_re,
-                                            float             *samps_im);
+                                            complex           *samps);
 
 /*********************************************************************
     Name: liblte_phy_detect_prach
@@ -860,8 +820,7 @@ LIBLTE_ERROR_ENUM liblte_phy_generate_prach(LIBLTE_PHY_STRUCT *phy_struct,
 // Structs
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_detect_prach(LIBLTE_PHY_STRUCT *phy_struct,
-                                          float             *samps_re,
-                                          float             *samps_im,
+                                          complex           *samps,
                                           uint32             freq_offset,
                                           uint32            *N_det_pre,
                                           uint32            *det_pre,
@@ -880,9 +839,11 @@ LIBLTE_ERROR_ENUM liblte_phy_detect_prach(LIBLTE_PHY_STRUCT *phy_struct,
 // Enums
 // Structs
 typedef struct{
-    LIBLTE_PHY_ALLOCATION_STRUCT alloc[LIBLTE_PHY_PDCCH_MAX_ALLOC];
+    LIBLTE_PHY_ALLOCATION_STRUCT dl_alloc[LIBLTE_PHY_PDCCH_MAX_ALLOC];
+    LIBLTE_PHY_ALLOCATION_STRUCT ul_alloc[LIBLTE_PHY_PDCCH_MAX_ALLOC];
     uint32                       N_symbs;
-    uint32                       N_alloc;
+    uint32                       N_dl_alloc;
+    uint32                       N_ul_alloc;
 }LIBLTE_PHY_PDCCH_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_encode(LIBLTE_PHY_STRUCT          *phy_struct,
@@ -909,6 +870,7 @@ LIBLTE_ERROR_ENUM liblte_phy_pdsch_channel_decode(LIBLTE_PHY_STRUCT            *
                                                   uint32                        N_pdcch_symbs,
                                                   uint32                        N_id_cell,
                                                   uint8                         N_ant,
+                                                  uint32                        N_turbo_iterations,
                                                   uint8                        *out_bits,
                                                   uint32                       *N_out_bits);
 
@@ -977,23 +939,22 @@ typedef struct{
 }LIBLTE_PHY_PCFICH_STRUCT;
 
 typedef struct{
-    float  z_re[3];
-    float  z_im[3];
-    uint32 k[75];
-    uint32 N_reg;
-    uint8  b[25][8];
-    bool   present[25][8];
+    complex z[3];
+    uint32  k[75];
+    uint32  N_reg;
+    uint8   b[25][8];
+    bool    present[25][8];
 }LIBLTE_PHY_PHICH_STRUCT;
 // Functions
-LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT              *phy_struct,
-                                                  LIBLTE_PHY_PCFICH_STRUCT       *pcfich,
-                                                  LIBLTE_PHY_PHICH_STRUCT        *phich,
-                                                  LIBLTE_PHY_PDCCH_STRUCT        *pdcch,
-                                                  uint32                          N_id_cell,
-                                                  uint8                           N_ant,
-                                                  float                           phich_res,
-                                                  LIBLTE_RRC_PHICH_DURATION_ENUM  phich_dur,
-                                                  LIBLTE_PHY_SUBFRAME_STRUCT     *subframe);
+LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT                 *phy_struct,
+                                                  LIBLTE_PHY_PCFICH_STRUCT          *pcfich,
+                                                  LIBLTE_PHY_PHICH_STRUCT           *phich,
+                                                  LIBLTE_PHY_PDCCH_STRUCT           *pdcch,
+                                                  uint32                             N_id_cell,
+                                                  uint8                              N_ant,
+                                                  float                              phich_res,
+                                                  PHICH_Config::phich_Duration_Enum  phich_dur,
+                                                  LIBLTE_PHY_SUBFRAME_STRUCT        *subframe);
 
 /*********************************************************************
     Name: liblte_phy_pdcch_channel_decode
@@ -1009,15 +970,15 @@ LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_encode(LIBLTE_PHY_STRUCT             
 // Enums
 // Structs
 // Functions
-LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT              *phy_struct,
-                                                  LIBLTE_PHY_SUBFRAME_STRUCT     *subframe,
-                                                  uint32                          N_id_cell,
-                                                  uint8                           N_ant,
-                                                  float                           phich_res,
-                                                  LIBLTE_RRC_PHICH_DURATION_ENUM  phich_dur,
-                                                  LIBLTE_PHY_PCFICH_STRUCT       *pcfich,
-                                                  LIBLTE_PHY_PHICH_STRUCT        *phich,
-                                                  LIBLTE_PHY_PDCCH_STRUCT        *pdcch);
+LIBLTE_ERROR_ENUM liblte_phy_pdcch_channel_decode(LIBLTE_PHY_STRUCT                 *phy_struct,
+                                                  LIBLTE_PHY_SUBFRAME_STRUCT        *subframe,
+                                                  uint32                             N_id_cell,
+                                                  uint8                              N_ant,
+                                                  float                              phich_res,
+                                                  PHICH_Config::phich_Duration_Enum  phich_dur,
+                                                  LIBLTE_PHY_PCFICH_STRUCT          *pcfich,
+                                                  LIBLTE_PHY_PHICH_STRUCT           *phich,
+                                                  LIBLTE_PHY_PDCCH_STRUCT           *pdcch);
 
 /*********************************************************************
     Name: liblte_phy_map_crs
@@ -1066,8 +1027,7 @@ LIBLTE_ERROR_ENUM liblte_phy_map_pss(LIBLTE_PHY_STRUCT          *phy_struct,
 // Structs
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_find_pss_and_fine_timing(LIBLTE_PHY_STRUCT *phy_struct,
-                                                      float             *i_samps,
-                                                      float             *q_samps,
+                                                      complex           *samps,
                                                       uint32            *symb_starts,
                                                       uint32            *N_id_2,
                                                       uint32            *pss_symb,
@@ -1104,8 +1064,7 @@ LIBLTE_ERROR_ENUM liblte_phy_map_sss(LIBLTE_PHY_STRUCT          *phy_struct,
 // Structs
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_find_sss(LIBLTE_PHY_STRUCT *phy_struct,
-                                      float             *i_samps,
-                                      float             *q_samps,
+                                      complex           *samps,
                                       uint32             N_id_2,
                                       uint32            *symb_starts,
                                       float              pss_thresh,
@@ -1132,8 +1091,7 @@ typedef struct{
 }LIBLTE_PHY_COARSE_TIMING_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_dl_find_coarse_timing_and_freq_offset(LIBLTE_PHY_STRUCT               *phy_struct,
-                                                                   float                           *i_samps,
-                                                                   float                           *q_samps,
+                                                                   complex                         *samps,
                                                                    uint32                           N_slots,
                                                                    LIBLTE_PHY_COARSE_TIMING_STRUCT *timing_struct);
 
@@ -1152,8 +1110,7 @@ LIBLTE_ERROR_ENUM liblte_phy_dl_find_coarse_timing_and_freq_offset(LIBLTE_PHY_ST
 LIBLTE_ERROR_ENUM liblte_phy_create_dl_subframe(LIBLTE_PHY_STRUCT          *phy_struct,
                                                 LIBLTE_PHY_SUBFRAME_STRUCT *subframe,
                                                 uint8                       ant,
-                                                float                      *i_samps,
-                                                float                      *q_samps);
+                                                complex                    *samps);
 
 /*********************************************************************
     Name: liblte_phy_get_dl_subframe_and_ce
@@ -1168,13 +1125,29 @@ LIBLTE_ERROR_ENUM liblte_phy_create_dl_subframe(LIBLTE_PHY_STRUCT          *phy_
 // Structs
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_get_dl_subframe_and_ce(LIBLTE_PHY_STRUCT          *phy_struct,
-                                                    float                      *i_samps,
-                                                    float                      *q_samps,
+                                                    complex                    *samps,
                                                     uint32                      frame_start_idx,
                                                     uint8                       subfr_num,
                                                     uint32                      N_id_cell,
                                                     uint8                       N_ant,
                                                     LIBLTE_PHY_SUBFRAME_STRUCT *subframe);
+
+/*********************************************************************
+    Name: liblte_phy_create_ul_subframe
+
+    Description: Creates the baseband signal for a particular
+                 uplink subframe
+
+    Document Reference: 3GPP TS 36.211 v10.1.0
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+LIBLTE_ERROR_ENUM liblte_phy_create_ul_subframe(LIBLTE_PHY_STRUCT          *phy_struct,
+                                                LIBLTE_PHY_SUBFRAME_STRUCT *subframe,
+                                                uint8                       ant,
+                                                complex                    *samps);
 
 /*********************************************************************
     Name: liblte_phy_get_ul_subframe
@@ -1188,8 +1161,7 @@ LIBLTE_ERROR_ENUM liblte_phy_get_dl_subframe_and_ce(LIBLTE_PHY_STRUCT          *
 // Structs
 // Functions
 LIBLTE_ERROR_ENUM liblte_phy_get_ul_subframe(LIBLTE_PHY_STRUCT          *phy_struct,
-                                             float                      *i_samps,
-                                             float                      *q_samps,
+                                             complex                    *samps,
                                              LIBLTE_PHY_SUBFRAME_STRUCT *subframe);
 
 /*********************************************************************
@@ -1257,6 +1229,26 @@ LIBLTE_ERROR_ENUM liblte_phy_get_tbs_mcs_and_n_prb_for_ul(uint32  N_bits,
                                                           uint32 *N_prb);
 
 /*********************************************************************
+    Name: liblte_phy_get_tbs_and_n_prb_for_ul
+
+    Description: Determines the transport block size and the number of
+                 PRBs needed to send the specified number of UL bits
+                 according to the specified modulation and coding
+                 scheme
+
+    Document Reference: 3GPP TS 36.213 v10.3.0 section 7.1.7
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+LIBLTE_ERROR_ENUM liblte_phy_get_tbs_and_n_prb_for_ul(uint32  N_bits,
+                                                      uint32  N_rb_ul,
+                                                      uint8   mcs,
+                                                      uint32 *tbs,
+                                                      uint32 *N_prb);
+
+/*********************************************************************
     Name: liblte_phy_get_n_cce
 
     Description: Determines the number of control channel elements
@@ -1273,6 +1265,67 @@ LIBLTE_ERROR_ENUM liblte_phy_get_n_cce(LIBLTE_PHY_STRUCT *phy_struct,
                                        uint32             N_pdcch_symbs,
                                        uint8              N_ant,
                                        uint32            *N_cce);
+
+/*********************************************************************
+    Name: liblte_phy_add_to_tti
+
+    Description: Adds the specified amount to a TTI ensuring proper
+                 modulo.
+
+    Document Reference: N/A
+*********************************************************************/
+// Defines
+#define LIBLTE_PHY_TTI_MAX (LIBLTE_PHY_SFN_MAX*10 + 9)
+// Enums
+// Structs
+// Functions
+uint32 liblte_phy_add_to_tti(uint32 tti,
+                             uint32 addition);
+
+/*********************************************************************
+    Name: liblte_phy_sub_from_tti
+
+    Description: Subtracts the specified amount from a TTI ensuring
+                 proper modulo.
+
+    Document Reference: N/A
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+uint32 liblte_phy_sub_from_tti(uint32 tti,
+                               uint32 subtraction);
+
+/*********************************************************************
+    Name: liblte_phy_is_tti_in_future
+
+    Description: Checks if a TTI is in the future compared to a
+                 reference TTI.
+
+    Document Reference: N/A
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+bool liblte_phy_is_tti_in_future(uint32 tti_to_check,
+                                 uint32 reference_tti);
+
+/*********************************************************************
+    Name: liblte_phy_is_tti_in_past
+
+    Description: Checks if a TTI is in the past compared to a
+                 reference TTI.
+
+    Document Reference: N/A
+*********************************************************************/
+// Defines
+// Enums
+// Structs
+// Functions
+bool liblte_phy_is_tti_in_past(uint32 tti_to_check,
+                               uint32 reference_tti);
 
 /*********************************************************************
     Name: liblte_phy_rate_match_turbo
@@ -1334,13 +1387,11 @@ void liblte_phy_rate_unmatch_turbo(LIBLTE_PHY_STRUCT         *phy_struct,
 // Enums
 // Structs
 // Functions
-void liblte_phy_code_block_segmentation(uint8  *b_bits,
-                                        uint32  N_b_bits,
-                                        uint32 *N_codeblocks,
-                                        uint32 *N_filler_bits,
-                                        uint8  *c_bits,
-                                        uint32  N_c_bits_max,
-                                        uint32 *N_c_bits);
+void liblte_phy_code_block_segmentation(uint8                    *b_bits,
+                                        uint32                    N_b_bits,
+                                        uint32                   *N_codeblocks,
+                                        uint32                   *N_filler_bits,
+                                        LIBLTE_PHY_C_BITS_STRUCT *c);
 
 /*********************************************************************
     Name: liblte_phy_code_block_desegmentation
@@ -1354,11 +1405,9 @@ void liblte_phy_code_block_segmentation(uint8  *b_bits,
 // Enums
 // Structs
 // Functions
-void liblte_phy_code_block_desegmentation(uint8  *c_bits,
-                                          uint32 *N_c_bits,
-                                          uint32  N_c_bits_max,
-                                          uint32  tbs,
-                                          uint8  *b_bits,
-                                          uint32  N_b_bits);
+void liblte_phy_code_block_desegmentation(LIBLTE_PHY_C_BITS_STRUCT *c,
+                                          uint32                    tbs,
+                                          uint8                    *b_bits,
+                                          uint32                    N_b_bits);
 
 #endif /* __LIBLTE_PHY_H__ */

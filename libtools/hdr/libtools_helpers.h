@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2017 Ben Wojtowicz
+    Copyright 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -24,6 +24,8 @@
     Revision History
     ----------    -------------    --------------------------------------------
     07/29/2017    Ben Wojtowicz    Created file
+    02/14/2021    Ben Wojtowicz    Deprecated all *int* to_string in favor of
+                                   std::to_string.
 
 *******************************************************************************/
 
@@ -61,14 +63,8 @@
 
     Description: Converts various types to a string.
 *********************************************************************/
-std::string to_string(int32 value);
-std::string to_string(uint32 value);
-std::string to_string(int64 value);
-std::string to_string(uint64 value);
 std::string to_string(uint64 value, uint32 num_digits);
 std::string to_string(uint8 *value, uint32 num_bytes);
-std::string to_string(double value);
-std::string to_string(const char *value);
 
 /*********************************************************************
     Name: to_number
@@ -78,6 +74,7 @@ std::string to_string(const char *value);
 // FIXME: Use template
 bool to_number(std::string str, uint16 *number);
 bool to_number(std::string str, uint64 *number);
+bool to_number(std::string str, int64 &number, int64 llimit, int64 ulimit);
 bool to_number(std::string str, uint32 num_digits, uint16 *number);
 bool to_number(std::string str, uint32 num_digits, uint64 *number);
 bool to_number(std::string str, uint32 num_bytes, uint8 *number);

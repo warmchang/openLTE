@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,7 @@
     06/15/2014    Ben Wojtowicz    Added millisecond resolution and seperated
                                    the callback calling functionality.
     11/29/2014    Ben Wojtowicz    Added timer reset support.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -85,10 +86,10 @@ public:
     ~LTE_fdd_enb_timer();
 
     // External interface
-    void reset(void);
-    void increment(void);
-    bool expired(void);
-    void call_callback(void);
+    void reset();
+    void increment();
+    bool expired();
+    void call_callback();
 
 private:
     // Identity

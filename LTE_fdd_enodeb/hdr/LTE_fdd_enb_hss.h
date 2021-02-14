@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2015, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -31,6 +31,8 @@
     11/29/2014    Ben Wojtowicz    Added support for regenerating eNodeB
                                    security data.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
+    02/14/2021    Ben Wojtowicz    Massive reformat and using the new RRC
+                                   library.
 
 *******************************************************************************/
 
@@ -44,6 +46,7 @@
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_user.h"
 #include <list>
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -93,40 +96,34 @@ typedef struct{
 class LTE_fdd_enb_hss
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_hss* get_instance(void);
-    static void cleanup(void);
+    LTE_fdd_enb_hss();
+    ~LTE_fdd_enb_hss();
 
     // External interface
     LTE_FDD_ENB_ERROR_ENUM add_user(std::string imsi, std::string imei, std::string k);
     LTE_FDD_ENB_ERROR_ENUM del_user(std::string imsi);
-    std::string print_all_users(void);
+    std::string print_all_users();
     bool is_imsi_allowed(uint64 imsi);
     bool is_imei_allowed(uint64 imei);
     LTE_FDD_ENB_USER_ID_STRUCT* get_user_id_from_imsi(uint64 imsi);
     LTE_FDD_ENB_USER_ID_STRUCT* get_user_id_from_imei(uint64 imei);
-    void generate_security_data(LTE_FDD_ENB_USER_ID_STRUCT *id, uint16 mcc, uint16 mnc);
-    void security_resynch(LTE_FDD_ENB_USER_ID_STRUCT *id, uint16 mcc, uint16 mnc, uint8 *auts);
+    void generate_security_data(LTE_FDD_ENB_USER_ID_STRUCT *id, const MCC &mcc, const MNC &mnc);
+    void security_resynch(LTE_FDD_ENB_USER_ID_STRUCT *id, const MCC &mcc, const MNC &mnc, uint8 *auts);
     LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT* regenerate_enb_security_data(LTE_FDD_ENB_USER_ID_STRUCT *id, uint32 nas_count_ul);
     LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT* get_auth_vec(LTE_FDD_ENB_USER_ID_STRUCT *id);
 
     // User File
     void set_use_user_file(bool uuf);
-    void read_user_file(void);
+    void read_user_file(LTE_fdd_enb_interface *interface);
 
 private:
-    // Singleton
-    static LTE_fdd_enb_hss *instance;
-    LTE_fdd_enb_hss();
-    ~LTE_fdd_enb_hss();
-
     // Allowed users
-    sem_t                                    user_sem;
+    std::mutex                               user_mutex;
     std::list<LTE_FDD_ENB_HSS_USER_STRUCT *> user_list;
 
     // User File
-    void write_user_file(void);
-    void delete_user_file(void);
+    void write_user_file();
+    void delete_user_file();
     bool use_user_file;
 };
 

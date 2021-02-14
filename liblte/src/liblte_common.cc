@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -26,6 +26,8 @@
     08/03/2014    Ben Wojtowicz    Created file.
     11/29/2014    Ben Wojtowicz    Added liblte prefix to value_2_bits and
                                    bits_2_value.
+    02/14/2021    Ben Wojtowicz    Massive reformat and added a full stack
+                                   message class.
 
 *******************************************************************************/
 
@@ -51,6 +53,22 @@
 
 
 /*******************************************************************************
+                              CLASS IMPLEMENTATIONS
+*******************************************************************************/
+
+liblte_full_stack_message::liblte_full_stack_message()
+{
+    mme.reserve(500);
+    rrc.reserve(2000);
+    gw.reserve(5000);
+    pdcp.reserve(5000);
+    mac.reserve(75376);
+}
+liblte_full_stack_message::~liblte_full_stack_message()
+{
+}
+
+/*******************************************************************************
                               FUNCTIONS
 *******************************************************************************/
 
@@ -63,12 +81,8 @@ void liblte_value_2_bits(uint32   value,
                          uint8  **bits,
                          uint32   N_bits)
 {
-    uint32 i;
-
-    for(i=0; i<N_bits; i++)
-    {
+    for(uint32 i=0; i<N_bits; i++)
         (*bits)[i] = (value >> (N_bits-i-1)) & 0x1;
-    }
     *bits += N_bits;
 }
 
@@ -81,13 +95,10 @@ uint32 liblte_bits_2_value(uint8  **bits,
                            uint32   N_bits)
 {
     uint32 value = 0;
-    uint32 i;
 
-    for(i=0; i<N_bits; i++)
-    {
+    for(uint32 i=0; i<N_bits; i++)
         value |= (*bits)[i] << (N_bits-i-1);
-    }
     *bits += N_bits;
 
-    return(value);
+    return value;
 }

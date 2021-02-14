@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_timer.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -29,6 +29,7 @@
     06/15/2014    Ben Wojtowicz    Added millisecond resolution and seperated
                                    the callback calling functionality.
     11/29/2014    Ben Wojtowicz    Added timer reset support.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -78,12 +79,9 @@ void LTE_fdd_enb_timer_cb::operator()(uint32 id)
 /********************************/
 LTE_fdd_enb_timer::LTE_fdd_enb_timer(uint32               m_seconds,
                                      uint32               _id,
-                                     LTE_fdd_enb_timer_cb _cb)
+                                     LTE_fdd_enb_timer_cb _cb) :
+    cb{_cb}, id{_id}, expiry_m_seconds{m_seconds}, current_m_seconds{0}
 {
-    cb                = _cb;
-    id                = _id;
-    expiry_m_seconds  = m_seconds;
-    current_m_seconds = 0;
 }
 LTE_fdd_enb_timer::~LTE_fdd_enb_timer()
 {
@@ -92,29 +90,22 @@ LTE_fdd_enb_timer::~LTE_fdd_enb_timer()
 /****************************/
 /*    External Interface    */
 /****************************/
-void LTE_fdd_enb_timer::reset(void)
+void LTE_fdd_enb_timer::reset()
 {
     current_m_seconds = 0;
 }
-void LTE_fdd_enb_timer::increment(void)
+void LTE_fdd_enb_timer::increment()
 {
     current_m_seconds++;
 }
-bool LTE_fdd_enb_timer::expired(void)
+bool LTE_fdd_enb_timer::expired()
 {
-    bool exp = false;
-
     if(current_m_seconds > expiry_m_seconds)
-    {
-        exp = true;
-    }
-
-    return(exp);
+        return true;
+    return false;
 }
-void LTE_fdd_enb_timer::call_callback(void)
+void LTE_fdd_enb_timer::call_callback()
 {
     if(expired())
-    {
         cb(id);
-    }
 }

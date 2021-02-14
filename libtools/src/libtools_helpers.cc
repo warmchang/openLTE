@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2017 Ben Wojtowicz
+    Copyright 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -24,6 +24,8 @@
     Revision History
     ----------    -------------    --------------------------------------------
     07/29/2017    Ben Wojtowicz    Created file
+    02/14/2021    Ben Wojtowicz    Massive reformat and deprecated all *int*
+                                   to_string in favor of std::to_string.
 
 *******************************************************************************/
 
@@ -60,56 +62,12 @@
 
     Description: Converts various types to a string.
 *********************************************************************/
-std::string to_string(int32 value)
-{
-    std::stringstream tmp_ss;
-    std::string       str;
-
-    tmp_ss << value;
-    str     = tmp_ss.str();
-
-    return(str);
-}
-std::string to_string(uint32 value)
-{
-    std::stringstream tmp_ss;
-    std::string       str;
-
-    tmp_ss << value;
-    str     = tmp_ss.str();
-
-    return(str);
-}
-std::string to_string(int64 value)
-{
-    std::stringstream tmp_ss;
-    std::string       str;
-
-    tmp_ss << value;
-    str     = tmp_ss.str();
-
-    return(str);
-}
-std::string to_string(uint64 value)
-{
-    std::stringstream tmp_ss;
-    std::string       str;
-
-    tmp_ss << value;
-    str     = tmp_ss.str();
-
-    return(str);
-}
 std::string to_string(uint64 value,
                       uint32 num_digits)
 {
     std::stringstream tmp_ss;
-    std::string       str;
-
     tmp_ss << std::setw(num_digits) << std::setfill('0') << value;
-    str     = tmp_ss.str();
-
-    return(str);
+    return tmp_ss.str();
 }
 std::string to_string(uint8  *value,
                       uint32  num_bytes)
@@ -124,21 +82,6 @@ std::string to_string(uint8  *value,
         str += tmp_buf;
     }
 
-    return(str);
-}
-std::string to_string(double value)
-{
-    std::stringstream tmp_ss;
-    std::string       str;
-
-    tmp_ss << value;
-    str     = tmp_ss.str();
-
-    return(str);
-}
-std::string to_string(const char *value)
-{
-    std::string str = value;
     return str;
 }
 
@@ -150,88 +93,87 @@ std::string to_string(const char *value)
 bool to_number(std::string  str,
                uint16      *number)
 {
-    return(to_number(str, 0, number));
+    return to_number(str, 0, number);
 }
 bool to_number(std::string  str,
                uint64      *number)
 {
-    return(to_number(str, 0, number));
+    return to_number(str, 0, number);
+}
+bool to_number(std::string str, int64 &number, int64 llimit, int64 ulimit)
+{
+    try
+    {
+        int64 tmp_value = std::stoi(str);
+        if(tmp_value < llimit || tmp_value > ulimit)
+            return true;
+        number = tmp_value;
+        return false;
+    }catch(...){
+        return true;
+    }
 }
 bool to_number(std::string  str,
                uint32       num_digits,
                uint16      *number)
 {
-    uint64 num;
+    uint64 num   = 0;
     bool   error = to_number(str, num_digits, &num);
 
     *number = num;
 
-    return(error);
+    return error;
 }
 bool to_number(std::string  str,
                uint32       num_digits,
                uint64      *number)
 {
-    uint32      i;
     uint32      N_digits = num_digits;
     const char *char_str = str.c_str();
-    bool        error    = true;
 
     if(0 == N_digits)
-    {
         N_digits = str.length();
-    }
-    if(is_string_valid_as_number(str, N_digits, 10))
-    {
-        *number = 0;
-        for(i=0; i<N_digits; i++)
-        {
-            *number *= 10;
-            *number += char_str[i] - '0';
-        }
-        error = false;
-    }
+    if(!is_string_valid_as_number(str, N_digits, 10))
+        return true;
 
-    return(error);
+    *number = 0;
+    for(uint32 i=0; i<N_digits; i++)
+    {
+        *number *= 10;
+        *number += char_str[i] - '0';
+    }
+    return false;
 }
 bool to_number(std::string  str,
                uint32       num_bytes,
                uint8       *number)
 {
-    uint32      i;
     const char *char_str = str.c_str();
     uint8       num;
-    bool        error = true;
 
-    if(is_string_valid_as_number(str, num_bytes*2, 16))
+    if(!is_string_valid_as_number(str, num_bytes*2, 16))
+        return true;
+
+    for(uint32 i=0; i<num_bytes*2; i++)
     {
-        for(i=0; i<num_bytes*16; i++)
+        if((i % 2) == 0)
+            number[i/2] = 0;
+
+        if(char_str[i] >= '0' && char_str[i] <= '9')
         {
-            if((i % 2) == 0)
-            {
-                number[i/2] = 0;
-            }
-
-            if(char_str[i] >= '0' && char_str[i] <= '9')
-            {
-                num = char_str[i] - '0';
-            }else if(char_str[i] >= 'A' && char_str[i] <= 'F'){
-                num = (char_str[i] - 'A') + 0xA;
-            }else{
-                num = (char_str[i] - 'a') + 0xA;
-            }
-
-            if((i % 2) == 0)
-            {
-                num <<= 4;
-            }
-
-            number[i/2] |= num;
+            num = char_str[i] - '0';
+        }else if(char_str[i] >= 'A' && char_str[i] <= 'F'){
+            num = (char_str[i] - 'A') + 0xA;
+        }else{
+            num = (char_str[i] - 'a') + 0xA;
         }
-        error = false;
-    }
 
-    return(error);
+        if((i % 2) == 0)
+            num <<= 4;
+
+        number[i/2] |= num;
+    }
+    return false;
 }
 
 /*********************************************************************
@@ -267,38 +209,26 @@ bool is_string_valid_as_number(std::string str,
                                uint32      num_digits,
                                uint8       base)
 {
-    uint32      i;
     const char *c_str = str.c_str();
-    bool        valid = false;
 
-    if(str.length() == num_digits)
+    if(str.length() != num_digits)
+        return false;
+
+    if(10 == base)
     {
-        valid = true;
-
-        if(10 == base)
-        {
-            for(i=0; i<num_digits; i++)
-            {
-                if(!(c_str[i] >= '0' && c_str[i] <= '9'))
-                {
-                    valid = false;
-                }
-            }
-        }else if(16 == base){
-            for(i=0; i<num_digits; i++)
-            {
-                if(!((c_str[i] >= '0' && c_str[i] <= '9') ||
-                     (c_str[i] >= 'a' && c_str[i] <= 'f') ||
-                     (c_str[i] >= 'A' && c_str[i] <= 'F')))
-                {
-                    valid = false;
-                }
-            }
-        }else{
-            valid = false;
-        }
+        for(uint32 i=0; i<num_digits; i++)
+            if(!(c_str[i] >= '0' && c_str[i] <= '9'))
+                return false;
+    }else if(16 == base){
+        for(uint32 i=0; i<num_digits; i++)
+            if(!((c_str[i] >= '0' && c_str[i] <= '9') ||
+                 (c_str[i] >= 'a' && c_str[i] <= 'f') ||
+                 (c_str[i] >= 'A' && c_str[i] <= 'F')))
+                return false;
+    }else{
+        return false;
     }
 
-    return(valid);
+    return true;
 }
 

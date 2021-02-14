@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_radio.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
     Copyright 2016 Przemek Bereski (bladeRF support)
 
     This program is free software: you can redistribute it and/or modify
@@ -53,6 +53,8 @@
     07/03/2016    Przemek Bereski  Addition of bladeRF as a radio choice.
     10/09/2016    Ben Wojtowicz    Added typecast for bladerf_get_timestamp().
     07/29/2017    Ben Wojtowicz    Using the latest tools library.
+    02/14/2021    Ben Wojtowicz    Massive reformat and using the new RRC
+                                   library.
 
 *******************************************************************************/
 
@@ -63,18 +65,20 @@
 #include "LTE_fdd_enb_radio.h"
 #include "LTE_fdd_enb_phy.h"
 #include "liblte_interface.h"
-#include "libtools_scoped_lock.h"
+#include "libtools_helpers.h"
 #include <uhd/device.hpp>
 #include <uhd/types/device_addr.hpp>
 #include <uhd/property_tree.hpp>
-#include <uhd/utils/thread_priority.hpp>
+#include <uhd/utils/thread.hpp>
+#include <thread>
 
 /*******************************************************************************
                               DEFINES
 *******************************************************************************/
 
 // Change this to 1 to turn on RADIO DEBUG
-#define EXTRA_RADIO_DEBUG 0
+#define EXTRA_RX_RADIO_DEBUG 0
+#define EXTRA_TX_RADIO_DEBUG 0
 
 // bladeRF defines
 #define BLADERF_NUM_BUFFERS   256
@@ -90,8 +94,6 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_radio*     LTE_fdd_enb_radio::instance = NULL;
-static pthread_mutex_t radio_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               LOCAL FUNCTIONS
@@ -101,39 +103,33 @@ static uint32 find_usrps(LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT *radios)
 {
     uhd::device_addr_t  hint;
     uhd::device_addrs_t devs = uhd::device::find(hint);
-    size_t              i;
 
     if(NULL != radios)
     {
-        for(i=0; i<devs.size(); i++)
+        for(size_t i=0; i<devs.size(); i++)
         {
             radios->radio[radios->num_radios].name   = devs[i].to_string();
             radios->radio[radios->num_radios++].type = LTE_FDD_ENB_RADIO_TYPE_USRP_B2X0;
         }
     }
 
-    return(devs.size());
+    return devs.size();
 }
 
-static uint32 find_usrps(void)
+static uint32 find_usrps()
 {
-    return(find_usrps(NULL));
+    return find_usrps(NULL);
 }
 
 static uint32 find_bladerfs(LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT *radios)
 {
     struct bladerf_devinfo *devs;
-    size_t                  i;
-    int                     N_devs;
-
-    N_devs = bladerf_get_device_list(&devs);
+    int                     N_devs = bladerf_get_device_list(&devs);
     if(N_devs < 0)
-    {
-        return(0);
-    }
+        return 0;
     if(NULL != radios)
     {
-        for(i=0; i<N_devs; i++)
+        for(int i=0; i<N_devs; i++)
         {
             radios->radio[radios->num_radios].name    = "bladerf-";
             radios->radio[radios->num_radios].name   += devs[i].serial;
@@ -142,12 +138,12 @@ static uint32 find_bladerfs(LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT *radios)
     }
     bladerf_free_device_list(devs);
 
-    return(N_devs);
+    return N_devs;
 }
 
-static uint32 find_bladerfs(void)
+static uint32 find_bladerfs()
 {
-    return(find_bladerfs(NULL));
+    return find_bladerfs(NULL);
 }
 
 /*******************************************************************************
@@ -170,20 +166,21 @@ LTE_fdd_enb_radio_no_rf::~LTE_fdd_enb_radio_no_rf()
 /*******************************/
 /*    No-RF Radio Functions    */
 /*******************************/
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_no_rf::setup(void)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_no_rf::setup()
 {
-    return(LTE_FDD_ENB_ERROR_NONE);
+    return LTE_FDD_ENB_ERROR_NONE;
 }
-void LTE_fdd_enb_radio_no_rf::teardown(void)
+void LTE_fdd_enb_radio_no_rf::teardown()
 {
 }
-void LTE_fdd_enb_radio_no_rf::send(void)
+void LTE_fdd_enb_radio_no_rf::send()
+{
+}
+void LTE_fdd_enb_radio_no_rf::init(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
 {
 }
 void LTE_fdd_enb_radio_no_rf::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
 {
-    struct timespec time_rem;
-
     if(radio_params->init_needed)
     {
         // Signal PHY to generate first subframe
@@ -194,8 +191,12 @@ void LTE_fdd_enb_radio_no_rf::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_par
     radio_params->phy->radio_interface(&radio_params->tx_radio_buf[radio_params->buf_idx],
                                        &radio_params->rx_radio_buf[radio_params->buf_idx]);
     radio_params->buf_idx        = (radio_params->buf_idx + 1) % 2;
-    radio_params->rx_current_tti = (radio_params->rx_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+    radio_params->rx_current_tti = liblte_phy_add_to_tti(radio_params->rx_current_tti, 1);
+    struct timespec time_rem;
     nanosleep(&sleep_time, &time_rem);
+
+    if(radio_params->rx_current_tti == 4000)
+        radio_params->rx_current_tti = liblte_phy_add_to_tti(radio_params->rx_current_tti, 20);
 }
 
 /******************************************/
@@ -212,7 +213,7 @@ LTE_fdd_enb_radio_usrp_b2x0::~LTE_fdd_enb_radio_usrp_b2x0()
 /*    USRP-B2X0 Radio Functions    */
 /***********************************/
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_usrp_b2x0::setup(uint32       idx,
-                                                          double       bw,
+                                                          uint32       bw,
                                                           int16        dl_earfcn,
                                                           int16        ul_earfcn,
                                                           std::string *clock_src,
@@ -220,15 +221,14 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_usrp_b2x0::setup(uint32       idx,
                                                           uint32       tx_gain,
                                                           uint32       rx_gain)
 {
-    uhd::device_addr_t     hint;
-    uhd::device_addrs_t    devs = uhd::device::find(hint);
-    uhd::stream_args_t     stream_args("fc32");
-    LTE_FDD_ENB_ERROR_ENUM err              = LTE_FDD_ENB_ERROR_CANT_START;
-    bool                   master_clock_set = false;
+    LTE_FDD_ENB_ERROR_ENUM err = LTE_FDD_ENB_ERROR_CANT_START;
 
     try
     {
+        uhd::device_addr_t  hint;
+        uhd::device_addrs_t devs = uhd::device::find(hint);
         // Setup the USRP
+        bool master_clock_set = false;
         if(devs[idx-1]["type"] == "x300")
         {
             devs[idx-1]["master_clock_rate"] = "184320000";
@@ -240,9 +240,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_usrp_b2x0::setup(uint32       idx,
         {
             usrp->set_master_clock_rate(30720000);
             if(2.0 >= fabs(usrp->get_master_clock_rate() - 30720000.0))
-            {
                 master_clock_set = true;
-            }
         }
         if(master_clock_set)
         {
@@ -254,6 +252,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_usrp_b2x0::setup(uint32       idx,
             usrp->set_rx_gain(rx_gain);
 
             // Setup the TX and RX streams
+            uhd::stream_args_t stream_args("fc32");
             tx_stream  = usrp->get_tx_stream(stream_args);
             rx_stream  = usrp->get_rx_stream(stream_args);
             N_tx_samps = tx_stream->get_max_num_samps();
@@ -266,7 +265,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_usrp_b2x0::setup(uint32       idx,
 
                 err = LTE_FDD_ENB_ERROR_NONE;
             }
-            recv_size = N_rx_samps;
+            N_rx_sync_samps = N_rx_samps;
         }else{
             err = LTE_FDD_ENB_ERROR_MASTER_CLOCK_FAIL;
         }
@@ -274,25 +273,18 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_usrp_b2x0::setup(uint32       idx,
         // Nothing to do here
     }
 
-    return(err);
+    return err;
 }
-void LTE_fdd_enb_radio_usrp_b2x0::teardown(void)
+void LTE_fdd_enb_radio_usrp_b2x0::teardown()
 {
     uhd::stream_cmd_t cmd = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
-
     usrp->issue_stream_cmd(cmd);
 }
 void LTE_fdd_enb_radio_usrp_b2x0::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf,
                                        LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
 {
-    uhd::tx_metadata_t metadata;
-    uint32             samps_to_send = radio_params->N_samps_per_subfr;
-    uint32             idx           = 0;
-    uint32             i;
-    uint32             p;
-    uint16             N_skipped_subfrs;
-
     // Setup metadata
+    uhd::tx_metadata_t metadata;
     metadata.has_time_spec  = true;
     metadata.start_of_burst = false;
     metadata.end_of_burst   = false;
@@ -300,301 +292,262 @@ void LTE_fdd_enb_radio_usrp_b2x0::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf,
     // Check current_tti
     if(buf->current_tti != next_tx_current_tti)
     {
-        if(buf->current_tti > next_tx_current_tti)
-        {
-            N_skipped_subfrs = buf->current_tti - next_tx_current_tti;
-        }else{
-            N_skipped_subfrs = (buf->current_tti + LTE_FDD_ENB_CURRENT_TTI_MAX + 1) - next_tx_current_tti;
-        }
-
-        next_tx_ts          += uhd::time_spec_t::from_ticks(N_skipped_subfrs*radio_params->N_samps_per_subfr,
-                                                            radio_params->fs);
-        next_tx_current_tti  = (buf->current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-    }else{
-        next_tx_current_tti = (next_tx_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+        uint16 N_skipped_subfrs  = liblte_phy_sub_from_tti(buf->current_tti, next_tx_current_tti);
+        next_tx_ts              += uhd::time_spec_t::from_ticks(N_skipped_subfrs*radio_params->N_samps_per_subfr,
+                                                                radio_params->fs);
     }
+    next_tx_current_tti = liblte_phy_add_to_tti(buf->current_tti, 1);
 
-    while(samps_to_send > N_tx_samps)
+#if EXTRA_TX_RADIO_DEBUG
+    radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                            LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                            __FILE__,
+                                            __LINE__,
+                                            "Sending subfr %lld %u",
+                                            next_tx_ts.to_ticks(radio_params->fs),
+                                            buf->current_tti);
+#endif
+    uint32 samps_to_send = radio_params->N_samps_per_subfr;
+    uint32 idx           = 0;
+    while(samps_to_send)
     {
         metadata.time_spec = next_tx_ts;
-        for(i=0; i<N_tx_samps; i++)
-        {
-            tx_buf[i] = gr_complex(buf->i_buf[0][idx+i]/50.0, buf->q_buf[0][idx+i]/50.0);
-            for(p=1; p<radio_params->N_ant; p++)
-            {
-                tx_buf[i] += gr_complex(buf->i_buf[p][idx+i]/50.0, buf->q_buf[p][idx+i]/50.0);
-            }
-            tx_buf[i] /= radio_params->N_ant;
-        }
-#if EXTRA_RADIO_DEBUG
+        for(uint32 i=0; i<N_tx_samps; i++)
+            tx_buf[i] = buf->samps[0][idx+i]/complex(50, 0);
+        uint32 sent_samps = N_tx_samps;
+        if(samps_to_send < N_tx_samps)
+            sent_samps = samps_to_send;
+#if EXTRA_TX_RADIO_DEBUG
         radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                                 LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
                                                 __FILE__,
                                                 __LINE__,
-                                                "Sending subfr %lld %u",
-                                                metadata.time_spec.to_ticks(fs),
-                                                buf->current_tti);
+                                                "Calling send");
 #endif
-        tx_stream->send(tx_buf, N_tx_samps, metadata);
-        idx           += N_tx_samps;
-        samps_to_send -= N_tx_samps;
-        next_tx_ts    += uhd::time_spec_t::from_ticks(N_tx_samps,
+        tx_stream->send(tx_buf, sent_samps, metadata);
+#if EXTRA_TX_RADIO_DEBUG
+        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                __FILE__,
+                                                __LINE__,
+                                                "Done with send");
+#endif
+        idx           += sent_samps;
+        samps_to_send -= sent_samps;
+        next_tx_ts    += uhd::time_spec_t::from_ticks(sent_samps,
                                                       radio_params->fs);
     }
-    if(0 != samps_to_send)
+}
+void LTE_fdd_enb_radio_usrp_b2x0::init(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
+{
+    if(!radio_params->init_needed)
+        return;
+
+    // Setup time specs
+    next_tx_ts        = uhd::time_spec_t::from_ticks(radio_params->samp_rate,
+                                                     radio_params->samp_rate); // 1 second to make sure everything is setup
+    next_rx_ts        = next_tx_ts;
+    next_rx_ts       -= uhd::time_spec_t::from_ticks(radio_params->N_samps_per_subfr*2,
+                                                     radio_params->samp_rate); // Retard RX by 2 subframes
+    next_rx_subfr_ts  = next_rx_ts;
+
+    // Reset USRP time
+    usrp->set_time_now(uhd::time_spec_t::from_ticks(0, radio_params->samp_rate));
+
+    // Signal PHY to generate first subframe
+    radio_params->phy->radio_interface(&radio_params->tx_radio_buf[1]);
+
+    // Start streaming
+    uhd::stream_cmd_t cmd = uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS;
+    cmd.stream_now        = true;
+    usrp->issue_stream_cmd(cmd);
+
+    radio_params->init_needed = false;
+}
+inline void LTE_fdd_enb_radio_usrp_b2x0::rx_sync(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
+{
+    int64 N_samps       = rx_stream->recv(rx_buf, N_rx_sync_samps, metadata);
+    int64 md_ticks      = metadata.time_spec.to_ticks(radio_params->samp_rate);
+    int64 next_rx_ticks = next_rx_ts.to_ticks(radio_params->samp_rate);
+
+    // If the next recv() call will start at the expected next receive TS, then we are synced.
+    if((md_ticks + N_samps) == next_rx_ticks)
     {
-        metadata.time_spec = next_tx_ts;
-        for(i=0; i<samps_to_send; i++)
-        {
-            tx_buf[i] = gr_complex(buf->i_buf[0][idx+i]/50.0, buf->q_buf[0][idx+i]/50.0);
-            for(p=1; p<radio_params->N_ant; p++)
-            {
-                tx_buf[i] += gr_complex(buf->i_buf[p][idx+i]/50.0, buf->q_buf[p][idx+i]/50.0);
-            }
-            tx_buf[i] /= radio_params->N_ant;
-        }
-#if EXTRA_RADIO_DEBUG
         radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                                 LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
                                                 __FILE__,
                                                 __LINE__,
-                                                "Sending subfr %lld %u",
-                                                metadata.time_spec.to_ticks(fs),
-                                                buf->current_tti);
-#endif
-        tx_stream->send(tx_buf, samps_to_send, metadata);
-        next_tx_ts += uhd::time_spec_t::from_ticks(samps_to_send,
-                                                   radio_params->fs);
+                                                "RX synced %lld %lld",
+                                                md_ticks + N_samps,
+                                                next_rx_ticks);
+        radio_params->samp_idx  = 0;
+        radio_params->rx_synced = true;
+        return;
+    }
+
+    // If this recv() call returned enough samples to exceed the expected next receive TS,
+    // then we need to modify the next receive TS.
+    // FIXME: Need to do many things
+
+    // If the next recv() call will return enough samples to exceed the expected next receive
+    // TS, then we need to modify the N_rx_sync_samps to align the TS.
+    if((md_ticks + N_samps + N_rx_samps) > next_rx_ticks)
+    {
+        N_rx_sync_samps  = next_rx_ticks - (md_ticks + N_samps);
+        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                __FILE__,
+                                                __LINE__,
+                                                "RX modifying N_rx_sync_samps to sync %lld %lld %u",
+                                                md_ticks + N_samps + N_rx_samps,
+                                                next_rx_ticks,
+                                                N_rx_sync_samps);
     }
 }
 void LTE_fdd_enb_radio_usrp_b2x0::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
 {
-    uhd::stream_cmd_t cmd = uhd::stream_cmd_t::STREAM_MODE_START_CONTINUOUS;
-    uint32            i;
+    if(!radio_params->rx_synced)
+        return rx_sync(radio_params);
 
-    if(radio_params->init_needed)
+#if EXTRA_RX_RADIO_DEBUG
+        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                __FILE__,
+                                                __LINE__,
+                                                "Calling recv");
+#endif
+    uint32 N_samps = rx_stream->recv(rx_buf, N_rx_samps, metadata);
+#if EXTRA_RX_RADIO_DEBUG
+        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                __FILE__,
+                                                __LINE__,
+                                                "Done with recv");
+#endif
+
+    // Catch any errors
+    if(N_samps == 0)
+        return radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                       LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                       __FILE__,
+                                                       __LINE__,
+                                                       "RX number of samples error %u",
+                                                       (uint32)metadata.error_code);
+    if(metadata.error_code != uhd::rx_metadata_t::ERROR_CODE_NONE)
+        return radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                       LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                       __FILE__,
+                                                       __LINE__,
+                                                       "RX error %u",
+                                                       (uint32)metadata.error_code);
+    if(N_samps != N_rx_samps)
+        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                __FILE__,
+                                                __LINE__,
+                                                "RX packet size issue %u %u",
+                                                N_samps,
+                                                N_rx_samps);
+        
+    uint32 next_rx_ticks = next_rx_ts.to_ticks(radio_params->samp_rate);
+    uint32 md_ticks      = metadata.time_spec.to_ticks(radio_params->samp_rate);
+    if(next_rx_ticks > md_ticks)
+        return radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                       LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                       __FILE__,
+                                                       __LINE__,
+                                                       "RX underrun ?!? %lld %lld",
+                                                       md_ticks,
+                                                       next_rx_ticks);
+    if(next_rx_ticks < md_ticks)
     {
-        // Setup time specs
-        next_tx_ts        = uhd::time_spec_t::from_ticks(radio_params->samp_rate,
-                                                         radio_params->samp_rate); // 1 second to make sure everything is setup
-        next_rx_ts        = next_tx_ts;
-        next_rx_ts       -= uhd::time_spec_t::from_ticks(radio_params->N_samps_per_subfr*2,
-                                                         radio_params->samp_rate); // Retard RX by 2 subframes
-        next_rx_subfr_ts  = next_rx_ts;
+        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                __FILE__,
+                                                __LINE__,
+                                                "RX overrun %lld %lld",
+                                                md_ticks,
+                                                next_rx_ticks);
 
-        // Reset USRP time
-        usrp->set_time_now(uhd::time_spec_t::from_ticks(0, radio_params->samp_rate));
+        // Determine how many subframes we are going to drop
+        uint32 N_subfrs_dropped = ((md_ticks - next_rx_ticks)/radio_params->N_samps_per_subfr) + 10;
 
-        // Signal PHY to generate first subframe
-        radio_params->phy->radio_interface(&radio_params->tx_radio_buf[1]);
+        // Jump the rx_current_tti
+        radio_params->rx_current_tti = liblte_phy_add_to_tti(radio_params->rx_current_tti,
+                                                             N_subfrs_dropped);
 
-        // Start streaming
-        cmd.stream_now = true;
-        usrp->issue_stream_cmd(cmd);
-
-        radio_params->init_needed = false;
+        // Align the samples coming from the radio
+        radio_params->rx_synced  = false;
+        next_rx_subfr_ts        += uhd::time_spec_t::from_ticks(N_subfrs_dropped*radio_params->N_samps_per_subfr,
+                                                                radio_params->samp_rate);
+        next_rx_ts               = next_rx_subfr_ts;
+        N_rx_sync_samps          = N_rx_samps;
+        return;
     }
 
-    if(!radio_params->rx_synced)
+    next_rx_ts += uhd::time_spec_t::from_ticks(N_samps, radio_params->samp_rate);
+    if((radio_params->samp_idx + N_samps) > radio_params->N_samps_per_subfr)
+        return radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                       LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                       __FILE__,
+                                                       __LINE__,
+                                                       "MISALIGNED RX %lld %lld",
+                                                       radio_params->samp_idx + N_samps,
+                                                       radio_params->N_samps_per_subfr);
+
+    for(uint32 i=0; i<N_samps; i++)
+        radio_params->rx_radio_buf[radio_params->buf_idx].samps[0][radio_params->samp_idx+i] = rx_buf[i];
+    radio_params->samp_idx += N_samps;
+
+    if(radio_params->samp_idx == radio_params->N_samps_per_subfr)
     {
-        radio_params->num_samps  = rx_stream->recv(rx_buf, recv_size, metadata);
-        check_ts                 = metadata.time_spec;
-        check_ts                += uhd::time_spec_t::from_ticks(radio_params->num_samps,
-                                                                radio_params->samp_rate);
-
-        if(check_ts.to_ticks(radio_params->samp_rate) == next_rx_ts.to_ticks(radio_params->samp_rate))
-        {
-            radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                                    LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                    __FILE__,
-                                                    __LINE__,
-                                                    "RX synced %lld %lld",
-                                                    check_ts.to_ticks(radio_params->samp_rate),
-                                                    next_rx_ts.to_ticks(radio_params->samp_rate));
-            radio_params->samp_idx  = 0;
-            radio_params->rx_synced = true;
-        }else{
-            check_ts += uhd::time_spec_t::from_ticks(N_rx_samps,
-                                                     radio_params->samp_rate);
-            if(check_ts.to_ticks(radio_params->samp_rate) > next_rx_ts.to_ticks(radio_params->samp_rate))
-            {
-                radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                                        LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                        __FILE__,
-                                                        __LINE__,
-                                                        "RX modifying recv_size to sync %lld %lld",
-                                                        check_ts.to_ticks(radio_params->samp_rate),
-                                                        next_rx_ts.to_ticks(radio_params->samp_rate));
-                check_ts  -= uhd::time_spec_t::from_ticks(N_rx_samps, radio_params->samp_rate);
-                recv_size  = (uint32)(next_rx_ts.to_ticks(radio_params->samp_rate) - check_ts.to_ticks(radio_params->samp_rate));
-            }
-        }
-    }else{
-        radio_params->num_samps = rx_stream->recv(rx_buf, N_rx_samps, metadata);
-        if(0 != radio_params->num_samps)
-        {
-            next_rx_ts_ticks  = next_rx_ts.to_ticks(radio_params->samp_rate);
-            metadata_ts_ticks = metadata.time_spec.to_ticks(radio_params->samp_rate);
-            if(radio_params->num_samps != N_rx_samps)
-            {
-                radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                                        LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                        __FILE__,
-                                                        __LINE__,
-                                                        "RX packet size issue %u %u %lld %lld",
-                                                        radio_params->num_samps,
-                                                        N_rx_samps,
-                                                        metadata_ts_ticks,
-                                                        next_rx_ts_ticks);
-            }
-            if((next_rx_ts_ticks - metadata_ts_ticks) > 1)
-            {
-                // FIXME: Not sure this will ever happen
-                radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                                        LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                        __FILE__,
-                                                        __LINE__,
-                                                        "RX old time spec %lld %lld",
-                                                        metadata_ts_ticks,
-                                                        next_rx_ts_ticks);
-            }else if((metadata_ts_ticks - next_rx_ts_ticks) > 1){
-                radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                                        LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                        __FILE__,
-                                                        __LINE__,
-                                                        "RX overrun %lld %lld",
-                                                        metadata_ts_ticks,
-                                                        next_rx_ts_ticks);
-
-                // Determine how many subframes we are going to drop
-                radio_params->N_subfrs_dropped = ((metadata_ts_ticks - next_rx_ts_ticks)/radio_params->N_samps_per_subfr) + 2;
-
-                // Jump the rx_current_tti
-                radio_params->rx_current_tti = (radio_params->rx_current_tti + radio_params->N_subfrs_dropped) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-
-                // Align the samples coming from the radio
-                radio_params->rx_synced  = false;
-                next_rx_subfr_ts        += uhd::time_spec_t::from_ticks(radio_params->N_subfrs_dropped*radio_params->N_samps_per_subfr,
-                                                                        radio_params->samp_rate);
-                next_rx_ts               = next_rx_subfr_ts;
-                check_ts                 = metadata.time_spec;
-                check_ts                += uhd::time_spec_t::from_ticks(radio_params->num_samps + N_rx_samps,
-                                                                        radio_params->samp_rate);
-
-                if(check_ts.to_ticks(radio_params->samp_rate) > next_rx_ts.to_ticks(radio_params->samp_rate))
-                {
-                    check_ts  -= uhd::time_spec_t::from_ticks(N_rx_samps, radio_params->samp_rate);
-                    recv_size  = (uint32)(next_rx_ts.to_ticks(radio_params->samp_rate) - check_ts.to_ticks(radio_params->samp_rate));
-                }else{
-                    recv_size = N_rx_samps;
-                }
-            }else{
-                // FIXME: May need to realign to 1920 sample boundries
-                radio_params->recv_idx  = 0;
-                next_rx_ts             += uhd::time_spec_t::from_ticks(radio_params->num_samps,
-                                                                       radio_params->samp_rate);
-                while(radio_params->num_samps > 0)
-                {
-                    if((radio_params->samp_idx + radio_params->num_samps) <= radio_params->N_samps_per_subfr)
-                    {
-                        for(i=0; i<radio_params->num_samps; i++)
-                        {
-                            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].real();
-                            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].imag();
-                        }
-                        radio_params->samp_idx += radio_params->num_samps;
-
-                        if(radio_params->samp_idx == radio_params->N_samps_per_subfr)
-                        {
-#if EXTRA_RADIO_DEBUG
-                            radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                                                    LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                                    __FILE__,
-                                                                    __LINE__,
-                                                                    "Receiving subfr %lld %u",
-                                                                    next_rx_subfr_ts.to_ticks(radio_params->samp_rate),
-                                                                    radio_params->rx_current_tti);
+#if EXTRA_RX_RADIO_DEBUG
+        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                __FILE__,
+                                                __LINE__,
+                                                "Receiving subfr %lld %u",
+                                                next_rx_subfr_ts.to_ticks(radio_params->samp_rate),
+                                                radio_params->rx_current_tti);
 #endif
-                            radio_params->rx_radio_buf[radio_params->buf_idx].current_tti = radio_params->rx_current_tti;
-                            radio_params->phy->radio_interface(&radio_params->tx_radio_buf[radio_params->buf_idx],
-                                                               &radio_params->rx_radio_buf[radio_params->buf_idx]);
-                            radio_params->buf_idx         = (radio_params->buf_idx + 1) % 2;
-                            radio_params->rx_current_tti  = (radio_params->rx_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-                            radio_params->samp_idx        = 0;
-                            next_rx_subfr_ts             += uhd::time_spec_t::from_ticks(radio_params->N_samps_per_subfr,
-                                                                                         radio_params->samp_rate);
-                        }
-                        radio_params->num_samps = 0;
-                    }else{
-                        for(i=0; i<(radio_params->N_samps_per_subfr - radio_params->samp_idx); i++)
-                        {
-                            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].real();
-                            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[0][radio_params->samp_idx+i] = rx_buf[radio_params->recv_idx+i].imag();
-                        }
-#if EXTRA_RADIO_DEBUG
-                        radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                                                LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                                __FILE__,
-                                                                __LINE__,
-                                                                "Receiving subfr %lld %u",
-                                                                next_rx_subfr_ts.to_ticks(radio_params->samp_rate),
-                                                                radio_params->rx_current_tti);
-#endif
-                        radio_params->rx_radio_buf[radio_params->buf_idx].current_tti = radio_params->rx_current_tti;
-                        radio_params->phy->radio_interface(&radio_params->tx_radio_buf[radio_params->buf_idx],
-                                                           &radio_params->rx_radio_buf[radio_params->buf_idx]);
-                        radio_params->buf_idx         = (radio_params->buf_idx + 1) % 2;
-                        radio_params->rx_current_tti  = (radio_params->rx_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-                        radio_params->num_samps      -= (radio_params->N_samps_per_subfr - radio_params->samp_idx);
-                        radio_params->recv_idx        = (radio_params->N_samps_per_subfr - radio_params->samp_idx);
-                        radio_params->samp_idx        = 0;
-                        next_rx_subfr_ts             += uhd::time_spec_t::from_ticks(radio_params->N_samps_per_subfr,
-                                                                                     radio_params->samp_rate);
-                    }
-                }
-            }
-        }else{
-            radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                                    LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                    __FILE__,
-                                                    __LINE__,
-                                                    "RX error %u",
-                                                    (uint32)metadata.error_code);
-        }
+        radio_params->rx_radio_buf[radio_params->buf_idx].current_tti = radio_params->rx_current_tti;
+        radio_params->phy->radio_interface(&radio_params->tx_radio_buf[radio_params->buf_idx],
+                                           &radio_params->rx_radio_buf[radio_params->buf_idx]);
+        radio_params->buf_idx         = (radio_params->buf_idx + 1) % 2;
+        radio_params->rx_current_tti  = liblte_phy_add_to_tti(radio_params->rx_current_tti, 1);
+        radio_params->samp_idx        = 0;
+        next_rx_subfr_ts             += uhd::time_spec_t::from_ticks(radio_params->N_samps_per_subfr,
+                                                                     radio_params->samp_rate);
     }
 }
 
 /****************************************/
 /*    BladeRF Constructor/Destructor    */
 /****************************************/
-LTE_fdd_enb_radio_bladerf::LTE_fdd_enb_radio_bladerf()
+LTE_fdd_enb_radio_bladerf::LTE_fdd_enb_radio_bladerf() :
+    bladerf{NULL}, first_tx_sample{true}
 {
-    bladerf         = NULL;
-    first_tx_sample = true;
     memset(&metadata_tx, 0, sizeof(metadata_tx));
 }
 LTE_fdd_enb_radio_bladerf::~LTE_fdd_enb_radio_bladerf()
 {
+}
+void LTE_fdd_enb_radio_bladerf::set_interface(LTE_fdd_enb_interface *iface)
+{
+    interface = iface;
 }
 
 /*********************************/
 /*    BladeRF Radio Functions    */
 /*********************************/
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
-                                                        double bandwidth,
+                                                        uint32 bw,
                                                         int16  dl_earfcn,
                                                         int16  ul_earfcn,
                                                         uint8  N_ant,
                                                         uint32 samp_rate,
                                                         uint32 N_samps_per_subfr)
 {
-    LTE_fdd_enb_interface  *interface = LTE_fdd_enb_interface::get_instance();
-    struct bladerf_devinfo *devs;
-    LTE_FDD_ENB_ERROR_ENUM  err = LTE_FDD_ENB_ERROR_CANT_START;
-    uint32                  bladerf_idx;
-    uint32                  buffer_size;
-    int                     status;
-
     // Only supporting N_ant=1
     if(1 != N_ant)
     {
@@ -604,11 +557,11 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   __LINE__,
                                   "Not supported N_ant=%u",
                                   N_ant);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Determine the bladerf index
-    bladerf_idx = idx - find_usrps() - 1;
+    uint32 bladerf_idx = idx - find_usrps() - 1;
     if(bladerf_idx >= find_bladerfs())
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -617,12 +570,13 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   __LINE__,
                                   "Incorrect bladerf index %u",
                                   bladerf_idx);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Open bladerf device
+    struct bladerf_devinfo *devs;
     bladerf_get_device_list(&devs);
-    status = bladerf_open_with_devinfo(&bladerf, &devs[bladerf_idx]);
+    int status = bladerf_open_with_devinfo(&bladerf, &devs[bladerf_idx]);
     if(0 != status)
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -631,7 +585,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   __LINE__,
                                   "Failed to open device: %s",
                                   bladerf_strerror(status));
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set RX frequency
@@ -647,7 +601,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set RX frequency: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set RX sample rate
@@ -664,13 +618,13 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set RX sample rate: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set RX bandwidth
     status = bladerf_set_bandwidth(bladerf,
                                    BLADERF_MODULE_RX,
-                                   (uint32)(bandwidth * 1000000),
+                                   bw,
                                    NULL);
     if(0 != status)
     {
@@ -681,7 +635,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set RX bandwidth: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set LNA gain
@@ -697,7 +651,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set LNA gain: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set RX VGA1 gain
@@ -713,7 +667,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set RX VGA1 gain: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set RX VGA2 gain
@@ -729,7 +683,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set RX VGA2 gain: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set TX frequency
@@ -745,7 +699,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set TX frequency: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set TX sample rate
@@ -762,13 +716,13 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set TX sample rate: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set TX bandwidth
     status = bladerf_set_bandwidth(bladerf,
                                    BLADERF_MODULE_TX,
-                                   (uint32)(bandwidth * 1000000),
+                                   bw,
                                    NULL);
     if(0 != status)
     {
@@ -779,7 +733,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set TX bandwidth: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set TX VGA1 gain
@@ -795,7 +749,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set TX VGA1 gain: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Set TX VGA2 gain
@@ -811,18 +765,15 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set TX VGA2 gain: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Setup sync TX
+    uint32 buffer_size = 1024;
     if(0 == (N_samps_per_subfr % 1024))
-    {
         buffer_size = N_samps_per_subfr;
-    }else{
-        buffer_size = 1024;
-    }
     status = bladerf_sync_config(bladerf,
-                                 BLADERF_MODULE_TX,
+                                 BLADERF_TX_X1,
                                  BLADERF_FORMAT_SC16_Q11_META,
                                  BLADERF_NUM_BUFFERS,
                                  buffer_size,
@@ -837,12 +788,12 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set TX sync config: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Setup sync RX
     status = bladerf_sync_config(bladerf,
-                                 BLADERF_MODULE_RX,
+                                 BLADERF_RX_X1,
                                  BLADERF_FORMAT_SC16_Q11_META,
                                  BLADERF_NUM_BUFFERS,
                                  buffer_size,
@@ -857,7 +808,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to set RX sync config: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Enable TX
@@ -871,7 +822,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to enable TX module: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
     // Enable RX
@@ -885,49 +836,39 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio_bladerf::setup(uint32 idx,
                                   "Failed to enable RX module: %s",
                                   bladerf_strerror(status));
         bladerf_close(bladerf);
-        return(err);
+        return LTE_FDD_ENB_ERROR_CANT_START;
     }
 
-    return(LTE_FDD_ENB_ERROR_NONE);
+    return LTE_FDD_ENB_ERROR_NONE;
 }
-void LTE_fdd_enb_radio_bladerf::teardown(void)
+void LTE_fdd_enb_radio_bladerf::teardown()
 {
     if(NULL != bladerf)
-    {
         bladerf_close(bladerf);
-    }
 }
 void LTE_fdd_enb_radio_bladerf::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf,
                                      LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
 {
-    uint32 i;
-    uint32 samps_to_send = radio_params->N_samps_per_subfr;
-    int    status;
-    uint16 N_skipped_subfrs;
-
     // Check current_tti
     if(buf->current_tti != next_tx_current_tti)
     {
-        if(buf->current_tti > next_tx_current_tti)
-        {
-            N_skipped_subfrs = buf->current_tti - next_tx_current_tti;
-        }else{
-            N_skipped_subfrs = (buf->current_tti + LTE_FDD_ENB_CURRENT_TTI_MAX + 1) - next_tx_current_tti;
-        }
+        uint16 N_skipped_subfrs = liblte_phy_sub_from_tti(buf->current_tti,
+                                                          next_tx_current_tti);
 
         next_tx_ts            += N_skipped_subfrs * radio_params->N_samps_per_subfr;
-        next_tx_current_tti    = (buf->current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+        next_tx_current_tti    = liblte_phy_add_to_tti(buf->current_tti, 1);
         metadata_tx.flags      = BLADERF_META_FLAG_TX_UPDATE_TIMESTAMP;
         metadata_tx.timestamp  = next_tx_ts;
     }else{
-        next_tx_current_tti = (next_tx_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
+        next_tx_current_tti = liblte_phy_add_to_tti(next_tx_current_tti, 1);
         metadata_tx.flags   = 0;
     }
 
-    for(i=0; i<samps_to_send; i++)
+    uint32 samps_to_send = radio_params->N_samps_per_subfr;
+    for(uint32 i=0; i<samps_to_send; i++)
     {
-        tx_buf[(i*2)  ] = (int16_t)(buf->i_buf[0][i] * 40.0);
-        tx_buf[(i*2)+1] = (int16_t)(buf->q_buf[0][i] * 40.0);
+        tx_buf[(i*2)  ] = (int16_t)(buf->samps[0][i].real() * 40.0);
+        tx_buf[(i*2)+1] = (int16_t)(buf->samps[0][i].imag() * 40.0);
     }
 
     if(first_tx_sample)
@@ -938,17 +879,15 @@ void LTE_fdd_enb_radio_bladerf::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf,
     }
 
     // TX samples
-    status = bladerf_sync_tx(bladerf, tx_buf, samps_to_send, &metadata_tx, 1000);
+    int status = bladerf_sync_tx(bladerf, tx_buf, samps_to_send, &metadata_tx, 1000);
     if(BLADERF_ERR_TIME_PAST == status)
     {
-        LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
                                   __FILE__,
                                   __LINE__,
                                   "TX failed: BLADERF_ERR_TIME_PAST");
     }else if(0 != status){
-        LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
                                   __FILE__,
@@ -956,7 +895,6 @@ void LTE_fdd_enb_radio_bladerf::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf,
                                   "TX failed: %s",
                                   bladerf_strerror(status));
     }else if(BLADERF_META_STATUS_UNDERRUN & metadata_tx.status){
-        LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
                                   __FILE__,
@@ -966,29 +904,28 @@ void LTE_fdd_enb_radio_bladerf::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf,
 
     next_tx_ts += samps_to_send;
 }
+void LTE_fdd_enb_radio_bladerf::init(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
+{
+    if(!radio_params->init_needed)
+        return;
+
+    // Assume RX_timestamp and TX_timestamp difference is 0
+    bladerf_get_timestamp(bladerf, BLADERF_RX, (uint64_t*)&rx_ts);
+    next_tx_ts            = rx_ts + radio_params->samp_rate; // 1 second to make sure everything is setup
+    metadata_rx.flags     = 0;
+    metadata_rx.timestamp = next_tx_ts - (radio_params->N_samps_per_subfr*2); // Retard RX by 2 subframes
+
+    // Signal PHY to generate first subframe
+    radio_params->phy->radio_interface(&radio_params->tx_radio_buf[1]);
+
+    radio_params->init_needed = false;
+}
 void LTE_fdd_enb_radio_bladerf::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_params)
 {
-    uint32 i;
-    int    status;
-
-    if(radio_params->init_needed)
-    {
-        // Assume RX_timestamp and TX_timestamp difference is 0
-        bladerf_get_timestamp(bladerf, BLADERF_MODULE_RX, (uint64_t*)&rx_ts);
-        next_tx_ts            = rx_ts + radio_params->samp_rate; // 1 second to make sure everything is setup
-        metadata_rx.flags     = 0;
-        metadata_rx.timestamp = next_tx_ts - (radio_params->N_samps_per_subfr*2); // Retard RX by 2 subframes
-
-        // Signal PHY to generate first subframe
-        radio_params->phy->radio_interface(&radio_params->tx_radio_buf[1]);
-
-        radio_params->init_needed = false;
-    }else{
-        metadata_rx.flags = 0; // Use timestamps
-    }
+    metadata_rx.flags = 0; // Use timestamps
 
     // RX
-    status = bladerf_sync_rx(bladerf, rx_buf, radio_params->N_samps_per_subfr, &metadata_rx, 1000);
+    int status = bladerf_sync_rx(bladerf, rx_buf, radio_params->N_samps_per_subfr, &metadata_rx, 1000);
     if(0 != status)
     {
         radio_params->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
@@ -1005,68 +942,38 @@ void LTE_fdd_enb_radio_bladerf::receive(LTE_FDD_ENB_RADIO_PARAMS_STRUCT *radio_p
                                                 "RX failed: BLADERF_META_STATUS_OVERRUN");
 
         // Determine how many subframes we are going to drop
-        radio_params->N_subfrs_dropped = 10;
+        uint32 N_subfrs_dropped = 10;
 
         // Jump the rx_current_tti and timestamp
-        radio_params->rx_current_tti  = (radio_params->rx_current_tti + radio_params->N_subfrs_dropped) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-        metadata_rx.timestamp        += radio_params->N_subfrs_dropped * radio_params->N_samps_per_subfr;
+        radio_params->rx_current_tti  = liblte_phy_add_to_tti(radio_params->rx_current_tti,
+                                                              N_subfrs_dropped);
+        metadata_rx.timestamp        += N_subfrs_dropped * radio_params->N_samps_per_subfr;
 
         // FIXME: This doesn't recover from the overrun
     }else{
-        for(i=0; i<radio_params->N_samps_per_subfr; i++)
-        {
-            radio_params->rx_radio_buf[radio_params->buf_idx].i_buf[0][i] = rx_buf[(i*2)  ] / 40.0;
-            radio_params->rx_radio_buf[radio_params->buf_idx].q_buf[0][i] = rx_buf[(i*2)+1] / 40.0;
-        }
+        for(uint32 i=0; i<radio_params->N_samps_per_subfr; i++)
+            radio_params->rx_radio_buf[radio_params->buf_idx].samps[0][i] = complex(rx_buf[i*2] / 40.0, rx_buf[i*2+1] / 40.0);
         metadata_rx.timestamp                                         += radio_params->N_samps_per_subfr;
         radio_params->rx_radio_buf[radio_params->buf_idx].current_tti  = radio_params->rx_current_tti;
         radio_params->phy->radio_interface(&radio_params->tx_radio_buf[radio_params->buf_idx],
                                            &radio_params->rx_radio_buf[radio_params->buf_idx]);
         radio_params->buf_idx        = (radio_params->buf_idx + 1) % 2;
-        radio_params->rx_current_tti = (radio_params->rx_current_tti + 1) % (LTE_FDD_ENB_CURRENT_TTI_MAX + 1);
-    }
-}
-
-/*******************/
-/*    Singleton    */
-/*******************/
-LTE_fdd_enb_radio* LTE_fdd_enb_radio::get_instance(void)
-{
-    libtools_scoped_lock lock(radio_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_fdd_enb_radio();
-    }
-
-    return(instance);
-}
-void LTE_fdd_enb_radio::cleanup(void)
-{
-    libtools_scoped_lock lock(radio_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
+        radio_params->rx_current_tti = liblte_phy_add_to_tti(radio_params->rx_current_tti, 1);
     }
 }
 
 /********************************/
 /*    Constructor/Destructor    */
 /********************************/
-LTE_fdd_enb_radio::LTE_fdd_enb_radio()
+LTE_fdd_enb_radio::LTE_fdd_enb_radio(LTE_fdd_enb_interface *iface, LTE_fdd_enb_phy *_phy) :
+    started{false}, interface{iface}, phy{_phy}, clock_source{"internal"}, tx_gain{0},
+    rx_gain{0}
 {
-    // Start/Stop
-    sem_init(&start_sem, 0, 1);
-    started = false;
+    bladerf.set_interface(interface);
 
     // Setup generic radios
     available_radios.num_radios = 0;
     get_available_radios();
-    tx_gain      = 0;
-    rx_gain      = 0;
-    clock_source = "internal";
 
     // Setup radio thread
     get_radio_sample_rate();
@@ -1074,44 +981,59 @@ LTE_fdd_enb_radio::LTE_fdd_enb_radio()
 LTE_fdd_enb_radio::~LTE_fdd_enb_radio()
 {
     stop();
-    sem_destroy(&start_sem);
 }
 
 /********************/
 /*    Start/Stop    */
 /********************/
-bool LTE_fdd_enb_radio::is_started(void)
+bool LTE_fdd_enb_radio::is_started()
 {
-    libtools_scoped_lock lock(start_sem);
+    std::lock_guard<std::mutex> lock(start_mutex);
 
-    return(started);
+    return started;
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start(void)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start()
 {
-    LTE_fdd_enb_cnfg_db    *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-    LTE_FDD_ENB_ERROR_ENUM  err = LTE_FDD_ENB_ERROR_CANT_START;
-    double                  bandwidth;
-    int64                   dl_earfcn;
-    int64                   ul_earfcn;
-    int64                   N_ant;
+    LTE_FDD_ENB_ERROR_ENUM err = LTE_FDD_ENB_ERROR_CANT_START;
 
-    sem_wait(&start_sem);
+    start_mutex.lock();
     if(false == started)
     {
         // Get the DL and UL EARFCNs
-        cnfg_db->get_param(LTE_FDD_ENB_PARAM_DL_EARFCN, dl_earfcn);
-        cnfg_db->get_param(LTE_FDD_ENB_PARAM_UL_EARFCN, ul_earfcn);
+        uint16 dl_earfcn = interface->get_dl_earfcn();
+        uint16 ul_earfcn = interface->get_ul_earfcn();
 
         // Get the number of TX antennas
-        cnfg_db->get_param(LTE_FDD_ENB_PARAM_N_ANT, N_ant);
+        uint8 N_ant = interface->get_n_ant();
         radio_params.N_ant = N_ant;
 
         // Get the bandwidth
-        cnfg_db->get_param(LTE_FDD_ENB_PARAM_BANDWIDTH, bandwidth);
+        uint32 bandwidth = 0;
+        switch(interface->get_bandwidth())
+        {
+        case MasterInformationBlock::k_dl_Bandwidth_n100:
+            bandwidth = 20000000;
+            break;
+        case MasterInformationBlock::k_dl_Bandwidth_n75:
+            bandwidth = 15000000;
+            break;
+        case MasterInformationBlock::k_dl_Bandwidth_n50:
+            bandwidth = 10000000;
+            break;
+        case MasterInformationBlock::k_dl_Bandwidth_n25:
+            bandwidth = 5000000;
+            break;
+        case MasterInformationBlock::k_dl_Bandwidth_n15:
+            bandwidth = 3000000;
+            break;
+        case MasterInformationBlock::k_dl_Bandwidth_n6:
+            bandwidth = 1400000;
+            break;
+        }
 
         // Setup the appropriate radio
         started = true;
-        sem_post(&start_sem);
+        start_mutex.unlock();
         switch(get_selected_radio_type())
         {
         case LTE_FDD_ENB_RADIO_TYPE_NO_RF:
@@ -1119,7 +1041,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start(void)
             if(LTE_FDD_ENB_ERROR_NONE != err)
             {
                 started = false;
-                return(err);
+                return err;
             }
             break;
         case LTE_FDD_ENB_RADIO_TYPE_USRP_B2X0:
@@ -1134,7 +1056,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start(void)
             if(LTE_FDD_ENB_ERROR_NONE != err)
             {
                 started = false;
-                return(err);
+                return err;
             }
             break;
         case LTE_FDD_ENB_RADIO_TYPE_BLADERF:
@@ -1148,33 +1070,31 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::start(void)
             if(LTE_FDD_ENB_ERROR_NONE != err)
             {
                 started = false;
-                return(err);
+                return err;
             }
             break;
         default:
             started = false;
-            return(LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS);
+            return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
             break;
         }
 
-        // Kick off the receiving thread
-        pthread_create(&radio_thread, NULL, &radio_thread_func, NULL);
+        pthread_create(&radio_thread, NULL, &radio_thread_func, this);
     }else{
-        sem_post(&start_sem);
+        start_mutex.unlock();
     }
 
-    return(err);
+    return err;
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::stop(void)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::stop()
 {
-    uhd::stream_cmd_t      cmd = uhd::stream_cmd_t::STREAM_MODE_STOP_CONTINUOUS;
     LTE_FDD_ENB_ERROR_ENUM err = LTE_FDD_ENB_ERROR_CANT_STOP;
 
-    sem_wait(&start_sem);
+    start_mutex.lock();
     if(started)
     {
         started = false;
-        sem_post(&start_sem);
+        start_mutex.unlock();
         switch(get_selected_radio_type())
         {
         case LTE_FDD_ENB_RADIO_TYPE_NO_RF:
@@ -1195,19 +1115,28 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::stop(void)
         pthread_join(radio_thread, NULL);
         err = LTE_FDD_ENB_ERROR_NONE;
     }else{
-        sem_post(&start_sem);
+        start_mutex.unlock();
     }
 
-    return(err);
+    return err;
 }
 
 /****************************/
 /*    External Interface    */
 /****************************/
-LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT LTE_fdd_enb_radio::get_available_radios(void)
+std::string LTE_fdd_enb_radio::get_available_radios_string()
+{
+    LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT radios = get_available_radios();
+    std::string str;
+    for(uint32 i=0; i<radios.num_radios; i++)
+        str += std::to_string(i) + ": " + radios.radio[i].name + ", ";
+    if(str.length() != 0)
+        return str.substr(0, str.length()-2);
+    return str;
+}
+LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT LTE_fdd_enb_radio::get_available_radios()
 {
     uint32 orig_num_radios = available_radios.num_radios;
-
     available_radios.num_radios = 0;
 
     // No RF
@@ -1223,40 +1152,40 @@ LTE_FDD_ENB_AVAILABLE_RADIOS_STRUCT LTE_fdd_enb_radio::get_available_radios(void
     // Reset to sane default
     if(orig_num_radios != available_radios.num_radios)
     {
+        selected_radio_idx = 1;
         if(1 == available_radios.num_radios)
-        {
             selected_radio_idx = 0;
-        }else{
-            selected_radio_idx = 1;
-        }
         selected_radio_type = available_radios.radio[selected_radio_idx].type;
     }
 
-    return(available_radios);
+    return available_radios;
 }
-LTE_FDD_ENB_RADIO_STRUCT LTE_fdd_enb_radio::get_selected_radio(void)
+LTE_FDD_ENB_RADIO_STRUCT LTE_fdd_enb_radio::get_selected_radio()
 {
     uint32 num_usrps    = find_usrps();
     uint32 num_bladerfs = find_bladerfs();
 
     if(available_radios.num_radios != (num_usrps + num_bladerfs + 1))
-    {
         get_available_radios();
-    }
 
-    return(available_radios.radio[selected_radio_idx]);
+    return available_radios.radio[selected_radio_idx];
 }
-uint32 LTE_fdd_enb_radio::get_selected_radio_idx(void)
+uint32 LTE_fdd_enb_radio::get_selected_radio_idx()
 {
     uint32 num_usrps    = find_usrps();
     uint32 num_bladerfs = find_bladerfs();
 
     if(available_radios.num_radios != (num_usrps + num_bladerfs + 1))
-    {
         get_available_radios();
-    }
 
-    return(selected_radio_idx);
+    return selected_radio_idx;
+}
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_selected_radio_idx(std::string idx)
+{
+    int64 idx_value;
+    if(to_number(idx, idx_value, 0, 100))
+        return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+    return set_selected_radio_idx((uint32)idx_value);
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_selected_radio_idx(uint32 idx)
 {
@@ -1265,9 +1194,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_selected_radio_idx(uint32 idx)
     LTE_FDD_ENB_ERROR_ENUM err          = LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
 
     if(available_radios.num_radios != (num_usrps + num_bladerfs + 1))
-    {
         get_available_radios();
-    }
 
     if(idx < available_radios.num_radios)
     {
@@ -1276,124 +1203,119 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_selected_radio_idx(uint32 idx)
         err                 = LTE_FDD_ENB_ERROR_NONE;
     }
 
-    return(err);
+    return err;
 }
-LTE_FDD_ENB_RADIO_TYPE_ENUM LTE_fdd_enb_radio::get_selected_radio_type(void)
+LTE_FDD_ENB_RADIO_TYPE_ENUM LTE_fdd_enb_radio::get_selected_radio_type()
 {
     uint32 num_usrps    = find_usrps();
     uint32 num_bladerfs = find_bladerfs();
 
     if(available_radios.num_radios != (num_usrps + num_bladerfs + 1))
-    {
         get_available_radios();
-    }
 
-    return(available_radios.radio[selected_radio_idx].type);
+    return available_radios.radio[selected_radio_idx].type;
 }
-uint32 LTE_fdd_enb_radio::get_tx_gain(void)
+uint32 LTE_fdd_enb_radio::get_tx_gain()
 {
-    return(tx_gain);
+    return tx_gain;
+}
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_tx_gain(std::string gain)
+{
+    int64 gain_value;
+    if(to_number(gain, gain_value, 0, 1000))
+        return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+    return set_tx_gain((uint32)gain_value);
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_tx_gain(uint32 gain)
 {
-    libtools_scoped_lock   lock(start_sem);
-    LTE_FDD_ENB_ERROR_ENUM err = LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+    std::lock_guard<std::mutex> lock(start_mutex);
 
-    if(!started)
-    {
-        tx_gain = gain;
-        err     = LTE_FDD_ENB_ERROR_NONE;
-    }
+    if(started)
+        return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
 
-    return(err);
+    tx_gain = gain;
+    return LTE_FDD_ENB_ERROR_NONE;
 }
-uint32 LTE_fdd_enb_radio::get_rx_gain(void)
+uint32 LTE_fdd_enb_radio::get_rx_gain()
 {
-    return(rx_gain);
+    return rx_gain;
+}
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_rx_gain(std::string gain)
+{
+    int64 gain_value;
+    if(to_number(gain, gain_value, 0, 1000))
+        return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+    return set_rx_gain((uint32)gain_value);
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_rx_gain(uint32 gain)
 {
-    libtools_scoped_lock   lock(start_sem);
-    LTE_FDD_ENB_ERROR_ENUM err = LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+    std::lock_guard<std::mutex> lock(start_mutex);
 
-    if(!started)
-    {
-        rx_gain = gain;
-        err     = LTE_FDD_ENB_ERROR_NONE;
-    }
+    if(started)
+        return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
 
-    return(err);
+    rx_gain = gain;
+    return LTE_FDD_ENB_ERROR_NONE;
 }
-std::string LTE_fdd_enb_radio::get_clock_source(void)
+std::string LTE_fdd_enb_radio::get_clock_source()
 {
-    return(clock_source);
+    return clock_source;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_radio::set_clock_source(std::string source)
 {
-    libtools_scoped_lock   lock(start_sem);
-    LTE_FDD_ENB_ERROR_ENUM err = LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+    std::lock_guard<std::mutex> lock(start_mutex);
 
-    if("internal" == source ||
-       "external" == source)
+    if(started)
+        return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+
+    if("internal" != source && "external" != source)
+        return LTE_FDD_ENB_ERROR_OUT_OF_BOUNDS;
+
+    clock_source = source;
+    return LTE_FDD_ENB_ERROR_NONE;
+}
+uint32 LTE_fdd_enb_radio::get_phy_sample_rate()
+{
+    if(started)
+        return radio_params.fs;
+
+    MasterInformationBlock::dl_Bandwidth_Enum dl_bw = interface->get_bandwidth();
+    switch(dl_bw)
     {
-        if(!started)
-        {
-            clock_source = source;
-            err          = LTE_FDD_ENB_ERROR_NONE;
-        }
+    case MasterInformationBlock::k_dl_Bandwidth_n100:
+        // Intentional fall-thru
+    case MasterInformationBlock::k_dl_Bandwidth_n75:
+        radio_params.fs                = 30720000;
+        radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n50:
+        radio_params.fs                = 15360000;
+        radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_15_36MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n25:
+        radio_params.fs                = 7680000;
+        radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_7_68MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n15:
+        radio_params.fs                = 3840000;
+        radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_3_84MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n6:
+        radio_params.fs                = 1920000;
+        radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_1_92MHZ;
+        break;
     }
 
-    return(err);
+    return radio_params.fs;
 }
-uint32 LTE_fdd_enb_radio::get_phy_sample_rate(void)
+uint32 LTE_fdd_enb_radio::get_radio_sample_rate()
 {
-    LTE_fdd_enb_cnfg_db *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-    int64                dl_bw;
+    std::lock_guard<std::mutex> lock(start_mutex);
 
     if(!started)
-    {
-        cnfg_db->get_param(LTE_FDD_ENB_PARAM_DL_BW, dl_bw);
-        switch(dl_bw)
-        {
-        case LIBLTE_RRC_DL_BANDWIDTH_100:
-            // Intentional fall-thru
-        case LIBLTE_RRC_DL_BANDWIDTH_75:
-            radio_params.fs                = 30720000;
-            radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ;
-            break;
-        case LIBLTE_RRC_DL_BANDWIDTH_50:
-            radio_params.fs                = 15360000;
-            radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_15_36MHZ;
-            break;
-        case LIBLTE_RRC_DL_BANDWIDTH_25:
-            radio_params.fs                = 7680000;
-            radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_7_68MHZ;
-            break;
-        case LIBLTE_RRC_DL_BANDWIDTH_15:
-            radio_params.fs                = 3840000;
-            radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_3_84MHZ;
-            break;
-        case LIBLTE_RRC_DL_BANDWIDTH_6:
-            // Intentional fall-thru
-        default:
-            radio_params.fs                = 1920000;
-            radio_params.N_samps_per_subfr = LIBLTE_PHY_N_SAMPS_PER_SUBFR_1_92MHZ;
-            break;
-        }
-    }
-
-    return(radio_params.fs);
-}
-uint32 LTE_fdd_enb_radio::get_radio_sample_rate(void)
-{
-    libtools_scoped_lock lock(start_sem);
-
-    if(!started)
-    {
         radio_params.fs = get_phy_sample_rate();
-    }
 
-    return(radio_params.fs);
+    return radio_params.fs;
 }
 void LTE_fdd_enb_radio::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf)
 {
@@ -1418,9 +1340,9 @@ void LTE_fdd_enb_radio::send(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *buf)
         break;
     }
 }
-pthread_t LTE_fdd_enb_radio::get_radio_thread(void)
+pthread_t LTE_fdd_enb_radio::get_radio_thread()
 {
-    return(radio_thread);
+    return radio_thread;
 }
 
 /************************/
@@ -1428,55 +1350,56 @@ pthread_t LTE_fdd_enb_radio::get_radio_thread(void)
 /************************/
 void* LTE_fdd_enb_radio::radio_thread_func(void *inputs)
 {
-    LTE_fdd_enb_radio           *radio = LTE_fdd_enb_radio::get_instance();
-    struct sched_param           priority;
-    cpu_set_t                    af_mask;
-    LTE_FDD_ENB_RADIO_TYPE_ENUM  radio_type = radio->get_selected_radio_type();
-
     // Setup radio params
-    radio->radio_params.interface         = LTE_fdd_enb_interface::get_instance();
-    radio->radio_params.phy               = LTE_fdd_enb_phy::get_instance();
-    radio->radio_params.samp_rate         = radio->radio_params.fs;
-    radio->radio_params.buf_idx           = 0;
-    radio->radio_params.recv_idx          = 0;
-    radio->radio_params.samp_idx          = 0;
-    radio->radio_params.num_samps         = 0;
-    radio->radio_params.rx_current_tti    = (LTE_FDD_ENB_CURRENT_TTI_MAX + 1) - 2;
-    radio->radio_params.init_needed       = true;
-    radio->radio_params.rx_synced         = false;
+    LTE_fdd_enb_radio *radio           = (LTE_fdd_enb_radio*)inputs;
+    radio->radio_params.interface      = radio->interface;
+    radio->radio_params.phy            = radio->phy;
+    radio->radio_params.samp_rate      = radio->radio_params.fs;
+    radio->radio_params.buf_idx        = 0;
+    radio->radio_params.samp_idx       = 0;
+    radio->radio_params.rx_current_tti = liblte_phy_sub_from_tti(0, 2);
+    radio->radio_params.init_needed    = true;
+    radio->radio_params.rx_synced      = false;
 
     // Set highest priority
-    priority.sched_priority = 99;
+    struct sched_param priority;
+    int                sched_policy;
+    pthread_getschedparam(radio->radio_thread, &sched_policy, &priority);
+    priority.sched_priority = sched_get_priority_max(SCHED_FIFO);
     pthread_setschedparam(radio->radio_thread, SCHED_FIFO, &priority);
 
     // Set affinity to the last core for PHY/Radio
+    cpu_set_t af_mask;
     CPU_ZERO(&af_mask);
-    CPU_SET(sysconf(_SC_NPROCESSORS_ONLN)-1, &af_mask);
+    uint32 num_cpus = std::thread::hardware_concurrency();
+    CPU_SET(num_cpus-1, &af_mask);
     pthread_setaffinity_np(radio->get_radio_thread(), sizeof(af_mask), &af_mask);
 
-    while(radio->is_started())
+    switch(radio->get_selected_radio_type())
     {
-        switch(radio_type)
-        {
-        case LTE_FDD_ENB_RADIO_TYPE_NO_RF:
+    case LTE_FDD_ENB_RADIO_TYPE_NO_RF:
+        radio->no_rf.init(&radio->radio_params);
+        while(radio->is_started())
             radio->no_rf.receive(&radio->radio_params);
-            break;
-        case LTE_FDD_ENB_RADIO_TYPE_USRP_B2X0:
+        break;
+    case LTE_FDD_ENB_RADIO_TYPE_USRP_B2X0:
+        radio->usrp_b2x0.init(&radio->radio_params);
+        while(radio->is_started())
             radio->usrp_b2x0.receive(&radio->radio_params);
-            break;
-        case LTE_FDD_ENB_RADIO_TYPE_BLADERF:
+        break;
+    case LTE_FDD_ENB_RADIO_TYPE_BLADERF:
+        radio->bladerf.init(&radio->radio_params);
+        while(radio->is_started())
             radio->bladerf.receive(&radio->radio_params);
-            break;
-        default:
-            radio->radio_params.interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                                          LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
-                                                          __FILE__,
-                                                          __LINE__,
-                                                          "Invalid radio type %u",
-                                                          radio_type);
-            return(NULL);
-        }
+        break;
+    default:
+        radio->radio_params.interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                                      LTE_FDD_ENB_DEBUG_LEVEL_RADIO,
+                                                      __FILE__,
+                                                      __LINE__,
+                                                      "Invalid radio type");
+        break;
     }
 
-    return(NULL);
+    return NULL;
 }

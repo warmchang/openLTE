@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_pdcp.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2015, 2017 Ben Wojtowicz
+    Copyright 2013-2015, 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -37,6 +37,7 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
     07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -48,7 +49,6 @@
 #include "LTE_fdd_enb_rlc.h"
 #include "liblte_pdcp.h"
 #include "liblte_security.h"
-#include "libtools_scoped_lock.h"
 
 /*******************************************************************************
                               DEFINES
@@ -72,58 +72,50 @@
 /********************************/
 /*    Constructor/Destructor    */
 /********************************/
-LTE_fdd_enb_pdcp::LTE_fdd_enb_pdcp()
+LTE_fdd_enb_pdcp::LTE_fdd_enb_pdcp(LTE_fdd_enb_interface *iface) :
+    interface{iface}, started{false}
 {
-    sem_init(&start_sem, 0, 1);
-    sem_init(&sys_info_sem, 0, 1);
-    started = false;
 }
 LTE_fdd_enb_pdcp::~LTE_fdd_enb_pdcp()
 {
     stop();
-    sem_destroy(&sys_info_sem);
-    sem_destroy(&start_sem);
 }
 
 /********************/
 /*    Start/Stop    */
 /********************/
-void LTE_fdd_enb_pdcp::start(LTE_fdd_enb_msgq      *from_rlc,
-                             LTE_fdd_enb_msgq      *from_rrc,
-                             LTE_fdd_enb_msgq      *from_gw,
-                             LTE_fdd_enb_msgq      *to_rlc,
-                             LTE_fdd_enb_msgq      *to_rrc,
-                             LTE_fdd_enb_msgq      *to_gw,
-                             LTE_fdd_enb_interface *iface)
+void LTE_fdd_enb_pdcp::start(LTE_fdd_enb_msgq *from_rlc,
+                             LTE_fdd_enb_msgq *from_rrc,
+                             LTE_fdd_enb_msgq *from_gw,
+                             LTE_fdd_enb_msgq *to_rlc,
+                             LTE_fdd_enb_msgq *to_rrc,
+                             LTE_fdd_enb_msgq *to_gw)
 {
-    libtools_scoped_lock lock(start_sem);
-    LTE_fdd_enb_msgq_cb  rlc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rlc_msg>, this);
-    LTE_fdd_enb_msgq_cb  rrc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rrc_msg>, this);
-    LTE_fdd_enb_msgq_cb  gw_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_gw_msg>, this);
-
-    if(!started)
-    {
-        interface     = iface;
-        started       = true;
-        msgq_from_rlc = from_rlc;
-        msgq_from_rrc = from_rrc;
-        msgq_from_gw  = from_gw;
-        msgq_to_rlc   = to_rlc;
-        msgq_to_rrc   = to_rrc;
-        msgq_to_gw    = to_gw;
-        msgq_from_rlc->attach_rx(rlc_cb);
-        msgq_from_rrc->attach_rx(rrc_cb);
-        msgq_from_gw->attach_rx(gw_cb);
-    }
-}
-void LTE_fdd_enb_pdcp::stop(void)
-{
-    libtools_scoped_lock lock(start_sem);
+    std::lock_guard<std::mutex> lock(start_mutex);
+    LTE_fdd_enb_msgq_cb         rlc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rlc_msg>, this);
+    LTE_fdd_enb_msgq_cb         rrc_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_rrc_msg>, this);
+    LTE_fdd_enb_msgq_cb         gw_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_pdcp, &LTE_fdd_enb_pdcp::handle_gw_msg>, this);
 
     if(started)
-    {
+        return;
+
+    started       = true;
+    msgq_from_rlc = from_rlc;
+    msgq_from_rrc = from_rrc;
+    msgq_from_gw  = from_gw;
+    msgq_to_rlc   = to_rlc;
+    msgq_to_rrc   = to_rrc;
+    msgq_to_gw    = to_gw;
+    msgq_from_rlc->attach_rx(rlc_cb);
+    msgq_from_rrc->attach_rx(rrc_cb);
+    msgq_from_gw->attach_rx(gw_cb);
+}
+void LTE_fdd_enb_pdcp::stop()
+{
+    std::lock_guard<std::mutex> lock(start_mutex);
+
+    if(started)
         started = false;
-    }
 }
 
 /***********************/
@@ -131,90 +123,113 @@ void LTE_fdd_enb_pdcp::stop(void)
 /***********************/
 void LTE_fdd_enb_pdcp::handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    if(LTE_FDD_ENB_DEST_LAYER_PDCP == msg.dest_layer ||
-       LTE_FDD_ENB_DEST_LAYER_ANY  == msg.dest_layer)
-    {
-        switch(msg.type)
-        {
-        case LTE_FDD_ENB_MESSAGE_TYPE_PDCP_PDU_READY:
-            handle_pdu_ready(&msg.msg.pdcp_pdu_ready);
-            break;
-        default:
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      "Received invalid RLC message %s",
-                                      LTE_fdd_enb_message_type_text[msg.type]);
-            break;
-        }
-    }else{
-        // Forward message to RRC
-        msgq_to_rrc->send(msg);
-    }
+    if(LTE_FDD_ENB_DEST_LAYER_PDCP != msg.dest_layer &&
+       LTE_FDD_ENB_DEST_LAYER_ANY  != msg.dest_layer)
+        return msgq_to_rrc->send(msg); // Forward message to RRC
+
+    if(msg.type == LTE_FDD_ENB_MESSAGE_TYPE_PDCP_PDU_READY)
+        return handle_pdu_ready(&msg.msg.pdcp_pdu_ready);
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              "Received invalid RLC message %s",
+                              LTE_fdd_enb_message_type_text[msg.type]);
 }
 void LTE_fdd_enb_pdcp::handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    if(LTE_FDD_ENB_DEST_LAYER_PDCP == msg.dest_layer ||
-       LTE_FDD_ENB_DEST_LAYER_ANY  == msg.dest_layer)
-    {
-        switch(msg.type)
-        {
-        case LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY:
-            handle_sdu_ready(&msg.msg.pdcp_sdu_ready);
-            break;
-        default:
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      "Received invalid RRC message %s",
-                                      LTE_fdd_enb_message_type_text[msg.type]);
-            break;
-        }
-    }else{
-        // Forward message to RLC
-        msgq_to_rlc->send(msg);
-    }
+    if(LTE_FDD_ENB_DEST_LAYER_PDCP != msg.dest_layer &&
+       LTE_FDD_ENB_DEST_LAYER_ANY  != msg.dest_layer)
+        return msgq_to_rlc->send(msg); // Forward message to RLC
+
+    if(msg.type == LTE_FDD_ENB_MESSAGE_TYPE_PDCP_SDU_READY)
+        return handle_sdu_ready(&msg.msg.pdcp_sdu_ready);
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              "Received invalid RRC message %s",
+                              LTE_fdd_enb_message_type_text[msg.type]);
 }
 void LTE_fdd_enb_pdcp::handle_gw_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 {
-    if(LTE_FDD_ENB_DEST_LAYER_PDCP == msg.dest_layer ||
-       LTE_FDD_ENB_DEST_LAYER_ANY  == msg.dest_layer)
-    {
-        switch(msg.type)
-        {
-        case LTE_FDD_ENB_MESSAGE_TYPE_PDCP_DATA_SDU_READY:
-            handle_data_sdu_ready(&msg.msg.pdcp_data_sdu_ready);
-            break;
-        default:
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      "Received invalid GW message %s",
-                                      LTE_fdd_enb_message_type_text[msg.type]);
-            break;
-        }
-    }else{
-        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                  LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                  __FILE__,
-                                  __LINE__,
-                                  "Received GW message for invalid layer %s",
-                                  LTE_fdd_enb_dest_layer_text[msg.dest_layer]);
-    }
+    if(LTE_FDD_ENB_DEST_LAYER_PDCP != msg.dest_layer &&
+       LTE_FDD_ENB_DEST_LAYER_ANY  != msg.dest_layer)
+        return interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                         LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                                         __FILE__,
+                                         __LINE__,
+                                         "Received GW message for invalid layer %s",
+                                         LTE_fdd_enb_dest_layer_text[msg.dest_layer]);
+
+    if(msg.type == LTE_FDD_ENB_MESSAGE_TYPE_PDCP_DATA_SDU_READY)
+        return handle_data_sdu_ready(&msg.msg.pdcp_data_sdu_ready);
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              "Received invalid GW message %s",
+                              LTE_fdd_enb_message_type_text[msg.type]);
+}
+void LTE_fdd_enb_pdcp::send_rlc_sdu_ready(LTE_fdd_enb_user       *user,
+                                          LTE_fdd_enb_rb         *rb,
+                                          LIBLTE_BYTE_MSG_STRUCT *sdu)
+{
+    LTE_FDD_ENB_RLC_SDU_READY_MSG_STRUCT sdu_ready;
+
+    rb->queue_rlc_sdu(sdu);
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              sdu,
+                              "Sending PDU to RLC for RNTI=%u and RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    sdu_ready.user = user;
+    sdu_ready.rb   = rb;
+    msgq_to_rlc->send(LTE_FDD_ENB_MESSAGE_TYPE_RLC_SDU_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RLC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&sdu_ready,
+                      sizeof(sdu_ready));
+}
+void LTE_fdd_enb_pdcp::send_rrc_pdu_ready(LTE_fdd_enb_user      *user,
+                                          LTE_fdd_enb_rb        *rb,
+                                          LIBLTE_BIT_MSG_STRUCT *pdu)
+{
+    LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT pdu_ready;
+
+    rb->queue_rrc_pdu(pdu);
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              pdu,
+                              "Sending SDU to RRC for RNTI=%u and RB=%s",
+                              user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[rb->get_rb_id()]);
+
+    pdu_ready.user = user;
+    pdu_ready.rb   = rb;
+    msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_PDU_READY,
+                      LTE_FDD_ENB_DEST_LAYER_RRC,
+                      (LTE_FDD_ENB_MESSAGE_UNION *)&pdu_ready,
+                      sizeof(pdu_ready));
 }
 
 /****************************/
 /*    External Interface    */
 /****************************/
-void LTE_fdd_enb_pdcp::update_sys_info(void)
+void LTE_fdd_enb_pdcp::update_sys_info()
 {
-    libtools_scoped_lock  lock(sys_info_sem);
-    LTE_fdd_enb_cnfg_db  *cnfg_db = LTE_fdd_enb_cnfg_db::get_instance();
-
-    cnfg_db->get_sys_info(sys_info);
+    std::lock_guard<std::mutex>  lock(sys_info_mutex);
+    interface->get_sys_info(sys_info);
 }
 
 /******************************/
@@ -222,7 +237,6 @@ void LTE_fdd_enb_pdcp::update_sys_info(void)
 /******************************/
 void LTE_fdd_enb_pdcp::handle_pdu_ready(LTE_FDD_ENB_PDCP_PDU_READY_MSG_STRUCT *pdu_ready)
 {
-    LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT      rrc_pdu_ready;
     LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT      gw_data_ready;
     LIBLTE_PDCP_CONTROL_PDU_STRUCT            contents;
     LIBLTE_PDCP_DATA_PDU_WITH_LONG_SN_STRUCT  data_contents;
@@ -231,92 +245,62 @@ void LTE_fdd_enb_pdcp::handle_pdu_ready(LTE_FDD_ENB_PDCP_PDU_READY_MSG_STRUCT *p
     uint8                                    *pdu_ptr;
     uint32                                    i;
 
-    if(LTE_FDD_ENB_ERROR_NONE == pdu_ready->rb->get_next_pdcp_pdu(&pdu))
+    if(LTE_FDD_ENB_ERROR_NONE != pdu_ready->rb->get_next_pdcp_pdu(&pdu))
+        return;
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              pdu,
+                              "Received PDU for RNTI=%u and RB=%s",
+                              pdu_ready->user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[pdu_ready->rb->get_rb_id()]);
+
+    // FIXME: Add SN and integrity verification
+
+    if(LTE_FDD_ENB_RB_SRB0 == pdu_ready->rb->get_rb_id())
     {
-        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+        // Convert to bit struct for RRC
+        pdu_ptr = rrc_pdu.msg;
+        for(i=0; i<pdu->N_bytes; i++)
+            liblte_value_2_bits(pdu->msg[i], &pdu_ptr, 8);
+        rrc_pdu.N_bits = pdu->N_bytes * 8;
+
+        // Send the SDU to RRC
+        send_rrc_pdu_ready(pdu_ready->user, pdu_ready->rb, &rrc_pdu);
+    }else if(LTE_FDD_ENB_RB_SRB1 == pdu_ready->rb->get_rb_id() ||
+             LTE_FDD_ENB_RB_SRB2 == pdu_ready->rb->get_rb_id()){
+        liblte_pdcp_unpack_control_pdu(pdu, &contents);
+
+        // Send the SDU to RRC
+        send_rrc_pdu_ready(pdu_ready->user, pdu_ready->rb, &contents.data);
+    }else if(LTE_FDD_ENB_RB_DRB1 == pdu_ready->rb->get_rb_id()){
+        liblte_pdcp_unpack_data_pdu_with_long_sn(pdu, &data_contents);
+
+        // Queue the SDU for GW
+        pdu_ready->rb->queue_gw_data_msg(&data_contents.data);
+
+        // Signal GW
+        gw_data_ready.user = pdu_ready->user;
+        gw_data_ready.rb   = pdu_ready->rb;
+        msgq_to_gw->send(LTE_FDD_ENB_MESSAGE_TYPE_GW_DATA_READY,
+                         LTE_FDD_ENB_DEST_LAYER_GW,
+                         (LTE_FDD_ENB_MESSAGE_UNION *)&gw_data_ready,
+                         sizeof(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT));
+    }else{
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
                                   __FILE__,
                                   __LINE__,
                                   pdu,
-                                  "Received PDU for RNTI=%u and RB=%s",
+                                  "Received PDU for RNTI=%u with invalid RB=%s",
                                   pdu_ready->user->get_c_rnti(),
                                   LTE_fdd_enb_rb_text[pdu_ready->rb->get_rb_id()]);
-
-        // FIXME: Add SN and integrity verification
-
-        if(LTE_FDD_ENB_RB_SRB0 == pdu_ready->rb->get_rb_id())
-        {
-            // Convert to bit struct for RRC
-            pdu_ptr = rrc_pdu.msg;
-            for(i=0; i<pdu->N_bytes; i++)
-            {
-                liblte_value_2_bits(pdu->msg[i], &pdu_ptr, 8);
-            }
-            rrc_pdu.N_bits = pdu_ptr - rrc_pdu.msg;
-
-            // Queue the SDU for RRC
-            pdu_ready->rb->queue_rrc_pdu(&rrc_pdu);
-
-            // Signal RRC
-            rrc_pdu_ready.user = pdu_ready->user;
-            rrc_pdu_ready.rb   = pdu_ready->rb;
-            msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_PDU_READY,
-                              LTE_FDD_ENB_DEST_LAYER_RRC,
-                              (LTE_FDD_ENB_MESSAGE_UNION *)&rrc_pdu_ready,
-                              sizeof(LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT));
-        }else if(LTE_FDD_ENB_RB_SRB1 == pdu_ready->rb->get_rb_id()){
-            liblte_pdcp_unpack_control_pdu(pdu, &contents);
-
-            // Queue the SDU for RRC
-            pdu_ready->rb->queue_rrc_pdu(&contents.data);
-
-            // Signal RRC
-            rrc_pdu_ready.user = pdu_ready->user;
-            rrc_pdu_ready.rb   = pdu_ready->rb;
-            msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_PDU_READY,
-                              LTE_FDD_ENB_DEST_LAYER_RRC,
-                              (LTE_FDD_ENB_MESSAGE_UNION *)&rrc_pdu_ready,
-                              sizeof(LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT));
-        }else if(LTE_FDD_ENB_RB_SRB2 == pdu_ready->rb->get_rb_id()){
-            liblte_pdcp_unpack_control_pdu(pdu, &contents);
-
-            // Queue the SDU for RRC
-            pdu_ready->rb->queue_rrc_pdu(&contents.data);
-
-            // Signal RRC
-            rrc_pdu_ready.user = pdu_ready->user;
-            rrc_pdu_ready.rb   = pdu_ready->rb;
-            msgq_to_rrc->send(LTE_FDD_ENB_MESSAGE_TYPE_RRC_PDU_READY,
-                              LTE_FDD_ENB_DEST_LAYER_RRC,
-                              (LTE_FDD_ENB_MESSAGE_UNION *)&rrc_pdu_ready,
-                              sizeof(LTE_FDD_ENB_RRC_PDU_READY_MSG_STRUCT));
-        }else if(LTE_FDD_ENB_RB_DRB1 == pdu_ready->rb->get_rb_id()){
-            liblte_pdcp_unpack_data_pdu_with_long_sn(pdu, &data_contents);
-
-            // Queue the SDU for GW
-            pdu_ready->rb->queue_gw_data_msg(&data_contents.data);
-
-            // Signal GW
-            gw_data_ready.user = pdu_ready->user;
-            gw_data_ready.rb   = pdu_ready->rb;
-            msgq_to_gw->send(LTE_FDD_ENB_MESSAGE_TYPE_GW_DATA_READY,
-                             LTE_FDD_ENB_DEST_LAYER_GW,
-                             (LTE_FDD_ENB_MESSAGE_UNION *)&gw_data_ready,
-                             sizeof(LTE_FDD_ENB_GW_DATA_READY_MSG_STRUCT));
-        }else{
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      pdu,
-                                      "Received PDU for RNTI=%u with invalid RB=%s",
-                                      pdu_ready->user->get_c_rnti(),
-                                      LTE_fdd_enb_rb_text[pdu_ready->rb->get_rb_id()]);
-        }
-
-        // Delete the PDU
-        pdu_ready->rb->delete_next_pdcp_pdu();
     }
+
+    // Delete the PDU
+    pdu_ready->rb->delete_next_pdcp_pdu();
 }
 
 /******************************/
@@ -324,120 +308,14 @@ void LTE_fdd_enb_pdcp::handle_pdu_ready(LTE_FDD_ENB_PDCP_PDU_READY_MSG_STRUCT *p
 /******************************/
 void LTE_fdd_enb_pdcp::handle_sdu_ready(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT *sdu_ready)
 {
-    LTE_FDD_ENB_RLC_SDU_READY_MSG_STRUCT  rlc_sdu_ready;
-    LIBLTE_PDCP_CONTROL_PDU_STRUCT        contents;
-    LIBLTE_BYTE_MSG_STRUCT                pdu;
-    LIBLTE_BIT_MSG_STRUCT                *sdu;
-    uint8                                *sdu_ptr;
-    uint32                                i;
+    LIBLTE_PDCP_CONTROL_PDU_STRUCT  contents;
+    LIBLTE_BYTE_MSG_STRUCT          pdu;
+    LIBLTE_BIT_MSG_STRUCT          *sdu;
+    uint8                          *sdu_ptr;
+    uint32                          i;
 
-    if(LTE_FDD_ENB_ERROR_NONE == sdu_ready->rb->get_next_pdcp_sdu(&sdu))
+    if(LTE_FDD_ENB_ERROR_NONE != sdu_ready->rb->get_next_pdcp_sdu(&sdu))
     {
-        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                  LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                  __FILE__,
-                                  __LINE__,
-                                  sdu,
-                                  "Received SDU for RNTI=%u and RB=%s",
-                                  sdu_ready->user->get_c_rnti(),
-                                  LTE_fdd_enb_rb_text[sdu_ready->rb->get_rb_id()]);
-
-        if(LTE_FDD_ENB_RB_SRB0 == sdu_ready->rb->get_rb_id())
-        {
-            // Make sure the SDU is byte aligned
-            if((sdu->N_bits % 8) != 0)
-            {
-                for(i=0; i<8-(sdu->N_bits % 8); i++)
-                {
-                    sdu->msg[sdu->N_bits + i] = 0;
-                }
-                sdu->N_bits += 8 - (sdu->N_bits % 8);
-            }
-
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      sdu,
-                                      "Sending PDU for RNTI=%u and RB=%s",
-                                      sdu_ready->user->get_c_rnti(),
-                                      LTE_fdd_enb_rb_text[sdu_ready->rb->get_rb_id()]);
-
-            // Convert from bit to byte struct
-            sdu_ptr = sdu->msg;
-            for(i=0; i<sdu->N_bits/8; i++)
-            {
-                pdu.msg[i] = liblte_bits_2_value(&sdu_ptr, 8);
-            }
-            pdu.N_bytes = sdu->N_bits/8;
-
-            // Queue the PDU for RLC
-            sdu_ready->rb->queue_rlc_sdu(&pdu);
-
-            // Signal RLC
-            rlc_sdu_ready.user = sdu_ready->user;
-            rlc_sdu_ready.rb   = sdu_ready->rb;
-            msgq_to_rlc->send(LTE_FDD_ENB_MESSAGE_TYPE_RLC_SDU_READY,
-                              LTE_FDD_ENB_DEST_LAYER_RLC,
-                              (LTE_FDD_ENB_MESSAGE_UNION *)&rlc_sdu_ready,
-                              sizeof(LTE_FDD_ENB_RLC_SDU_READY_MSG_STRUCT));
-
-            // Delete the SDU
-            sdu_ready->rb->delete_next_pdcp_sdu();
-        }else if(LTE_FDD_ENB_RB_SRB1 == sdu_ready->rb->get_rb_id() ||
-                 LTE_FDD_ENB_RB_SRB2 == sdu_ready->rb->get_rb_id()){
-            // Pack the control PDU
-            contents.count = sdu_ready->rb->get_pdcp_tx_count();
-            if(LTE_FDD_ENB_PDCP_CONFIG_SECURITY == sdu_ready->rb->get_pdcp_config())
-            {
-                liblte_pdcp_pack_control_pdu(&contents,
-                                             sdu,
-                                             sdu_ready->user->get_auth_vec()->k_rrc_int,
-                                             LIBLTE_SECURITY_DIRECTION_DOWNLINK,
-                                             sdu_ready->rb->get_rb_id()-1,
-                                             &pdu);
-            }else{
-                liblte_pdcp_pack_control_pdu(&contents,
-                                             sdu,
-                                             &pdu);
-            }
-
-            // Increment the SN
-            sdu_ready->rb->set_pdcp_tx_count(contents.count + 1);
-
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      &pdu,
-                                      "Sending PDU for RNTI=%u and RB=%s",
-                                      sdu_ready->user->get_c_rnti(),
-                                      LTE_fdd_enb_rb_text[sdu_ready->rb->get_rb_id()]);
-
-            // Queue the PDU for RLC
-            sdu_ready->rb->queue_rlc_sdu(&pdu);
-
-            // Signal RLC
-            rlc_sdu_ready.user = sdu_ready->user;
-            rlc_sdu_ready.rb   = sdu_ready->rb;
-            msgq_to_rlc->send(LTE_FDD_ENB_MESSAGE_TYPE_RLC_SDU_READY,
-                              LTE_FDD_ENB_DEST_LAYER_RLC,
-                              (LTE_FDD_ENB_MESSAGE_UNION *)&rlc_sdu_ready,
-                              sizeof(LTE_FDD_ENB_RLC_SDU_READY_MSG_STRUCT));
-
-            // Delete the SDU
-            sdu_ready->rb->delete_next_pdcp_sdu();
-        }else{
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      sdu,
-                                      "Received SDU for RNTI=%u with invalid RB=%s",
-                                      sdu_ready->user->get_c_rnti(),
-                                      LTE_fdd_enb_rb_text[sdu_ready->rb->get_rb_id()]);
-        }
-    }else{
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
                                   __FILE__,
@@ -445,7 +323,67 @@ void LTE_fdd_enb_pdcp::handle_sdu_ready(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT *s
                                   "Received SDU ready with no data, RNTI=%u, RB=%s",
                                   sdu_ready->user->get_c_rnti(),
                                   LTE_fdd_enb_rb_text[sdu_ready->rb->get_rb_id()]);
+        return;
     }
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              sdu,
+                              "Received SDU for RNTI=%u and RB=%s",
+                              sdu_ready->user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[sdu_ready->rb->get_rb_id()]);
+
+    if(LTE_FDD_ENB_RB_SRB0 == sdu_ready->rb->get_rb_id())
+    {
+        // Make sure the SDU is byte aligned
+        if((sdu->N_bits % 8) != 0)
+            while((sdu->N_bits % 8) != 0)
+                sdu->msg[sdu->N_bits++] = 0;
+
+        // Convert from bit to byte struct
+        sdu_ptr = sdu->msg;
+        for(i=0; i<sdu->N_bits/8; i++)
+            pdu.msg[i] = liblte_bits_2_value(&sdu_ptr, 8);
+        pdu.N_bytes = sdu->N_bits/8;
+
+        send_rlc_sdu_ready(sdu_ready->user, sdu_ready->rb, &pdu);
+    }else if(LTE_FDD_ENB_RB_SRB1 == sdu_ready->rb->get_rb_id() ||
+             LTE_FDD_ENB_RB_SRB2 == sdu_ready->rb->get_rb_id()){
+        // Pack the control PDU
+        contents.count = sdu_ready->rb->get_pdcp_tx_count();
+        if(LTE_FDD_ENB_PDCP_CONFIG_SECURITY == sdu_ready->rb->get_pdcp_config())
+        {
+            liblte_pdcp_pack_control_pdu(&contents,
+                                         sdu,
+                                         sdu_ready->user->get_auth_vec()->k_rrc_int,
+                                         LIBLTE_SECURITY_DIRECTION_DOWNLINK,
+                                         sdu_ready->rb->get_rb_id()-1,
+                                         &pdu);
+        }else{
+            liblte_pdcp_pack_control_pdu(&contents,
+                                         sdu,
+                                         &pdu);
+        }
+
+        // Increment the SN
+        sdu_ready->rb->set_pdcp_tx_count(contents.count + 1);
+
+        send_rlc_sdu_ready(sdu_ready->user, sdu_ready->rb, &pdu);
+    }else{
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                                  __FILE__,
+                                  __LINE__,
+                                  sdu,
+                                  "Received SDU for RNTI=%u with invalid RB=%s",
+                                  sdu_ready->user->get_c_rnti(),
+                                  LTE_fdd_enb_rb_text[sdu_ready->rb->get_rb_id()]);
+    }
+
+    // Delete the SDU
+    sdu_ready->rb->delete_next_pdcp_sdu();
 }
 
 /*****************************/
@@ -453,66 +391,12 @@ void LTE_fdd_enb_pdcp::handle_sdu_ready(LTE_FDD_ENB_PDCP_SDU_READY_MSG_STRUCT *s
 /*****************************/
 void LTE_fdd_enb_pdcp::handle_data_sdu_ready(LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG_STRUCT *data_sdu_ready)
 {
-    LTE_FDD_ENB_RLC_SDU_READY_MSG_STRUCT      rlc_sdu_ready;
     LIBLTE_PDCP_DATA_PDU_WITH_LONG_SN_STRUCT  contents;
     LIBLTE_BYTE_MSG_STRUCT                    pdu;
     LIBLTE_BYTE_MSG_STRUCT                   *sdu;
 
-    if(LTE_FDD_ENB_ERROR_NONE == data_sdu_ready->rb->get_next_pdcp_data_sdu(&sdu))
+    if(LTE_FDD_ENB_ERROR_NONE != data_sdu_ready->rb->get_next_pdcp_data_sdu(&sdu))
     {
-        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                  LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                  __FILE__,
-                                  __LINE__,
-                                  sdu,
-                                  "Received data SDU from GW for RNTI=%u and RB=%s",
-                                  data_sdu_ready->user->get_c_rnti(),
-                                  LTE_fdd_enb_rb_text[data_sdu_ready->rb->get_rb_id()]);
-
-        if(data_sdu_ready->rb->get_rb_id()       >= LTE_FDD_ENB_RB_DRB1 &&
-           data_sdu_ready->rb->get_pdcp_config() == LTE_FDD_ENB_PDCP_CONFIG_LONG_SN)
-        {
-            // Pack the data PDU
-            contents.count = data_sdu_ready->rb->get_pdcp_tx_count();
-            liblte_pdcp_pack_data_pdu_with_long_sn(&contents,
-                                                   sdu,
-                                                   &pdu);
-
-            // Increment the SN
-            data_sdu_ready->rb->set_pdcp_tx_count(contents.count + 1);
-
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      &pdu,
-                                      "Sending PDU for RNTI=%u and RB=%s",
-                                      data_sdu_ready->user->get_c_rnti(),
-                                      LTE_fdd_enb_rb_text[data_sdu_ready->rb->get_rb_id()]);
-
-            // Queue the PDU for RLC
-            data_sdu_ready->rb->queue_rlc_sdu(&pdu);
-
-            // Signal RLC
-            rlc_sdu_ready.user = data_sdu_ready->user;
-            rlc_sdu_ready.rb   = data_sdu_ready->rb;
-            msgq_to_rlc->send(LTE_FDD_ENB_MESSAGE_TYPE_RLC_SDU_READY,
-                              LTE_FDD_ENB_DEST_LAYER_RLC,
-                              (LTE_FDD_ENB_MESSAGE_UNION *)&rlc_sdu_ready,
-                              sizeof(LTE_FDD_ENB_RLC_SDU_READY_MSG_STRUCT));
-
-            // Delete the SDU
-            data_sdu_ready->rb->delete_next_pdcp_data_sdu();
-        }else{
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
-                                      __FILE__,
-                                      __LINE__,
-                                      "Received data SDU from GW for invalid RB=%s, RNTI=%u",
-                                      LTE_fdd_enb_rb_text[data_sdu_ready->rb->get_rb_id()],
-                                      data_sdu_ready->user->get_c_rnti());
-        }
-    }else{
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
                                   LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
                                   __FILE__,
@@ -520,5 +404,39 @@ void LTE_fdd_enb_pdcp::handle_data_sdu_ready(LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG
                                   "Received data SDU ready from GW with no data, RNTI=%u, RB=%s",
                                   data_sdu_ready->user->get_c_rnti(),
                                   LTE_fdd_enb_rb_text[data_sdu_ready->rb->get_rb_id()]);
+        return;
     }
+
+    interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
+                              LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                              __FILE__,
+                              __LINE__,
+                              sdu,
+                              "Received data SDU from GW for RNTI=%u and RB=%s",
+                              data_sdu_ready->user->get_c_rnti(),
+                              LTE_fdd_enb_rb_text[data_sdu_ready->rb->get_rb_id()]);
+
+    if(data_sdu_ready->rb->get_rb_id()       >= LTE_FDD_ENB_RB_DRB1 &&
+       data_sdu_ready->rb->get_pdcp_config() == LTE_FDD_ENB_PDCP_CONFIG_LONG_SN)
+    {
+        // Pack the data PDU
+        contents.count = data_sdu_ready->rb->get_pdcp_tx_count();
+        liblte_pdcp_pack_data_pdu_with_long_sn(&contents, sdu, &pdu);
+
+        // Increment the SN
+        data_sdu_ready->rb->set_pdcp_tx_count(contents.count + 1);
+
+        send_rlc_sdu_ready(data_sdu_ready->user, data_sdu_ready->rb, &pdu);
+    }else{
+        interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ERROR,
+                                  LTE_FDD_ENB_DEBUG_LEVEL_PDCP,
+                                  __FILE__,
+                                  __LINE__,
+                                  "Received data SDU from GW for invalid RB=%s, RNTI=%u",
+                                  LTE_fdd_enb_rb_text[data_sdu_ready->rb->get_rb_id()],
+                                  data_sdu_ready->user->get_c_rnti());
+    }
+
+    // Delete the SDU
+    data_sdu_ready->rb->delete_next_pdcp_data_sdu();
 }

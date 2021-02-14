@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_user_mgr.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -50,6 +50,8 @@
                                    IMSI/IMEI when printing a user that doesn't
                                    have IMSI/IMEI set.
     07/29/2017    Ben Wojtowicz    Using the latest tools library.
+    02/14/2021    Ben Wojtowicz    Massive reformat and using the new RRC
+                                   library.
 
 *******************************************************************************/
 
@@ -60,7 +62,6 @@
 #include "LTE_fdd_enb_user_mgr.h"
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "liblte_mac.h"
-#include "libtools_scoped_lock.h"
 #include "libtools_helpers.h"
 
 /*******************************************************************************
@@ -77,54 +78,21 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_user_mgr*  LTE_fdd_enb_user_mgr::instance = NULL;
-static pthread_mutex_t user_mgr_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
 *******************************************************************************/
 
-/*******************/
-/*    Singleton    */
-/*******************/
-LTE_fdd_enb_user_mgr* LTE_fdd_enb_user_mgr::get_instance(void)
-{
-    libtools_scoped_lock lock(user_mgr_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_fdd_enb_user_mgr();
-    }
-
-    return(instance);
-}
-void LTE_fdd_enb_user_mgr::cleanup(void)
-{
-    libtools_scoped_lock lock(user_mgr_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
-    }
-}
-
 /********************************/
 /*    Constructor/Destructor    */
 /********************************/
-LTE_fdd_enb_user_mgr::LTE_fdd_enb_user_mgr()
+LTE_fdd_enb_user_mgr::LTE_fdd_enb_user_mgr(LTE_fdd_enb_interface *iface,
+                                           LTE_fdd_enb_timer_mgr *tm) :
+    interface{iface}, timer_mgr{tm}, next_m_tmsi{1}, next_c_rnti{LIBLTE_MAC_C_RNTI_START}
 {
-    sem_init(&user_sem, 0, 1);
-    sem_init(&c_rnti_sem, 0, 1);
-    sem_init(&timer_id_sem, 0, 1);
-    next_m_tmsi = 1;
-    next_c_rnti = LIBLTE_MAC_C_RNTI_START;
 }
 LTE_fdd_enb_user_mgr::~LTE_fdd_enb_user_mgr()
 {
-    sem_destroy(&user_sem);
-    sem_destroy(&c_rnti_sem);
-    sem_destroy(&timer_id_sem);
 }
 
 /****************************/
@@ -133,13 +101,12 @@ LTE_fdd_enb_user_mgr::~LTE_fdd_enb_user_mgr()
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::assign_c_rnti(LTE_fdd_enb_user *user,
                                                            uint16           *c_rnti)
 {
-    libtools_scoped_lock                           lock(c_rnti_sem);
-    LTE_fdd_enb_interface                         *interface    = LTE_fdd_enb_interface::get_instance();
-    std::map<uint16, LTE_fdd_enb_user*>::iterator  iter         = c_rnti_map.find(next_c_rnti);
-    LTE_FDD_ENB_ERROR_ENUM                         err          = LTE_FDD_ENB_ERROR_NONE;
-    uint16                                         start_c_rnti = next_c_rnti;
+    std::lock_guard<std::mutex> lock(c_rnti_mutex);
+    auto                        c_rnti_it    = c_rnti_map.find(next_c_rnti);
+    LTE_FDD_ENB_ERROR_ENUM      err          = LTE_FDD_ENB_ERROR_NONE;
+    uint16                      start_c_rnti = next_c_rnti;
 
-    while(c_rnti_map.end() != iter)
+    while(c_rnti_map.end() != c_rnti_it)
     {
         next_c_rnti++;
         if(LIBLTE_MAC_C_RNTI_END < next_c_rnti)
@@ -152,7 +119,7 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::assign_c_rnti(LTE_fdd_enb_user *use
             break;
         }
 
-        iter = c_rnti_map.find(next_c_rnti);
+        c_rnti_it = c_rnti_map.find(next_c_rnti);
     }
 
     if(LTE_FDD_ENB_ERROR_NONE == err)
@@ -173,20 +140,18 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::assign_c_rnti(LTE_fdd_enb_user *use
         }
     }
 
-    return(err);
+    return err;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::release_c_rnti(uint16 c_rnti)
 {
-    libtools_scoped_lock                           c_lock(c_rnti_sem);
-    libtools_scoped_lock                           t_lock(timer_id_sem);
-    LTE_fdd_enb_interface                         *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_timer_mgr                         *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-    std::map<uint16, LTE_fdd_enb_user*>::iterator  iter      = c_rnti_map.find(c_rnti);
-    std::map<uint16, uint32>::iterator             tr_iter;
-    std::map<uint32, uint16>::iterator             tf_iter;
-    LTE_FDD_ENB_ERROR_ENUM                         err = LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
+    std::lock_guard<std::mutex>        c_rnti_lock(c_rnti_mutex);
+    std::lock_guard<std::mutex>        timer_lock(timer_id_mutex);
+    auto                               c_rnti_it = c_rnti_map.find(c_rnti);
+    std::map<uint16, uint32>::iterator tr_iter;
+    std::map<uint32, uint16>::iterator tf_iter;
+    LTE_FDD_ENB_ERROR_ENUM             err = LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
 
-    if(c_rnti_map.end() != iter)
+    if(c_rnti_map.end() != c_rnti_it)
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                   LTE_FDD_ENB_DEBUG_LEVEL_USER,
@@ -196,43 +161,43 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::release_c_rnti(uint16 c_rnti)
                                   c_rnti);
 
         // Initialize or delete the user
-        if((*iter).second->is_id_set())
+        if((*c_rnti_it).second->is_id_set())
         {
-            (*iter).second->init();
+            (*c_rnti_it).second->init();
         }else{
-            del_user((*iter).second);
+            del_user((*c_rnti_it).second);
         }
 
         // Release the C-RNTI
-        c_rnti_map.erase(iter);
+        c_rnti_map.erase(c_rnti_it);
 
         // Stop the C-RNTI timer
-        tr_iter = timer_id_map_reverse.find(c_rnti);
-        if(timer_id_map_reverse.end() != tr_iter)
+        auto timer_rev_it = timer_id_map_reverse.find(c_rnti);
+        if(timer_id_map_reverse.end() != timer_rev_it)
         {
-            timer_mgr->stop_timer((*tr_iter).second);
-            tf_iter = timer_id_map_forward.find((*tr_iter).second);
-            if(timer_id_map_forward.end() != tf_iter)
+            timer_mgr->stop_timer((*timer_rev_it).second);
+            auto timer_fwd_it = timer_id_map_forward.find((*timer_rev_it).second);
+            if(timer_id_map_forward.end() != timer_fwd_it)
             {
-                timer_id_map_forward.erase(tf_iter);
+                timer_id_map_forward.erase(timer_fwd_it);
             }
-            timer_id_map_reverse.erase(tr_iter);
+            timer_id_map_reverse.erase(timer_rev_it);
         }
 
         err = LTE_FDD_ENB_ERROR_NONE;
     }
 
-    return(err);
+    return err;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::transfer_c_rnti(LTE_fdd_enb_user *old_user,
                                                              LTE_fdd_enb_user *new_user)
 {
-    libtools_scoped_lock                          lock(c_rnti_sem);
-    std::map<uint16, LTE_fdd_enb_user*>::iterator iter = c_rnti_map.find(old_user->get_c_rnti());
-    LTE_FDD_ENB_ERROR_ENUM                        err  = LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
-    uint16                                        c_rnti;
+    std::lock_guard<std::mutex> lock(c_rnti_mutex);
+    auto                        c_rnti_it = c_rnti_map.find(old_user->get_c_rnti());
+    LTE_FDD_ENB_ERROR_ENUM      err  = LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
+    uint16                      c_rnti;
 
-    if(c_rnti_map.end() != iter)
+    if(c_rnti_map.end() != c_rnti_it)
     {
         c_rnti = old_user->get_c_rnti();
 
@@ -245,51 +210,46 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::transfer_c_rnti(LTE_fdd_enb_user *o
         }
 
         // Update the C-RNTI map
-        c_rnti_map.erase(iter);
+        c_rnti_map.erase(c_rnti_it);
         c_rnti_map[c_rnti] = new_user;
-        iter               = c_rnti_map.find(new_user->get_c_rnti());
-        if(c_rnti_map.end() != iter)
+        c_rnti_it          = c_rnti_map.find(new_user->get_c_rnti());
+        if(c_rnti_map.end() != c_rnti_it)
         {
-            c_rnti_map.erase(iter);
+            c_rnti_map.erase(c_rnti_it);
         }
         new_user->set_c_rnti(c_rnti);
 
         err = LTE_FDD_ENB_ERROR_NONE;
     }
 
-    return(err);
+    return err;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::reset_c_rnti_timer(uint16 c_rnti)
 {
-    libtools_scoped_lock                lock(timer_id_sem);
-    std::map<uint16, uint32>::iterator  iter      = timer_id_map_reverse.find(c_rnti);
-    LTE_fdd_enb_timer_mgr              *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-    LTE_FDD_ENB_ERROR_ENUM              err       = LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
+    std::lock_guard<std::mutex> lock(timer_id_mutex);
+    auto                        timer_it = timer_id_map_reverse.find(c_rnti);
 
-    if(timer_id_map_reverse.end() != iter)
-    {
-        timer_mgr->reset_timer((*iter).second);
+    if(timer_id_map_reverse.end() == timer_it)
+        return LTE_FDD_ENB_ERROR_C_RNTI_NOT_FOUND;
 
-        err = LTE_FDD_ENB_ERROR_NONE;
-    }
-
-    return(err);
+    timer_mgr->reset_timer((*timer_it).second);
+    return LTE_FDD_ENB_ERROR_NONE;
 }
-uint32 LTE_fdd_enb_user_mgr::get_next_m_tmsi(void)
+uint32 LTE_fdd_enb_user_mgr::get_next_m_tmsi()
 {
-    return(next_m_tmsi++);
+    return next_m_tmsi++;
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::add_user(LTE_fdd_enb_user **user)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::add_user(LTE_fdd_enb_user **user,
+                                                      LTE_fdd_enb_rrc   *rrc,
+                                                      LTE_fdd_enb_rlc   *rlc)
 {
-    LTE_fdd_enb_interface  *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_timer_mgr  *timer_mgr = LTE_fdd_enb_timer_mgr::get_instance();
-    LTE_fdd_enb_user       *new_user  = NULL;
+    LTE_fdd_enb_user       *new_user = NULL;
     LTE_fdd_enb_timer_cb    timer_expiry_cb(&LTE_fdd_enb_timer_cb_wrapper<LTE_fdd_enb_user_mgr, &LTE_fdd_enb_user_mgr::handle_c_rnti_timer_expiry>, this);
     LTE_FDD_ENB_ERROR_ENUM  err       = LTE_FDD_ENB_ERROR_NONE;
     uint32                  timer_id;
     uint16                  c_rnti;
 
-    new_user = new LTE_fdd_enb_user();
+    new_user = new LTE_fdd_enb_user(interface, timer_mgr, rrc, rlc);
 
     if(NULL != new_user)
     {
@@ -297,20 +257,20 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::add_user(LTE_fdd_enb_user **user)
         if(LTE_FDD_ENB_ERROR_NONE == assign_c_rnti(new_user, &c_rnti))
         {
             // Start C-RNTI reservation timer
-            timer_mgr->start_timer(5000, timer_expiry_cb, &timer_id);
-            sem_wait(&timer_id_sem);
+            timer_mgr->start_timer(50000, timer_expiry_cb, &timer_id);
+            timer_id_mutex.lock();
             timer_id_map_forward[timer_id] = c_rnti;
             timer_id_map_reverse[c_rnti]   = timer_id;
-            sem_post(&timer_id_sem);
+            timer_id_mutex.unlock();
 
             // Setup user
             new_user->set_c_rnti(c_rnti);
             new_user->start_inactivity_timer(LTE_FDD_ENB_USER_INACTIVITY_TIMER_VALUE_MS);
 
             // Store user
-            sem_wait(&user_sem);
+            user_mutex.lock();
             user_list.push_back(new_user);
-            sem_post(&user_sem);
+            user_mutex.unlock();
 
             // Return user
             *user = new_user;
@@ -322,125 +282,113 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::add_user(LTE_fdd_enb_user **user)
         err = LTE_FDD_ENB_ERROR_BAD_ALLOC;
     }
 
-    return(err);
+    return err;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(std::string        imsi,
                                                        LTE_fdd_enb_user **user)
 {
-    libtools_scoped_lock                    lock(user_sem);
-    std::list<LTE_fdd_enb_user*>::iterator  iter;
-    LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
-    uint64                                  imsi_num = 0;
+    std::lock_guard<std::mutex> lock(user_mutex);
+    uint64                      imsi_num = 0;
 
     if(imsi.length() == 15)
     {
         to_number(imsi, 15, &imsi_num);
 
-        for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+        for(auto u : user_list)
         {
-            if((*iter)->is_id_set() &&
-               (*iter)->get_id()->imsi == imsi_num)
+            if(u->is_id_set() &&
+               u->get_id()->imsi == imsi_num)
             {
-                *user = (*iter);
-                err   = LTE_FDD_ENB_ERROR_NONE;
-                break;
+                *user = u;
+                return LTE_FDD_ENB_ERROR_NONE;
             }
         }
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(uint16             c_rnti,
                                                        LTE_fdd_enb_user **user)
 {
-    libtools_scoped_lock                   lock(user_sem);
-    std::list<LTE_fdd_enb_user*>::iterator iter;
-    LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    for(auto u : user_list)
     {
-        if((*iter)->is_c_rnti_set() &&
-           (*iter)->get_c_rnti() == c_rnti)
+        if(u->is_c_rnti_set() &&
+           u->get_c_rnti() == c_rnti)
         {
-            *user = (*iter);
-            err   = LTE_FDD_ENB_ERROR_NONE;
-            break;
+            *user = u;
+            return LTE_FDD_ENB_ERROR_NONE;
         }
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT  *guti,
                                                        LTE_fdd_enb_user                     **user)
 {
-    libtools_scoped_lock                   lock(user_sem);
-    std::list<LTE_fdd_enb_user*>::iterator iter;
-    LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    for(auto u : user_list)
     {
-        if((*iter)->is_guti_set()                                  &&
-           (*iter)->get_guti()->m_tmsi       == guti->m_tmsi       &&
-           (*iter)->get_guti()->mcc          == guti->mcc          &&
-           (*iter)->get_guti()->mnc          == guti->mnc          &&
-           (*iter)->get_guti()->mme_group_id == guti->mme_group_id &&
-           (*iter)->get_guti()->mme_code     == guti->mme_code)
-        {
-            *user = (*iter);
-            err   = LTE_FDD_ENB_ERROR_NONE;
-            break;
-        }
+        if(!u->is_guti_set() || u->get_guti()->m_tmsi != guti->m_tmsi ||
+           u->get_guti()->mme_group_id != guti->mme_group_id ||
+           u->get_guti()->mme_code != guti->mme_code ||
+           u->get_guti()->mcc.Value().size() != guti->mcc.Value().size() ||
+           u->get_guti()->mnc.Value().size() != guti->mnc.Value().size())
+            continue;
+        for(uint32 i=0; i<u->get_guti()->mcc.Value().size(); i++)
+            if(u->get_guti()->mcc.Value()[0].Value() != guti->mcc.Value()[0].Value())
+                continue;
+        for(uint32 i=0; i<u->get_guti()->mnc.Value().size(); i++)
+            if(u->get_guti()->mnc.Value()[0].Value() != guti->mnc.Value()[0].Value())
+                continue;
+        *user = u;
+        return LTE_FDD_ENB_ERROR_NONE;
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
-LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(LIBLTE_RRC_S_TMSI_STRUCT  *s_tmsi,
-                                                       LTE_fdd_enb_user         **user)
+LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(const S_TMSI      &s_tmsi,
+                                                       LTE_fdd_enb_user **user)
 {
-    libtools_scoped_lock                   lock(user_sem);
-    std::list<LTE_fdd_enb_user*>::iterator iter;
-    LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    for(auto u : user_list)
     {
-        if((*iter)->is_guti_set()                          &&
-           (*iter)->get_guti()->m_tmsi   == s_tmsi->m_tmsi &&
-           (*iter)->get_guti()->mme_code == s_tmsi->mmec)
+        if(u->is_guti_set()                          &&
+           u->get_guti()->m_tmsi   == s_tmsi.m_TMSI_Value() &&
+           u->get_guti()->mme_code == s_tmsi.mmec_Get().Value())
         {
-            *user = (*iter);
-            err   = LTE_FDD_ENB_ERROR_NONE;
-            break;
+            *user = u;
+            return LTE_FDD_ENB_ERROR_NONE;
         }
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::find_user(uint32             ip_addr,
                                                        LTE_fdd_enb_user **user)
 {
-    libtools_scoped_lock                   lock(user_sem);
-    std::list<LTE_fdd_enb_user*>::iterator iter;
-    LTE_FDD_ENB_ERROR_ENUM                 err = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    for(auto u : user_list)
     {
-        if((*iter)->is_ip_addr_set() &&
-           (*iter)->get_ip_addr() == ip_addr)
+        if(u->is_ip_addr_set() &&
+           u->get_ip_addr() == ip_addr)
         {
-            *user = (*iter);
-            err   = LTE_FDD_ENB_ERROR_NONE;
-            break;
+            *user = u;
+            return LTE_FDD_ENB_ERROR_NONE;
         }
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
 {
-    libtools_scoped_lock                    lock(user_sem);
+    std::lock_guard<std::mutex>             lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 
     if(user->is_id_set())
     {
@@ -452,25 +400,31 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
                 tmp_user = (*iter);
                 iter     = user_list.erase(iter);
                 delete tmp_user;
-                err = LTE_FDD_ENB_ERROR_NONE;
-                break;
+                return LTE_FDD_ENB_ERROR_NONE;
             }
         }
     }else if(user->is_guti_set()){
         for(iter=user_list.begin(); iter!=user_list.end(); iter++)
         {
-            if(user->get_guti()->m_tmsi       == (*iter)->get_guti()->m_tmsi       &&
-               user->get_guti()->mcc          == (*iter)->get_guti()->mcc          &&
-               user->get_guti()->mnc          == (*iter)->get_guti()->mnc          &&
-               user->get_guti()->mme_group_id == (*iter)->get_guti()->mme_group_id &&
-               user->get_guti()->mme_code     == (*iter)->get_guti()->mme_code)
-            {
-                tmp_user = (*iter);
-                iter     = user_list.erase(iter);
-                delete tmp_user;
-                err = LTE_FDD_ENB_ERROR_NONE;
-                break;
-            }
+            if(!(*iter)->is_guti_set() || !user->is_guti_set() ||
+               (*iter)->get_guti()->m_tmsi != user->get_guti()->m_tmsi ||
+               (*iter)->get_guti()->mme_group_id != user->get_guti()->mme_group_id ||
+               (*iter)->get_guti()->mme_code != user->get_guti()->mme_code ||
+               (*iter)->get_guti()->mcc.Value().size() != user->get_guti()->mcc.Value().size() ||
+               (*iter)->get_guti()->mnc.Value().size() != user->get_guti()->mnc.Value().size())
+                continue;
+            for(uint32 i=0; i<(*iter)->get_guti()->mcc.Value().size(); i++)
+                if((*iter)->get_guti()->mcc.Value()[0].Value() !=
+                   user->get_guti()->mcc.Value()[0].Value())
+                    continue;
+            for(uint32 i=0; i<(*iter)->get_guti()->mnc.Value().size(); i++)
+                if((*iter)->get_guti()->mnc.Value()[0].Value() !=
+                   user->get_guti()->mnc.Value()[0].Value())
+                    continue;
+            tmp_user = (*iter);
+            iter     = user_list.erase(iter);
+            delete tmp_user;
+            return LTE_FDD_ENB_ERROR_NONE;
         }
     }else if(user->is_c_rnti_set()){
         for(iter=user_list.begin(); iter!=user_list.end(); iter++)
@@ -480,20 +434,18 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LTE_fdd_enb_user *user)
                 tmp_user = (*iter);
                 iter     = user_list.erase(iter);
                 delete tmp_user;
-                err = LTE_FDD_ENB_ERROR_NONE;
-                break;
+                return LTE_FDD_ENB_ERROR_NONE;
             }
         }
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
 {
-    libtools_scoped_lock                    lock(user_sem);
+    std::lock_guard<std::mutex>             lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
     uint64                                  imsi_num = 0;
 
     if(imsi.length() == 15)
@@ -508,20 +460,18 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(std::string imsi)
                 tmp_user = (*iter);
                 iter     = user_list.erase(iter);
                 delete tmp_user;
-                err = LTE_FDD_ENB_ERROR_NONE;
-                break;
+                return LTE_FDD_ENB_ERROR_NONE;
             }
         }
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti)
 {
-    libtools_scoped_lock                    lock(user_sem);
+    std::lock_guard<std::mutex>             lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
@@ -531,62 +481,62 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(uint16 c_rnti)
             tmp_user = (*iter);
             iter     = user_list.erase(iter);
             delete tmp_user;
-            err = LTE_FDD_ENB_ERROR_NONE;
-            break;
+            return LTE_FDD_ENB_ERROR_NONE;
         }
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_user_mgr::del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti)
 {
-    libtools_scoped_lock                    lock(user_sem);
+    std::lock_guard<std::mutex>             lock(user_mutex);
     std::list<LTE_fdd_enb_user*>::iterator  iter;
     LTE_fdd_enb_user                       *tmp_user = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                  err      = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 
     for(iter=user_list.begin(); iter!=user_list.end(); iter++)
     {
-        if((*iter)->is_guti_set()                                  &&
-           (*iter)->get_guti()->m_tmsi       == guti->m_tmsi       &&
-           (*iter)->get_guti()->mcc          == guti->mcc          &&
-           (*iter)->get_guti()->mnc          == guti->mnc          &&
-           (*iter)->get_guti()->mme_group_id == guti->mme_group_id &&
-           (*iter)->get_guti()->mme_code     == guti->mme_code)
-        {
-            tmp_user = (*iter);
-            iter     = user_list.erase(iter);
-            delete tmp_user;
-            err = LTE_FDD_ENB_ERROR_NONE;
-            break;
-        }
+        if(!(*iter)->is_guti_set() || (*iter)->get_guti()->m_tmsi != guti->m_tmsi ||
+           (*iter)->get_guti()->mme_group_id != guti->mme_group_id ||
+           (*iter)->get_guti()->mme_code != guti->mme_code ||
+           (*iter)->get_guti()->mcc.Value().size() != guti->mcc.Value().size() ||
+           (*iter)->get_guti()->mnc.Value().size() != guti->mnc.Value().size())
+            continue;
+        for(uint32 i=0; i<(*iter)->get_guti()->mcc.Value().size(); i++)
+            if((*iter)->get_guti()->mcc.Value()[0].Value() != guti->mcc.Value()[0].Value())
+                continue;
+        for(uint32 i=0; i<(*iter)->get_guti()->mnc.Value().size(); i++)
+            if((*iter)->get_guti()->mnc.Value()[0].Value() != guti->mnc.Value()[0].Value())
+                continue;
+        tmp_user = (*iter);
+        iter     = user_list.erase(iter);
+        delete tmp_user;
+        return LTE_FDD_ENB_ERROR_NONE;
     }
 
-    return(err);
+    return LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
 }
-std::string LTE_fdd_enb_user_mgr::print_all_users(void)
+std::string LTE_fdd_enb_user_mgr::print_all_users()
 {
-    libtools_scoped_lock                    lock(user_sem);
-    std::list<LTE_fdd_enb_user*>::iterator  iter;
-    std::string                             output;
-    LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT   *guti;
-    uint32                                  i;
-    uint32                                  hex_val;
+    std::lock_guard<std::mutex>           lock(user_mutex);
+    std::string                           output;
+    LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti;
+    uint32                                i;
+    uint32                                hex_val;
 
-    output = to_string((uint32)user_list.size());
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    output = std::to_string((uint32)user_list.size());
+    for(auto user : user_list)
     {
         output += "\n";
-        if((*iter)->is_id_set())
+        if(user->is_id_set())
         {
-            output += "imsi=" + to_string((*iter)->get_imsi_num(), 15) + " ";
-            output += "imei=" + to_string((*iter)->get_imei_num(), 15) + " ";
+            output += "imsi=" + to_string(user->get_imsi_num(), 15) + " ";
+            output += "imei=" + to_string(user->get_imei_num(), 15) + " ";
         }else{
-            output += "c-rnti=" + to_string((*iter)->get_c_rnti()) + " ";
+            output += "c-rnti=" + std::to_string(user->get_c_rnti()) + " ";
         }
-        if((*iter)->is_guti_set())
+        if(user->is_guti_set())
         {
-            guti    = (*iter)->get_guti();
+            guti    = user->get_guti();
             output += " m-tmsi=";
             for(i=0; i<8; i++)
             {
@@ -601,7 +551,7 @@ std::string LTE_fdd_enb_user_mgr::print_all_users(void)
         }
     }
 
-    return(output);
+    return output;
 }
 
 /**********************/
@@ -609,31 +559,29 @@ std::string LTE_fdd_enb_user_mgr::print_all_users(void)
 /**********************/
 void LTE_fdd_enb_user_mgr::handle_c_rnti_timer_expiry(uint32 timer_id)
 {
-    LTE_fdd_enb_interface              *interface = LTE_fdd_enb_interface::get_instance();
-    std::map<uint32, uint16>::iterator  forward_iter = timer_id_map_forward.find(timer_id);
-    std::map<uint16, uint32>::iterator  reverse_iter;
-    uint16                              c_rnti;
+    auto   timer_fwd_it = timer_id_map_forward.find(timer_id);
+    uint16 c_rnti;
 
-    sem_wait(&timer_id_sem);
-    if(timer_id_map_forward.end() != forward_iter)
+    timer_id_mutex.lock();
+    if(timer_id_map_forward.end() != timer_fwd_it)
     {
         interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_INFO,
                                   LTE_FDD_ENB_DEBUG_LEVEL_USER,
                                   __FILE__,
                                   __LINE__,
                                   "C-RNTI allocation timer expiry C-RNTI=%u",
-                                  (*forward_iter).second);
-        c_rnti = (*forward_iter).second;
-        reverse_iter = timer_id_map_reverse.find((*forward_iter).second);
-        if(timer_id_map_reverse.end() != reverse_iter)
+                                  (*timer_fwd_it).second);
+        c_rnti = (*timer_fwd_it).second;
+        auto timer_rev_it = timer_id_map_reverse.find((*timer_fwd_it).second);
+        if(timer_id_map_reverse.end() != timer_rev_it)
         {
-            timer_id_map_reverse.erase(reverse_iter);
+            timer_id_map_reverse.erase(timer_rev_it);
         }
-        timer_id_map_forward.erase(forward_iter);
+        timer_id_map_forward.erase(timer_fwd_it);
 
-        sem_post(&timer_id_sem);
+        timer_id_mutex.unlock();
         release_c_rnti(c_rnti);
     }else{
-        sem_post(&timer_id_sem);
+        timer_id_mutex.unlock();
     }
 }

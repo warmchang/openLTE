@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,7 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Removed boost message queue include.
     07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -42,8 +43,9 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_enb_cnfg_db.h"
+#include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_msgq.h"
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -68,26 +70,28 @@ class LTE_fdd_enb_pdcp
 {
 public:
     // Constructor/Destructor
-    LTE_fdd_enb_pdcp();
+    LTE_fdd_enb_pdcp(LTE_fdd_enb_interface *iface);
     ~LTE_fdd_enb_pdcp();
 
     // Start/Stop
-    void start(LTE_fdd_enb_msgq *from_rlc, LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *from_gw, LTE_fdd_enb_msgq *to_rlc, LTE_fdd_enb_msgq *to_rrc, LTE_fdd_enb_msgq *to_gw, LTE_fdd_enb_interface *iface);
-    void stop(void);
+    void start(LTE_fdd_enb_msgq *from_rlc, LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *from_gw, LTE_fdd_enb_msgq *to_rlc, LTE_fdd_enb_msgq *to_rrc, LTE_fdd_enb_msgq *to_gw);
+    void stop();
 
     // External interface
-    void update_sys_info(void);
+    void update_sys_info();
 
 private:
     // Start/Stop
     LTE_fdd_enb_interface *interface;
-    sem_t                  start_sem;
+    std::mutex             start_mutex;
     bool                   started;
 
     // Communication
     void handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
     void handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
     void handle_gw_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void send_rlc_sdu_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *sdu);
+    void send_rrc_pdu_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BIT_MSG_STRUCT *pdu);
     LTE_fdd_enb_msgq *msgq_from_rlc;
     LTE_fdd_enb_msgq *msgq_from_rrc;
     LTE_fdd_enb_msgq *msgq_from_gw;
@@ -105,7 +109,7 @@ private:
     void handle_data_sdu_ready(LTE_FDD_ENB_PDCP_DATA_SDU_READY_MSG_STRUCT *data_sdu_ready);
 
     // Parameters
-    sem_t                       sys_info_sem;
+    std::mutex                  sys_info_mutex;
     LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
 };
 

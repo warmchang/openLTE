@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -37,6 +37,7 @@
     07/31/2016    Ben Wojtowicz    Added an external interface for getting the
                                    current TTIs.
     07/29/2017    Ben Wojtowicz    Added IPC direct to a UE PHY.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -48,16 +49,16 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_interface.h"
-#include "LTE_fdd_enb_cnfg_db.h"
 #include "LTE_fdd_enb_msgq.h"
 #include "LTE_fdd_enb_radio.h"
+#include "LTE_fdd_enb_mac.h"
 #include "liblte_phy.h"
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
 *******************************************************************************/
 
-#define LTE_FDD_ENB_CURRENT_TTI_MAX (LIBLTE_PHY_SFN_MAX*10 + 9)
 
 /*******************************************************************************
                               FORWARD DECLARATIONS
@@ -76,29 +77,22 @@
 class LTE_fdd_enb_phy
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_phy* get_instance(void);
-    static void cleanup(void);
+    LTE_fdd_enb_phy(LTE_fdd_enb_interface *iface, LTE_fdd_enb_mac *_mac);
+    ~LTE_fdd_enb_phy();
 
     // Start/Stop
-    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *to_mac, bool direct_to_ue, LTE_fdd_enb_interface *iface);
+    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *to_mac, bool direct_to_ue, LTE_fdd_enb_radio *_radio);
     void stop(void);
 
     // External interface
     void update_sys_info(void);
     uint32 get_n_cce(void);
-    void get_current_ttis(uint32 *dl_tti, uint32 *ul_tti);
 
     // Radio interface
     void radio_interface(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf, LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf);
     void radio_interface(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf);
 
 private:
-    // Singleton
-    static LTE_fdd_enb_phy *instance;
-    LTE_fdd_enb_phy();
-    ~LTE_fdd_enb_phy();
-
     // Start/Stop
     LTE_fdd_enb_interface *interface;
     bool                   started;
@@ -110,28 +104,34 @@ private:
     LTE_fdd_enb_msgq  *msgq_to_mac;
     libtools_ipc_msgq *msgq_to_ue;
 
-    // Generic parameters
+    // Generic
+    void align_ttis_with_radio(uint32 radio_ul_tti);
     LIBLTE_PHY_STRUCT *phy_struct;
 
     // Downlink
     void handle_phy_schedule(LTE_FDD_ENB_PHY_SCHEDULE_MSG_STRUCT *phy_sched);
+    void process_pss_sss();
+    void process_pbch(uint32 sfn);
+    void process_pdcch_and_pdsch();
     void process_dl(LTE_FDD_ENB_RADIO_TX_BUF_STRUCT *tx_buf);
-    sem_t                              sys_info_sem;
-    sem_t                              dl_sched_sem;
-    sem_t                              ul_sched_sem;
-    LTE_FDD_ENB_SYS_INFO_STRUCT        sys_info;
-    LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT dl_schedule[10];
-    LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT ul_schedule[10];
-    LIBLTE_PHY_PCFICH_STRUCT           pcfich;
-    LIBLTE_PHY_PHICH_STRUCT            phich[10];
-    LIBLTE_PHY_PDCCH_STRUCT            pdcch;
-    LIBLTE_PHY_SUBFRAME_STRUCT         dl_subframe;
-    LIBLTE_BIT_MSG_STRUCT              dl_rrc_msg;
-    uint32                             dl_current_tti;
-    uint32                             last_rts_current_tti;
-    bool                               late_subfr;
+    LTE_fdd_enb_radio                  *radio;
+    LTE_fdd_enb_mac                    *mac;
+    std::mutex                          sys_info_mutex;
+    std::mutex                          dl_sched_mutex;
+    std::mutex                          ul_sched_mutex;
+    LTE_FDD_ENB_SYS_INFO_STRUCT         sys_info;
+    LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT  dl_schedule[10];
+    LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT  ul_schedule[10];
+    LIBLTE_PHY_PCFICH_STRUCT            pcfich;
+    LIBLTE_PHY_PHICH_STRUCT             phich[10];
+    LIBLTE_PHY_SUBFRAME_STRUCT          dl_subframe;
+    LIBLTE_BIT_MSG_STRUCT               dl_rrc_msg;
+    uint32                              dl_current_tti;
 
     // Uplink
+    void process_prach(LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf, uint32 sfn);
+    void process_pucch();
+    void process_pusch();
     void process_ul(LTE_FDD_ENB_RADIO_RX_BUF_STRUCT *rx_buf);
     LTE_FDD_ENB_PRACH_DECODE_MSG_STRUCT prach_decode;
     LTE_FDD_ENB_PUCCH_DECODE_MSG_STRUCT pucch_decode;

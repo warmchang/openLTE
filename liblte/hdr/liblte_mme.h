@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2016 Ben Wojtowicz
+    Copyright 2014-2016, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -39,6 +39,8 @@
     12/06/2015    Ben Wojtowicz    Added all ID types for Mobile Identity IE.
     07/03/2016    Ben Wojtowicz    Added classmark 3 IE and tracking area
                                    update request message parsing.
+    02/14/2021    Ben Wojtowicz    Using the new RRC library and added CLI
+                                   IE implementation.
 
 *******************************************************************************/
 
@@ -50,6 +52,7 @@
 *******************************************************************************/
 
 #include "liblte_common.h"
+#include "EUTRA_RRC_Definitions.h"
 #include <string>
 
 /*******************************************************************************
@@ -149,8 +152,8 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_eps_bearer_context_status_ie(uint8          
 // Enums
 // Structs
 typedef struct{
-    uint16 mcc;
-    uint16 mnc;
+    MCC    mcc;
+    MNC    mnc;
     uint16 lac;
 }LIBLTE_MME_LOCATION_AREA_ID_STRUCT;
 // Functions
@@ -178,9 +181,9 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_location_area_id_ie(uint8                   
 // Enums
 // Structs
 typedef struct{
+    MCC    mcc;
+    MNC    mnc;
     uint32 mbms_service_id;
-    uint16 mcc;
-    uint16 mnc;
     uint8  mbms_session_id;
     bool   mbms_session_id_ind;
     bool   mcc_mnc_ind;
@@ -503,9 +506,9 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_nas_security_parameters_to_eutra_ie(uint8   
 // Enums
 // Structs
 typedef struct{
+    MCC    mcc[LIBLTE_MME_PLMN_LIST_MAX_SIZE];
+    MNC    mnc[LIBLTE_MME_PLMN_LIST_MAX_SIZE];
     uint32 N_plmns;
-    uint16 mcc[LIBLTE_MME_PLMN_LIST_MAX_SIZE];
-    uint16 mnc[LIBLTE_MME_PLMN_LIST_MAX_SIZE];
 }LIBLTE_MME_PLMN_LIST_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mme_pack_plmn_list_ie(LIBLTE_MME_PLMN_LIST_STRUCT  *plmn_list,
@@ -537,7 +540,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_plmn_list_ie(uint8                       **i
                         24.008 v10.2.0 Section 10.5.4.32
 *********************************************************************/
 // Defines
-#define LIBLTE_MME_MAX_N_SUPPORTED_CODECS (LIBLTE_MAX_MSG_SIZE/16)
+#define LIBLTE_MME_MAX_N_SUPPORTED_CODECS 15
 // Enums
 // Structs
 typedef struct{
@@ -937,9 +940,9 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_eps_attach_type_ie(uint8 **ie_ptr,
 // Enums
 // Structs
 typedef struct{
+    MCC    mcc;
+    MNC    mnc;
     uint32 m_tmsi;
-    uint16 mcc;
-    uint16 mnc;
     uint16 mme_group_id;
     uint8  mme_code;
 }LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT;
@@ -1522,8 +1525,8 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_tmsi_status_ie(uint8                       *
 // Enums
 // Structs
 typedef struct{
-    uint16 mcc;
-    uint16 mnc;
+    MCC    mcc;
+    MNC    mnc;
     uint16 tac;
 }LIBLTE_MME_TRACKING_AREA_ID_STRUCT;
 // Functions
@@ -1704,9 +1707,80 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_emergency_number_list_ie(uint8              
 *********************************************************************/
 // Defines
 // Enums
+typedef enum{
+    LIBLTE_MME_TYPE_OF_NUMBER_UNKNOWN = 0,
+    LIBLTE_MME_TYPE_OF_NUMBER_INTERNATIONAL,
+    LIBLTE_MME_TYPE_OF_NUMBER_NATIONAL,
+    LIBLTE_MME_TYPE_OF_NUMBER_NETWORK_SPECIFIC,
+    LIBLTE_MME_TYPE_OF_NUMBER_DEDICATED_ACCESS,
+    LIBLTE_MME_TYPE_OF_NUMBER_RESERVED_1,
+    LIBLTE_MME_TYPE_OF_NUMBER_RESERVED_2,
+    LIBLTE_MME_TYPE_OF_NUMBER_RESERVED_FOR_EXT,
+    LIBLTE_MME_TYPE_OF_NUMBER_N_ITEMS,
+}LIBLTE_MME_TYPE_OF_NUMBER_ENUM;
+static const char liblte_mme_type_of_number_text[LIBLTE_MME_TYPE_OF_NUMBER_N_ITEMS][100] = {"Unknown",
+                                                                                            "International",
+                                                                                            "National",
+                                                                                            "Network Specific",
+                                                                                            "Dedicated Access",
+                                                                                            "Reserved 1",
+                                                                                            "Reserved 2",
+                                                                                            "Reserved for extension"};
+typedef enum{
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_UNKNOWN = 0,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_ISDN,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_DATA,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_TELEX,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_NATIONAL,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_PRIVATE,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_RESERVED_FOR_CTS,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_RESERVED_FOR_EXT,
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_N_ITEMS,
+}LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_ENUM;
+static const char liblte_mme_numbering_plan_identification_text[LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_N_ITEMS][100] = {"Unknown",
+                                                                                                                          "ISDN",
+                                                                                                                          "Data",
+                                                                                                                          "Telex",
+                                                                                                                          "National",
+                                                                                                                          "Private",
+                                                                                                                          "Reserved for CTS",
+                                                                                                                          "Reserved for extension"};
+typedef enum{
+    LIBLTE_MME_PRESENTATION_ALLOWED = 0,
+    LIBLTE_MME_PRESENTATION_RESTRICTED,
+    LIBLTE_MME_PRESENTATION_NOT_AVAILABLE,
+    LIBLTE_MME_PRESENTATION_RESERVED,
+    LIBLTE_MME_PRESENTATION_N_ITEMS,
+}LIBLTE_MME_PRESENTATION_IND_ENUM;
+static const char liblte_mme_presentation_ind_text[LIBLTE_MME_PRESENTATION_N_ITEMS][20] = {"Allowed",
+                                                                                           "Restricted",
+                                                                                           "Not available",
+                                                                                           "Reserved"};
+typedef enum{
+    LIBLTE_MME_SCREENING_USER_PROVIDED = 0,
+    LIBLTE_MME_SCREENING_USER_PROVIDED_VERIFIED_PASSED,
+    LIBLTE_MME_SCREENING_USER_PROVIDED_VERIFIED_FAILED,
+    LIBLTE_MME_SCREENING_NETWORK_PROVIDED,
+    LIBLTE_MME_SCREENING_N_ITEMS,
+}LIBLTE_MME_SCREENING_IND_ENUM;
+static const char liblte_mme_screening_ind_text[LIBLTE_MME_SCREENING_N_ITEMS][100] = {"User provided",
+                                                                                      "User provided, verified, passed",
+                                                                                      "User provided, verified, failed",
+                                                                                      "Network provided"};
 // Structs
+typedef struct{
+    LIBLTE_MME_TYPE_OF_NUMBER_ENUM                type_of_num;
+    LIBLTE_MME_NUMBERING_PLAN_IDENTIFICATION_ENUM num_plan_id;
+    LIBLTE_MME_PRESENTATION_IND_ENUM              pres_ind;
+    LIBLTE_MME_SCREENING_IND_ENUM                 screen_ind;
+    uint8                                         digits[20];
+    uint32                                        num_digits;
+}LIBLTE_MME_CLI_STRUCT;
 // Functions
-// FIXME
+LIBLTE_ERROR_ENUM liblte_mme_pack_cli_ie(LIBLTE_MME_CLI_STRUCT  *cli,
+                                         uint8                 **ie_ptr);
+LIBLTE_ERROR_ENUM liblte_mme_unpack_cli_ie(uint8                 **ie_ptr,
+                                           LIBLTE_MME_CLI_STRUCT  *cli);
 
 /*********************************************************************
     IE Name: SS Code
@@ -3567,6 +3641,7 @@ LIBLTE_ERROR_ENUM liblte_mme_unpack_uplink_nas_transport_msg(LIBLTE_BYTE_MSG_STR
     Document Reference: 24.301 v10.2.0 Section 8.2.31
 *********************************************************************/
 // Defines
+#define LIBLTE_MME_ADDITIONAL_INFORMATION_IEI 0x65
 // Enums
 // Structs
 typedef struct{

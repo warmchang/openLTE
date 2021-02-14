@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_msgq.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2016, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -40,6 +40,7 @@
     02/13/2016    Ben Wojtowicz    Moved the buffer empty log from ERROR to
                                    WARNING.
     07/03/2016    Ben Wojtowicz    Setting processor affinity.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -49,6 +50,7 @@
 
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_msgq.h"
+#include <thread>
 
 /*******************************************************************************
                               DEFINES
@@ -88,13 +90,12 @@ void LTE_fdd_enb_msgq_cb::operator()(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 /********************************/
 /*    Constructor/Destructor    */
 /********************************/
-LTE_fdd_enb_msgq::LTE_fdd_enb_msgq(std::string _msgq_name)
+LTE_fdd_enb_msgq::LTE_fdd_enb_msgq(LTE_fdd_enb_interface *iface, std::string _msgq_name) :
+    interface{iface}, msgq_name{_msgq_name}, rx_setup{false}
 {
     sem_init(&sync_sem, 0, 1);
     sem_init(&msg_sem, 0, 1);
     circ_buf  = new boost::circular_buffer<LTE_FDD_ENB_MESSAGE_STRUCT>(100);
-    msgq_name = _msgq_name;
-    rx_setup  = false;
 }
 LTE_fdd_enb_msgq::~LTE_fdd_enb_msgq()
 {
@@ -181,25 +182,31 @@ void LTE_fdd_enb_msgq::send(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
 }
 void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
 {
-    LTE_fdd_enb_interface      *interface = LTE_fdd_enb_interface::get_instance();
     LTE_fdd_enb_msgq           *msgq      = (LTE_fdd_enb_msgq *)inputs;
     LTE_FDD_ENB_MESSAGE_STRUCT  msg;
     struct sched_param          priority;
     cpu_set_t                   af_mask;
+    int                         sched_policy;
+    uint32                      num_cpus = std::thread::hardware_concurrency();
     bool                        not_done = true;
 
     // Set priority
     if(msgq->prio != 0)
     {
-        // FIXME: verify
-        priority.sched_priority = msgq->prio;
+        pthread_getschedparam(msgq->rx_thread, &sched_policy, &priority);
+        priority.sched_priority = sched_get_priority_max(SCHED_FIFO);
         pthread_setschedparam(msgq->rx_thread, SCHED_FIFO, &priority);
-    }
 
-    // Set affinity to not the last core (last core is for PHY/Radio)
-    pthread_getaffinity_np(msgq->rx_thread, sizeof(af_mask), &af_mask);
-    CPU_CLR(sysconf(_SC_NPROCESSORS_ONLN)-1, &af_mask);
-    pthread_setaffinity_np(msgq->rx_thread, sizeof(af_mask), &af_mask);
+        // Set affinity to the second to the last core for MAC (last core is for PHY/Radio)
+        CPU_ZERO(&af_mask);
+        CPU_SET(num_cpus-2, &af_mask);
+        pthread_setaffinity_np(msgq->rx_thread, sizeof(af_mask), &af_mask);
+    }else{
+        // Set affinity to the third to the last core (last is for PHY/Radio, second to last is for MAC)
+        CPU_ZERO(&af_mask);
+        CPU_SET(num_cpus-3, &af_mask);
+        pthread_setaffinity_np(msgq->rx_thread, sizeof(af_mask), &af_mask);
+    }
 
     while(not_done)
     {
@@ -228,15 +235,15 @@ void* LTE_fdd_enb_msgq::receive_thread(void *inputs)
                 sem_wait(&msgq->sync_sem);
             }
         }else{
-            interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_WARNING,
-                                      LTE_FDD_ENB_DEBUG_LEVEL_MSGQ,
-                                      __FILE__,
-                                      __LINE__,
-                                      "%s circular buffer empty on receive",
-                                      msgq->msgq_name.c_str());
+            msgq->interface->send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_WARNING,
+                                            LTE_FDD_ENB_DEBUG_LEVEL_MSGQ,
+                                            __FILE__,
+                                            __LINE__,
+                                            "%s circular buffer empty on receive",
+                                            msgq->msgq_name.c_str());
         }
         sem_post(&msgq->sync_sem);
     }
 
-    return(NULL);
+    return NULL;
 }

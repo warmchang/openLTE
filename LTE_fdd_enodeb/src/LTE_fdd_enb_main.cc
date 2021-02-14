@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_main.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2013-2014 Ben Wojtowicz
+    Copyright 2013-2014, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,7 @@
     11/09/2013    Ben Wojtowicz    Created file
     06/15/2014    Ben Wojtowicz    Omitting path from __FILE__.
     11/01/2014    Ben Wojtowicz    Added config and user file support.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -36,7 +37,6 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_interface.h"
-#include "LTE_fdd_enb_cnfg_db.h"
 #include "LTE_fdd_enb_hss.h"
 
 /*******************************************************************************
@@ -60,24 +60,14 @@
 
 int main(int argc, char *argv[])
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_cnfg_db   *cnfg_db   = LTE_fdd_enb_cnfg_db::get_instance();
-    LTE_fdd_enb_hss       *hss       = LTE_fdd_enb_hss::get_instance();
+    LTE_fdd_enb_interface *interface = new LTE_fdd_enb_interface();
 
-    interface->set_ctrl_port(LTE_FDD_ENB_DEFAULT_CTRL_PORT);
     interface->start_ports();
-
-    // Read configuration
-    hss->read_user_file();
-    cnfg_db->read_cnfg_file();
+    interface->read_cnfg_file();
 
     printf("*** LTE FDD ENB ***\n");
-    printf("Please connect to control port %u\n", LTE_FDD_ENB_DEFAULT_CTRL_PORT);
+    printf("Please connect to control port %u\n", LTE_FDD_ENB_CTRL_PORT);
 
     while(!interface->get_shutdown())
-    {
         sleep(1);
-    }
-
-    interface->cleanup();
 }

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014-2015, 2017 Ben Wojtowicz
+    Copyright 2014-2015, 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -29,6 +29,7 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -41,6 +42,7 @@
 
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_msgq.h"
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -65,18 +67,19 @@ class LTE_fdd_enb_gw
 {
 public:
     // Constructor/Destructor
-    LTE_fdd_enb_gw();
+    LTE_fdd_enb_gw(LTE_fdd_enb_interface *iface, LTE_fdd_enb_user_mgr *um);
     ~LTE_fdd_enb_gw();
 
     // Start/Stop
-    bool is_started(void);
-    LTE_FDD_ENB_ERROR_ENUM start(LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *to_pdcp, char *err_str, LTE_fdd_enb_interface *iface);
-    void stop(void);
+    bool is_started();
+    LTE_FDD_ENB_ERROR_ENUM start(LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *to_pdcp, char *err_str);
+    void stop();
 
 private:
     // Start/Stop
     LTE_fdd_enb_interface *interface;
-    sem_t                  start_sem;
+    LTE_fdd_enb_user_mgr  *user_mgr;
+    std::mutex             start_mutex;
     bool                   started;
 
     // Communication

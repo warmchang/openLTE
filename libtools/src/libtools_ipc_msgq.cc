@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2017 Ben Wojtowicz
+    Copyright 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -25,6 +25,7 @@
     Revision History
     ----------    -------------    --------------------------------------------
     07/29/2017    Ben Wojtowicz    Created file
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -74,19 +75,23 @@ void libtools_ipc_msgq_cb::operator()(LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT *msg)
 /*    Constructor/Destructor    */
 /********************************/
 libtools_ipc_msgq::libtools_ipc_msgq(std::string          _msgq_name,
-                                     libtools_ipc_msgq_cb cb)
+                                     libtools_ipc_msgq_cb cb) :
+    callback{new libtools_ipc_msgq_cb(cb)}, msgq_name{_msgq_name}
 {
-    msgq_name = _msgq_name;
-    callback  = cb;
-    pthread_create(&rx_thread, NULL, &receive_thread, this);
+    rx_thread = new std::thread(receive_thread, this);
+}
+libtools_ipc_msgq::libtools_ipc_msgq(std::string _msgq_name) :
+    callback{NULL}, msgq_name{_msgq_name}
+{
+    rx_thread = new std::thread(receive_thread, this);
 }
 libtools_ipc_msgq::~libtools_ipc_msgq()
 {
     send(LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_KILL, NULL, 0);
 
     // Cleanup thread
-    pthread_cancel(rx_thread);
-    pthread_join(rx_thread, NULL);
+    rx_thread->join();
+    delete rx_thread;
 }
 
 /**********************/
@@ -102,25 +107,25 @@ void libtools_ipc_msgq::send(LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_ENUM  type,
 
     msg.type = type;
     if(msg_content != NULL)
-    {
         memcpy(&msg.msg, msg_content, msg_content_size);
-    }
 
     mq.try_send(&msg, sizeof(LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT), 0);
 }
-void* libtools_ipc_msgq::receive_thread(void *inputs)
+void libtools_ipc_msgq::receive_thread(libtools_ipc_msgq *msgq)
 {
-    libtools_ipc_msgq                *msgq = (libtools_ipc_msgq *)inputs;
-    LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT  msg;
-    std::size_t                       rx_size;
-    uint32                            prio;
-    bool                              not_done = true;
+    LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT msg;
+    std::size_t                      rx_size;
+    uint32                           prio;
+    bool                             not_done = true;
 
     // Open the message_queue
     boost::interprocess::message_queue mq(boost::interprocess::open_or_create,
                                           msgq->msgq_name.c_str(),
                                           100,
                                           sizeof(LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT));
+
+    if(msgq->callback == NULL)
+        return;
 
     while(not_done)
     {
@@ -132,12 +137,10 @@ void* libtools_ipc_msgq::receive_thread(void *inputs)
         // Process message
         if(sizeof(msg) == rx_size)
         {
-            msgq->callback(&msg);
+            (*msgq->callback)(&msg);
 
             if(LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_KILL == msg.type)
-            {
                 not_done = false;
-            }
         }else{
             // FIXME
             printf("ERROR %s Invalid message size received: %u\n",
@@ -145,6 +148,4 @@ void* libtools_ipc_msgq::receive_thread(void *inputs)
                    (uint32)rx_size);
         }
     }
-
-    return(NULL);
 }

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -38,6 +38,8 @@
     07/31/2016    Ben Wojtowicz    Added a define for max HARQ retransmissions.
     07/29/2017    Ben Wojtowicz    Added SR support and added IPC direct to a UE
                                    MAC.
+    02/14/2021    Ben Wojtowicz    Massive reformat and added a persistent DL
+                                   scheduler.
 
 *******************************************************************************/
 
@@ -49,12 +51,12 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_interface.h"
-#include "LTE_fdd_enb_cnfg_db.h"
 #include "LTE_fdd_enb_msgq.h"
 #include "LTE_fdd_enb_user.h"
 #include "liblte_mac.h"
 #include "libtools_ipc_msgq.h"
 #include <list>
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -95,6 +97,13 @@ typedef struct{
     uint16 rnti;
 }LTE_FDD_ENB_UL_SR_SCHED_QUEUE_STRUCT;
 
+typedef struct{
+    LIBLTE_PHY_ALLOCATION_STRUCT alloc;
+    uint32                       next_tti;
+    uint32                       tti_periodicity;
+    uint32                       timer_id;
+}LTE_FDD_ENB_PERSISTENT_DL_STRUCT;
+
 /*******************************************************************************
                               CLASS DECLARATIONS
 *******************************************************************************/
@@ -102,27 +111,25 @@ typedef struct{
 class LTE_fdd_enb_mac
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_mac* get_instance(void);
-    static void cleanup(void);
+    LTE_fdd_enb_mac(LTE_fdd_enb_interface *iface, LTE_fdd_enb_timer_mgr *tm, LTE_fdd_enb_user_mgr *um, LTE_fdd_enb_rlc *_rlc);
+    ~LTE_fdd_enb_mac();
+    void set_phy_and_rrc(LTE_fdd_enb_phy *_phy, LTE_fdd_enb_rrc *_rrc);
 
     // Start/Stop
-    void start(LTE_fdd_enb_msgq *from_phy, LTE_fdd_enb_msgq *from_rlc, LTE_fdd_enb_msgq *to_phy, LTE_fdd_enb_msgq *to_rlc, LTE_fdd_enb_msgq *to_timer, bool direct_to_ue, LTE_fdd_enb_interface *iface);
-    void stop(void);
+    void start(LTE_fdd_enb_msgq *from_phy, LTE_fdd_enb_msgq *from_rlc, LTE_fdd_enb_msgq *to_phy, LTE_fdd_enb_msgq *to_rlc, LTE_fdd_enb_msgq *to_timer, bool direct_to_ue);
+    void stop();
 
     // External interface
-    void update_sys_info(void);
+    void align_ttis_with_phy(uint32 ul_current_tti);
+    void update_sys_info();
     void add_periodic_sr_pucch(uint16 rnti, uint32 i_sr, uint32 n_1_p_pucch);
     void remove_periodic_sr_pucch(uint16 rnti);
 
-private:
-    // Singleton
-    static LTE_fdd_enb_mac *instance;
-    LTE_fdd_enb_mac();
-    ~LTE_fdd_enb_mac();
+    void send_dl_traffic(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, uint32 num_frames, uint32 size);
 
+private:
     // Start/Stop
-    sem_t                  start_sem;
+    std::mutex             start_mutex;
     LTE_fdd_enb_interface *interface;
     bool                   started;
 
@@ -130,12 +137,14 @@ private:
     void handle_phy_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
     void handle_rlc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
     void handle_ue_msg(LIBTOOLS_IPC_MSGQ_MESSAGE_STRUCT *msg);
+    void send_rlc_pdu_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *pdu);
     LTE_fdd_enb_msgq  *msgq_from_phy;
     LTE_fdd_enb_msgq  *msgq_from_rlc;
     LTE_fdd_enb_msgq  *msgq_to_phy;
     LTE_fdd_enb_msgq  *msgq_to_rlc;
     LTE_fdd_enb_msgq  *msgq_to_timer;
     libtools_ipc_msgq *msgq_to_ue;
+    libtools_ipc_msgq *msgq_from_ue;
 
     // PHY Message Handlers
     void handle_ready_to_send(LTE_FDD_ENB_READY_TO_SEND_MSG_STRUCT *rts);
@@ -163,16 +172,23 @@ private:
 
     // Scheduler
     void sched_ul(LTE_fdd_enb_user *user, uint32 requested_tbs);
-    void scheduler(void);
+    void persistent_dl(LTE_FDD_ENB_PERSISTENT_DL_STRUCT *persistent_dl);
+    void handle_persistent_dl_timer_expiry(uint32 timer_id);
+    void rar_scheduler();
+    void dl_scheduler();
+    void ul_scheduler();
+    void ul_sr_scheduler();
     LTE_FDD_ENB_ERROR_ENUM add_to_rar_sched_queue(uint32 current_tti, LIBLTE_PHY_ALLOCATION_STRUCT *dl_alloc, LIBLTE_PHY_ALLOCATION_STRUCT *ul_alloc, LIBLTE_MAC_RAR_STRUCT *rar);
     LTE_FDD_ENB_ERROR_ENUM add_to_dl_sched_queue(uint32 current_tti, LIBLTE_MAC_PDU_STRUCT *mac_pdu, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
     LTE_FDD_ENB_ERROR_ENUM add_to_ul_sched_queue(uint32 current_tti, LIBLTE_PHY_ALLOCATION_STRUCT *alloc);
-    sem_t                                            rar_sched_queue_sem;
-    sem_t                                            dl_sched_queue_sem;
-    sem_t                                            ul_sched_queue_sem;
-    sem_t                                            ul_sr_sched_queue_sem;
+    std::mutex                                       rar_sched_queue_mutex;
+    std::mutex                                       dl_sched_queue_mutex;
+    std::mutex                                       persistent_dl_queue_mutex;
+    std::mutex                                       ul_sched_queue_mutex;
+    std::mutex                                       ul_sr_sched_queue_mutex;
     std::list<LTE_FDD_ENB_RAR_SCHED_QUEUE_STRUCT*>   rar_sched_queue;
     std::list<LTE_FDD_ENB_DL_SCHED_QUEUE_STRUCT*>    dl_sched_queue;
+    std::list<LTE_FDD_ENB_PERSISTENT_DL_STRUCT*>     persistent_dl_queue;
     std::list<LTE_FDD_ENB_UL_SCHED_QUEUE_STRUCT*>    ul_sched_queue;
     std::list<LTE_FDD_ENB_UL_SR_SCHED_QUEUE_STRUCT*> ul_sr_sched_queue;
     LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT               sched_dl_subfr[10];
@@ -181,13 +197,19 @@ private:
     uint8                                            sched_cur_ul_subfn;
 
     // Parameters
-    sem_t                       sys_info_sem;
-    LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
+    LTE_fdd_enb_timer_mgr       *timer_mgr;
+    LTE_fdd_enb_user_mgr        *user_mgr;
+    LTE_fdd_enb_phy             *phy;
+    LTE_fdd_enb_rlc             *rlc;
+    LTE_fdd_enb_rrc             *rrc;
+    std::mutex                   sys_info_mutex;
+    LTE_FDD_ENB_SYS_INFO_STRUCT  sys_info;
 
     // Helpers
+    void advance_tti_and_clear_subframe();
     uint32 get_n_reserved_prbs(uint32 current_tti);
-    uint32 add_to_tti(uint32 tti, uint32 addition);
-    bool is_tti_in_future(uint32 tti_to_check, uint32 current_tti);
+    bool scheduling_headroom(LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT *dl_subfr, LTE_FDD_ENB_UL_SCHEDULE_MSG_STRUCT *ul_subfr, uint32 N_dl_prbs, uint32 N_ul_prbs);
+    LIBLTE_PHY_MODULATION_TYPE_ENUM get_modulation_type(uint8 mcs);
 };
 
 #endif /* __LTE_FDD_ENB_MAC_H__ */

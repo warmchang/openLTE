@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013 Ben Wojtowicz
+    Copyright 2013, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -25,6 +25,7 @@
     Revision History
     ----------    -------------    --------------------------------------------
     08/26/2013    Ben Wojtowicz    Created file
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -33,7 +34,6 @@
 *******************************************************************************/
 
 #include "LTE_file_recorder_interface.h"
-#include "LTE_file_recorder_flowgraph.h"
 #include <unistd.h>
 
 /*******************************************************************************
@@ -57,24 +57,13 @@
 
 int main(int argc, char *argv[])
 {
-    LTE_file_recorder_interface *interface = LTE_file_recorder_interface::get_instance();
-    LTE_file_recorder_flowgraph *flowgraph = LTE_file_recorder_flowgraph::get_instance();
+    LTE_file_recorder_interface *interface = new LTE_file_recorder_interface();
 
-    interface->set_ctrl_port(LTE_FILE_RECORDER_DEFAULT_CTRL_PORT);
     interface->start_ctrl_port();
 
     printf("*** LTE File Recorder ***\n");
-    printf("Please connect to control port %u\n", LTE_FILE_RECORDER_DEFAULT_CTRL_PORT);
+    printf("Please connect to control port %u\n", LTE_FILE_RECORDER_CTRL_PORT);
 
     while(!interface->get_shutdown())
-    {
         sleep(1);
-    }
-
-    if(flowgraph->is_started())
-    {
-        flowgraph->stop();
-    }
-    flowgraph->cleanup();
-    interface->cleanup();
 }

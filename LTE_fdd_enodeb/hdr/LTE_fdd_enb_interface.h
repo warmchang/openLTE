@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -50,6 +50,8 @@
                                    users.
     07/29/2017    Ben Wojtowicz    Added input parameters for direct IPC to a UE
                                    and using the latest tools library.
+    02/14/2021    Ben Wojtowicz    Massive reformat and using the new RRC
+                                   library.
 
 *******************************************************************************/
 
@@ -63,23 +65,32 @@
 #include "LTE_fdd_enb_common.h"
 #include "LTE_fdd_enb_msgq.h"
 #include "liblte_common.h"
-#include "libtools_socket_wrap.h"
+#include "libtools_server_socket.h"
 #include <string>
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
 *******************************************************************************/
 
-#define LTE_FDD_ENB_DEFAULT_CTRL_PORT 30000
-#define LTE_FDD_ENB_DEBUG_PORT_OFFSET 1
+#define LTE_FDD_ENB_CTRL_PORT     30000
+#define LTE_FDD_ENB_MAX_LINE_SIZE 512
 
 /*******************************************************************************
                               FORWARD DECLARATIONS
 *******************************************************************************/
 
-class LTE_fdd_enb_pdcp;
-class LTE_fdd_enb_mme;
+class LTE_fdd_enb_timer_mgr;
+class LTE_fdd_enb_user_mgr;
+class LTE_fdd_enb_hss;
 class LTE_fdd_enb_gw;
+class LTE_fdd_enb_mme;
+class LTE_fdd_enb_rrc;
+class LTE_fdd_enb_pdcp;
+class LTE_fdd_enb_rlc;
+class LTE_fdd_enb_mac;
+class LTE_fdd_enb_phy;
+class LTE_fdd_enb_radio;
 
 /*******************************************************************************
                               TYPEDEFS
@@ -135,132 +146,18 @@ typedef enum{
 static const char LTE_fdd_enb_pcap_direction_text[LTE_FDD_ENB_PCAP_DIRECTION_N_ITEMS][20] = {"UL",
                                                                                              "DL"};
 
-typedef enum{
-    LTE_FDD_ENB_VAR_TYPE_DOUBLE = 0,
-    LTE_FDD_ENB_VAR_TYPE_INT64,
-    LTE_FDD_ENB_VAR_TYPE_HEX,
-    LTE_FDD_ENB_VAR_TYPE_UINT32,
-}LTE_FDD_ENB_VAR_TYPE_ENUM;
-
-typedef enum{
-    // System parameters managed by LTE_fdd_enb_cnfg_db
-    LTE_FDD_ENB_PARAM_BANDWIDTH = 0,
-    LTE_FDD_ENB_PARAM_FREQ_BAND,
-    LTE_FDD_ENB_PARAM_DL_EARFCN,
-    LTE_FDD_ENB_PARAM_UL_EARFCN,
-    LTE_FDD_ENB_PARAM_DL_CENTER_FREQ,
-    LTE_FDD_ENB_PARAM_UL_CENTER_FREQ,
-    LTE_FDD_ENB_PARAM_N_RB_DL,
-    LTE_FDD_ENB_PARAM_N_RB_UL,
-    LTE_FDD_ENB_PARAM_DL_BW,
-    LTE_FDD_ENB_PARAM_N_SC_RB_DL,
-    LTE_FDD_ENB_PARAM_N_SC_RB_UL,
-    LTE_FDD_ENB_PARAM_N_ANT,
-    LTE_FDD_ENB_PARAM_N_ID_CELL,
-    LTE_FDD_ENB_PARAM_N_ID_2,
-    LTE_FDD_ENB_PARAM_N_ID_1,
-    LTE_FDD_ENB_PARAM_MCC,
-    LTE_FDD_ENB_PARAM_MNC,
-    LTE_FDD_ENB_PARAM_CELL_ID,
-    LTE_FDD_ENB_PARAM_TRACKING_AREA_CODE,
-    LTE_FDD_ENB_PARAM_Q_RX_LEV_MIN,
-    LTE_FDD_ENB_PARAM_P0_NOMINAL_PUSCH,
-    LTE_FDD_ENB_PARAM_P0_NOMINAL_PUCCH,
-    LTE_FDD_ENB_PARAM_SIB3_PRESENT,
-    LTE_FDD_ENB_PARAM_Q_HYST,
-    LTE_FDD_ENB_PARAM_SIB4_PRESENT,
-    LTE_FDD_ENB_PARAM_SIB5_PRESENT,
-    LTE_FDD_ENB_PARAM_SIB6_PRESENT,
-    LTE_FDD_ENB_PARAM_SIB7_PRESENT,
-    LTE_FDD_ENB_PARAM_SIB8_PRESENT,
-    LTE_FDD_ENB_PARAM_SEARCH_WIN_SIZE,
-    LTE_FDD_ENB_PARAM_SYSTEM_INFO_VALUE_TAG,
-    LTE_FDD_ENB_PARAM_SYSTEM_INFO_WINDOW_LENGTH,
-    LTE_FDD_ENB_PARAM_PHICH_RESOURCE,
-    LTE_FDD_ENB_PARAM_N_SCHED_INFO,
-    LTE_FDD_ENB_PARAM_SYSTEM_INFO_PERIODICITY,
-    LTE_FDD_ENB_PARAM_MAC_DIRECT_TO_UE,
-    LTE_FDD_ENB_PARAM_PHY_DIRECT_TO_UE,
-    LTE_FDD_ENB_PARAM_DEBUG_TYPE,
-    LTE_FDD_ENB_PARAM_DEBUG_LEVEL,
-    LTE_FDD_ENB_PARAM_ENABLE_PCAP,
-    LTE_FDD_ENB_PARAM_IP_ADDR_START,
-    LTE_FDD_ENB_PARAM_DNS_ADDR,
-    LTE_FDD_ENB_PARAM_USE_CNFG_FILE,
-    LTE_FDD_ENB_PARAM_USE_USER_FILE,
-    LTE_FDD_ENB_PARAM_TX_GAIN,
-    LTE_FDD_ENB_PARAM_RX_GAIN,
-
-    // Radio parameters managed by LTE_fdd_enb_radio
-    LTE_FDD_ENB_PARAM_AVAILABLE_RADIOS,
-    LTE_FDD_ENB_PARAM_SELECTED_RADIO_NAME,
-    LTE_FDD_ENB_PARAM_SELECTED_RADIO_IDX,
-    LTE_FDD_ENB_PARAM_CLOCK_SOURCE,
-
-    LTE_FDD_ENB_PARAM_N_ITEMS,
-}LTE_FDD_ENB_PARAM_ENUM;
-static const char LTE_fdd_enb_param_text[LTE_FDD_ENB_PARAM_N_ITEMS][100] = {"bandwidth",
-                                                                            "band",
-                                                                            "dl_earfcn",
-                                                                            "ul_earfcn",
-                                                                            "dl_center_freq",
-                                                                            "ul_center_freq",
-                                                                            "n_rb_dl",
-                                                                            "n_rb_ul",
-                                                                            "dl_bw",
-                                                                            "n_sc_rb_dl",
-                                                                            "n_sc_rb_ul",
-                                                                            "n_ant",
-                                                                            "n_id_cell",
-                                                                            "n_id_2",
-                                                                            "n_id_1",
-                                                                            "mcc",
-                                                                            "mnc",
-                                                                            "cell_id",
-                                                                            "tracking_area_code",
-                                                                            "q_rx_lev_min",
-                                                                            "p0_nominal_pusch",
-                                                                            "p0_nominal_pucch",
-                                                                            "sib3_present",
-                                                                            "q_hyst",
-                                                                            "sib4_present",
-                                                                            "sib5_present",
-                                                                            "sib6_present",
-                                                                            "sib7_present",
-                                                                            "sib8_present",
-                                                                            "search_win_size",
-                                                                            "system_info_value_tag",
-                                                                            "system_info_window_length",
-                                                                            "phich_resource",
-                                                                            "n_sched_info",
-                                                                            "system_info_periodicity",
-                                                                            "mac_direct_to_ue",
-                                                                            "phy_direct_to_ue",
-                                                                            "debug_type",
-                                                                            "debug_level",
-                                                                            "enable_pcap",
-                                                                            "ip_addr_start",
-                                                                            "dns_addr",
-                                                                            "use_cnfg_file",
-                                                                            "use_user_file",
-                                                                            "tx_gain",
-                                                                            "rx_gain",
-                                                                            "available_radios",
-                                                                            "selected_radio_name",
-                                                                            "selected_radio_idx",
-                                                                            "clock_source"};
-
 typedef struct{
-    LTE_FDD_ENB_VAR_TYPE_ENUM var_type;
-    LTE_FDD_ENB_PARAM_ENUM    param;
-    double                    double_l_bound;
-    double                    double_u_bound;
-    int64                     int64_l_bound;
-    int64                     int64_u_bound;
-    bool                      special_bounds;
-    bool                      dynamic;
-    bool                      read_only;
-}LTE_FDD_ENB_VAR_STRUCT;
+    MasterInformationBlock                    mib;
+    SystemInformationBlockType1               sib1;
+    SystemInformationBlockType2               sib2;
+    SystemInformationBlockType3               sib3;
+    SystemInformationBlockType4               sib4;
+    SystemInformationBlockType5               sib5;
+    SystemInformationBlockType6               sib6;
+    SystemInformationBlockType7               sib7;
+    SystemInformationBlockType8               sib8;
+    std::vector<LIBLTE_PHY_ALLOCATION_STRUCT> sib_alloc;
+}LTE_FDD_ENB_SYS_INFO_STRUCT;
 
 /*******************************************************************************
                               CLASS DECLARATIONS
@@ -269,82 +166,257 @@ typedef struct{
 class LTE_fdd_enb_interface
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_interface* get_instance(void);
-    static void cleanup(void);
-
-    // Communication
-    void set_ctrl_port(int16 port);
-    void start_ports(void);
-    void stop_ports(void);
-    void send_ctrl_msg(std::string msg);
-    void send_ctrl_info_msg(std::string msg, ...);
-    void send_ctrl_error_msg(LTE_FDD_ENB_ERROR_ENUM error, std::string msg);
-    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, std::string msg, ...);
-    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, LIBLTE_BIT_MSG_STRUCT *lte_msg, std::string msg, ...);
-    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, LIBLTE_BYTE_MSG_STRUCT *lte_msg, std::string msg, ...);
-    void open_lte_pcap_fd(void);
-    void open_ip_pcap_fd(void);
-    void send_lte_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM dir, uint32 rnti, uint32 current_tti, uint8 *msg, uint32 N_bits);
-    void send_ip_pcap_msg(uint8 *msg, uint32 N_bytes);
-    static void handle_ctrl_msg(std::string msg);
-    static void handle_ctrl_connect(void);
-    static void handle_ctrl_disconnect(void);
-    static void handle_ctrl_error(LIBTOOLS_SOCKET_WRAP_ERROR_ENUM err);
-    static void handle_debug_msg(std::string msg);
-    static void handle_debug_connect(void);
-    static void handle_debug_disconnect(void);
-    static void handle_debug_error(LIBTOOLS_SOCKET_WRAP_ERROR_ENUM err);
-    sem_t                 ctrl_sem;
-    sem_t                 debug_sem;
-    FILE                 *lte_pcap_fd;
-    FILE                 *ip_pcap_fd;
-    libtools_socket_wrap *ctrl_socket;
-    libtools_socket_wrap *debug_socket;
-    int16                 ctrl_port;
-    int16                 debug_port;
-    static bool           ctrl_connected;
-    static bool           debug_connected;
-
-    // Handlers
-    LTE_FDD_ENB_ERROR_ENUM handle_write(std::string msg);
-    void handle_add_user(std::string msg);
-
-    // Get/Set
-    bool get_shutdown(void);
-    bool app_is_started(void);
-
-private:
-    // Singleton
-    static LTE_fdd_enb_interface *instance;
     LTE_fdd_enb_interface();
     ~LTE_fdd_enb_interface();
 
+    // Communication
+    void start_ports();
+    void stop_ports();
+    void send_ctrl_msg(std::string msg);
+    void send_ctrl_info_msg(std::string msg, ...);
+    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, std::string msg, ...);
+    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, LIBLTE_BIT_MSG_STRUCT *lte_msg, std::string msg, ...);
+    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, std::vector<bool> &lte_msg, std::string msg, ...);
+    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, LIBLTE_BYTE_MSG_STRUCT *lte_msg, std::string msg, ...);
+    void send_debug_msg(LTE_FDD_ENB_DEBUG_TYPE_ENUM type, LTE_FDD_ENB_DEBUG_LEVEL_ENUM level, std::string file_name, int32 line, const std::vector<uint8_t> &lte_msg, std::string msg, ...);
+    void open_lte_pcap_fd();
+    void open_ip_pcap_fd();
+    void send_lte_pcap_msg(LTE_FDD_ENB_PCAP_DIRECTION_ENUM dir, uint32 rnti, uint32 current_tti, uint8 *msg, uint32 N_bits);
+    void send_ip_pcap_msg(uint8 *msg, uint32 N_bytes);
+    void handle_ctrl_msg(const std::string msg, const int32 sock_fd);
+    void handle_ctrl_connect(const int32 sock_fd);
+    void handle_ctrl_disconnect(const int32 sock_fd);
+    void handle_ctrl_error(const LIBTOOLS_SERVER_SOCKET_ERROR_ENUM err);
+    void handle_debug_msg(const std::string msg, const int32 sock_fd);
+    void handle_debug_connect(const int32 sock_fd);
+    void handle_debug_disconnect(const int32 sock_fd);
+    void handle_debug_error(const LIBTOOLS_SERVER_SOCKET_ERROR_ENUM err);
+
+    // Handlers
+    MasterInformationBlock::dl_Bandwidth_Enum get_bandwidth();
+    uint32 get_band();
+    uint16 get_dl_earfcn();
+    uint16 get_ul_earfcn();
+    uint32 get_n_rb_dl();
+    uint32 get_n_rb_ul();
+    uint32 get_dl_center_freq();
+    uint32 get_ul_center_freq();
+    uint32 get_n_sc_rb_dl();
+    uint32 get_n_sc_rb_ul();
+    uint8 get_n_ant();
+    uint16 get_n_id_cell();
+    uint8 get_n_id_1();
+    uint8 get_n_id_2();
+    const MCC& get_mcc();
+    const MNC& get_mnc();
+    uint32 get_cell_id();
+    uint16 get_tracking_area_code();
+    int16 get_q_rx_lev_min();
+    uint16 get_si_periodicity();
+    uint8 get_si_window_length();
+    uint8 get_ra_response_window_size();
+    int8 get_p0_nominal_pusch();
+    int8 get_p0_nominal_pucch();
+    bool get_sib3_present();
+    SystemInformationBlockType3::cellReselectionInfoCommon::q_Hyst_Enum get_q_hyst();
+    bool get_sib4_present();
+    bool get_sib5_present();
+    bool get_sib6_present();
+    bool get_sib7_present();
+    bool get_sib8_present();
+    bool get_mac_direct_to_ue();
+    bool get_phy_direct_to_ue();
+    uint32 get_debug_type();
+    uint32 get_debug_level();
+    bool get_enable_pcap();
+    uint32 get_ip_addr_start();
+    uint32 get_dns_addr();
+    bool get_use_cnfg_file();
+    bool get_use_user_file();
+    int set_use_user_file(std::string _use_user_file);
+    void handle_add_user(std::string msg);
+    void read_cnfg_file();
+    bool get_shutdown();
+    bool app_is_started();
+    void construct_sys_info();
+    void get_sys_info(LTE_FDD_ENB_SYS_INFO_STRUCT &_sys_info);
+    void get_rrc_phy_cnfg_ded(PhysicalConfigDedicated *pcd, uint32 i_cqi_pmi, uint32 i_ri, uint32 i_sr, uint32 n_1_p_pucch);
+
+private:
+    // Communication
+    void start_ctrl_port();
+    void start_debug_port();
+    void stop_ctrl_port();
+    void stop_debug_port();
+    std::mutex              ctrl_mutex;
+    std::mutex              debug_mutex;
+    FILE                   *lte_pcap_fd;
+    FILE                   *ip_pcap_fd;
+    libtools_server_socket *ctrl_socket;
+    libtools_server_socket *debug_socket;
+    int32                   ctrl_sock_fd;
+    int32                   debug_sock_fd;
+    bool                    ctrl_connected;
+    bool                    debug_connected;
+
     // Handlers
     void handle_read(std::string msg);
-    void handle_start(void);
-    void handle_stop(void);
-    void handle_help(void);
-    void handle_del_user(std::string msg);
-    void handle_print_users(void);
-    void handle_print_registered_users(void);
+    void handle_write(std::string msg);
+    std::string get_bandwidth_string();
+    int set_bandwidth(std::string bandwidth);
+    int set_band(std::string band);
+    int set_dl_earfcn(std::string _dl_earfcn);
+    int set_n_ant(std::string _N_ant);
+    int set_n_id_cell(std::string _N_id_cell);
+    std::string get_mcc_string();
+    int set_mcc(std::string mcc);
+    std::string get_mnc_string();
+    int set_mnc(std::string mnc);
+    int set_cell_id(std::string cell_id);
+    int set_tracking_area_code(std::string tracking_area_code);
+    int set_q_rx_lev_min(std::string q_rx_lev_min);
+    std::string get_si_periodicity_string();
+    int set_si_periodicity(std::string si_periodicity);
+    std::string get_si_window_length_string();
+    int set_si_window_length(std::string si_window_length);
+    int set_p0_nominal_pusch(std::string p0_nominal_pusch);
+    int set_p0_nominal_pucch(std::string p0_nominal_pucch);
+    std::string get_sib3_present_string();
+    int set_sib3_present(std::string _sib3_present);
+    std::string get_q_hyst_string();
+    int set_q_hyst(std::string q_hyst);
+    std::string get_sib4_present_string();
+    int set_sib4_present(std::string _sib4_present);
+    std::string get_sib5_present_string();
+    int set_sib5_present(std::string _sib5_present);
+    std::string get_sib6_present_string();
+    int set_sib6_present(std::string _sib6_present);
+    std::string get_sib7_present_string();
+    int set_sib7_present(std::string _sib7_present);
+    std::string get_sib8_present_string();
+    int set_sib8_present(std::string _sib8_present);
+    std::string get_mac_direct_to_ue_string();
+    int set_mac_direct_to_ue(std::string _mac_direct_to_ue);
+    std::string get_phy_direct_to_ue_string();
+    int set_phy_direct_to_ue(std::string _phy_direct_to_ue);
+    std::string get_debug_type_string();
+    int set_debug_type(std::string _debug_type);
+    std::string get_debug_level_string();
+    int set_debug_level(std::string _debug_level);
+    std::string get_enable_pcap_string();
+    int set_enable_pcap(std::string _enable_pcap);
+    std::string get_ip_addr_start_string();
+    int set_ip_addr_start(std::string _ip_addr_start);
+    std::string get_dns_addr_string();
+    int set_dns_addr(std::string _dns_addr);
+    std::string get_use_cnfg_file_string();
+    int set_use_cnfg_file(std::string _use_cnfg_file);
+    std::string get_use_user_file_string();
+    std::string bool_to_enable_string(bool value);
+    bool enable_string_to_bool(std::string enable);
+    void handle_start();
+    void handle_stop();
+    void handle_help();
+    void handle_delete_user(std::string msg);
+    void handle_print_users();
+    void handle_print_registered_users();
+    void write_cnfg_file();
+    void delete_cnfg_file();
 
     // Variables
-    std::map<std::string, LTE_FDD_ENB_VAR_STRUCT>  var_map;
-    LTE_fdd_enb_pdcp                              *pdcp;
-    LTE_fdd_enb_mme                               *mme;
-    LTE_fdd_enb_gw                                *gw;
-    sem_t                                          start_sem;
-    uint32                                         debug_type_mask;
-    uint32                                         debug_level_mask;
-    bool                                           shutdown;
-    bool                                           started;
+    const std::string            shutdown_token;
+    const std::string            start_token;
+    const std::string            stop_token;
+    const std::string            construct_si_token;
+    const std::string            add_user_token;
+    const std::string            delete_user_token;
+    const std::string            print_users_token;
+    const std::string            print_registered_users_token;
+    const std::string            read_token;
+    const std::string            write_token;
+    const std::string            help_token;
+    const std::string            bandwidth_token;
+    const std::string            band_token;
+    const std::string            dl_earfcn_token;
+    const std::string            n_ant_token;
+    const std::string            n_id_cell_token;
+    const std::string            mcc_token;
+    const std::string            mnc_token;
+    const std::string            cell_id_token;
+    const std::string            tracking_area_code_token;
+    const std::string            q_rx_lev_min_token;
+    const std::string            si_periodicity_token;
+    const std::string            si_window_length_token;
+    const std::string            p0_nominal_pusch_token;
+    const std::string            p0_nominal_pucch_token;
+    const std::string            sib3_present_token;
+    const std::string            q_hyst_token;
+    const std::string            sib4_present_token;
+    const std::string            sib5_present_token;
+    const std::string            sib6_present_token;
+    const std::string            sib7_present_token;
+    const std::string            sib8_present_token;
+    const std::string            mac_direct_to_ue_token;
+    const std::string            phy_direct_to_ue_token;
+    const std::string            debug_type_token;
+    const std::string            debug_level_token;
+    const std::string            enable_pcap_token;
+    const std::string            ip_addr_start_token;
+    const std::string            dns_addr_token;
+    const std::string            use_cnfg_file_token;
+    const std::string            use_user_file_token;
+    const std::string            available_radios_token;
+    const std::string            selected_radio_name_token;
+    const std::string            selected_radio_idx_token;
+    const std::string            clock_source_token;
+    const std::string            tx_gain_token;
+    const std::string            rx_gain_token;
+    const std::string            imsi_token;
+    const std::string            imei_token;
+    const std::string            k_token;
+    LTE_fdd_enb_timer_mgr       *timer_mgr;
+    LTE_fdd_enb_user_mgr        *user_mgr;
+    LTE_fdd_enb_hss             *hss;
+    LTE_fdd_enb_gw              *gw;
+    LTE_fdd_enb_mme             *mme;
+    LTE_fdd_enb_rrc             *rrc;
+    LTE_fdd_enb_pdcp            *pdcp;
+    LTE_fdd_enb_rlc             *rlc;
+    LTE_fdd_enb_mac             *mac;
+    LTE_fdd_enb_phy             *phy;
+    LTE_fdd_enb_radio           *radio;
+    LTE_FDD_ENB_SYS_INFO_STRUCT  sys_info;
+    std::mutex                   start_mutex;
+    uint32                       N_rb_dl;
+    uint32                       N_rb_ul;
+    uint32                       dl_center_freq;
+    uint32                       ul_center_freq;
+    const uint32                 N_sc_rb_dl;
+    const uint32                 N_sc_rb_ul;
+    uint32                       debug_type;
+    uint32                       debug_level;
+    uint32                       ip_addr_start;
+    uint32                       dns_addr;
+    uint16                       N_id_cell;
+    uint16                       dl_earfcn;
+    uint16                       ul_earfcn;
+    uint8                        N_ant;
+    uint8                        N_id_1;
+    uint8                        N_id_2;
+    bool                         shutdown;
+    bool                         started;
+    bool                         sib3_present;
+    bool                         sib4_present;
+    bool                         sib5_present;
+    bool                         sib6_present;
+    bool                         sib7_present;
+    bool                         sib8_present;
+    bool                         mac_direct_to_ue;
+    bool                         phy_direct_to_ue;
+    bool                         enable_pcap;
+    bool                         use_cnfg_file;
+    bool                         use_user_file;
 
-    // Helpers
-    LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, double value);
-    LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, int64 value);
-    LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, std::string value);
-    LTE_FDD_ENB_ERROR_ENUM write_value(LTE_FDD_ENB_VAR_STRUCT *var, uint32 value);
 
     // Inter-stack communication
     LTE_fdd_enb_msgq *phy_to_mac_comm;

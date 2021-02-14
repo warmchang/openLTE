@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -27,6 +27,8 @@
     08/03/2014    Ben Wojtowicz    Created file.
     09/03/2014    Ben Wojtowicz    Added key generation and EIA2 and fixed MCC
                                    and MNC packing.
+    02/14/2021    Ben Wojtowicz    Massive reformat and using the new RRC
+                                   library.
 
 *******************************************************************************/
 
@@ -210,59 +212,48 @@ void mix_column(STATE_STRUCT *state);
 
     Document Reference: 33.401 v10.0.0 Annex A.2
 *********************************************************************/
-LIBLTE_ERROR_ENUM liblte_security_generate_k_asme(uint8  *ck,
-                                                  uint8  *ik,
-                                                  uint8  *ak,
-                                                  uint8  *sqn,
-                                                  uint16  mcc,
-                                                  uint16  mnc,
-                                                  uint8  *k_asme)
+LIBLTE_ERROR_ENUM liblte_security_generate_k_asme(uint8     *ck,
+                                                  uint8     *ik,
+                                                  uint8     *ak,
+                                                  uint8     *sqn,
+                                                  const MCC &mcc,
+                                                  const MNC &mnc,
+                                                  uint8     *k_asme)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    uint32            i;
-    uint8             s[14];
-    uint8             key[32];
+    if(ck == NULL || ik == NULL || ak == NULL || sqn == NULL || k_asme == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(ck     != NULL &&
-       ik     != NULL &&
-       ak     != NULL &&
-       sqn    != NULL &&
-       k_asme != NULL)
+    // Construct S
+    uint8 s[14];
+    s[0] = 0x10; // FC
+    s[1] = (mcc.Value()[1].Value() << 4) | mcc.Value()[0].Value(); // First byte of P0
+    if(mnc.Value().size() == 2)
     {
-        // Construct S
-        s[0] = 0x10; // FC
-        s[1] = (((mcc/10) % 10) << 4) | ((mcc/100) % 10); // First byte of P0
-        if(mnc < 100)
-        {
-            s[2] = 0xF0 | (mcc % 10); // Second byte of P0
-            s[3] = ((mnc % 10) << 4) | ((mnc/10) % 10); // Third byte of P0
-        }else{
-            s[2] = ((mnc % 10) << 4) | (mcc % 10); // Second byte of P0
-            s[3] = (((mnc/10) % 10) << 4) | ((mnc/100) % 10); // Third byte of P0
-        }
-        s[4] = 0x00; // First byte of L0
-        s[5] = 0x03; // Second byte of L0
-        for(i=0; i<6; i++)
-        {
-            s[6+i] = sqn[i] ^ ak[i]; // P1
-        }
-        s[12] = 0x00; // First byte of L1
-        s[13] = 0x06; // Second byte of L1
+        s[2] = 0xF0 | mcc.Value()[2].Value(); // Second byte of P0
+        s[3] = (mnc.Value()[1].Value() << 4) | mnc.Value()[0].Value(); // Third byte of P0
+    }else{
+        s[2] = (mnc.Value()[2].Value() << 4) | mcc.Value()[2].Value(); // Second byte of P0
+        s[3] = (mnc.Value()[1].Value() << 4) | mnc.Value()[0].Value(); // Third byte of P0
+    }
+    s[4] = 0x00; // First byte of L0
+    s[5] = 0x03; // Second byte of L0
+    for(uint32 i=0; i<6; i++)
+        s[6+i] = sqn[i] ^ ak[i]; // P1
+    s[12] = 0x00; // First byte of L1
+    s[13] = 0x06; // Second byte of L1
 
-        // Construct Key
-        for(i=0; i<16; i++)
-        {
-            key[i]    = ck[i];
-            key[16+i] = ik[i];
-        }
-
-        // Derive Kasme
-        sha2_hmac(key, 32, s, 14, k_asme, 0);
-
-        err = LIBLTE_SUCCESS;
+    // Construct Key
+    uint8 key[32];
+    for(uint32 i=0; i<16; i++)
+    {
+        key[i]    = ck[i];
+        key[16+i] = ik[i];
     }
 
-    return(err);
+    // Derive Kasme
+    sha2_hmac(key, 32, s, 14, k_asme, 0);
+
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -276,28 +267,23 @@ LIBLTE_ERROR_ENUM liblte_security_generate_k_enb(uint8  *k_asme,
                                                  uint32  nas_count,
                                                  uint8  *k_enb)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    uint8             s[7];
+    if(k_asme == NULL || k_enb == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k_asme != NULL &&
-       k_enb  != NULL)
-    {
-        // Construct S
-        s[0] = 0x11; // FC
-        s[1] = (nas_count >> 24) & 0xFF; // First byte of P0
-        s[2] = (nas_count >> 16) & 0xFF; // Second byte of P0
-        s[3] = (nas_count >> 8) & 0xFF; // Third byte of P0
-        s[4] = nas_count & 0xFF; // Fourth byte of P0
-        s[5] = 0x00; // First byte of L0
-        s[6] = 0x04; // Second byte of L0
+    // Construct S
+    uint8 s[7];
+    s[0] = 0x11; // FC
+    s[1] = (nas_count >> 24) & 0xFF; // First byte of P0
+    s[2] = (nas_count >> 16) & 0xFF; // Second byte of P0
+    s[3] = (nas_count >> 8) & 0xFF; // Third byte of P0
+    s[4] = nas_count & 0xFF; // Fourth byte of P0
+    s[5] = 0x00; // First byte of L0
+    s[6] = 0x04; // Second byte of L0
 
-        // Derive Kenb
-        sha2_hmac(k_asme, 32, s, 7, k_enb, 0);
+    // Derive Kenb
+    sha2_hmac(k_asme, 32, s, 7, k_enb, 0);
 
-        err = LIBLTE_SUCCESS;
-    }
-
-    return(err);
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -313,41 +299,35 @@ LIBLTE_ERROR_ENUM liblte_security_generate_k_nas(uint8                          
                                                  uint8                                       *k_nas_enc,
                                                  uint8                                       *k_nas_int)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    uint8             s[7];
+    if(k_asme == NULL || k_nas_enc == NULL || k_nas_int == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k_asme    != NULL &&
-       k_nas_enc != NULL &&
-       k_nas_int != NULL)
-    {
-        // Construct S for KNASenc
-        s[0] = 0x15; // FC
-        s[1] = 0x01; // P0
-        s[2] = 0x00; // First byte of L0
-        s[3] = 0x01; // Second byte of L0
-        s[4] = enc_alg_id; // P1
-        s[5] = 0x00; // First byte of L1
-        s[6] = 0x01; // Second byte of L1
+    // Construct S for KNASenc
+    uint8 s[7];
+    s[0] = 0x15; // FC
+    s[1] = 0x01; // P0
+    s[2] = 0x00; // First byte of L0
+    s[3] = 0x01; // Second byte of L0
+    s[4] = enc_alg_id; // P1
+    s[5] = 0x00; // First byte of L1
+    s[6] = 0x01; // Second byte of L1
 
-        // Derive KNASenc
-        sha2_hmac(k_asme, 32, s, 7, k_nas_enc, 0);
+    // Derive KNASenc
+    sha2_hmac(k_asme, 32, s, 7, k_nas_enc, 0);
 
-        // Construct S for KNASint
-        s[0] = 0x15; // FC
-        s[1] = 0x02; // P0
-        s[2] = 0x00; // First byte of L0
-        s[3] = 0x01; // Second byte of L0
-        s[4] = int_alg_id; // P1
-        s[5] = 0x00; // First byte of L1
-        s[6] = 0x01; // Second byte of L1
+    // Construct S for KNASint
+    s[0] = 0x15; // FC
+    s[1] = 0x02; // P0
+    s[2] = 0x00; // First byte of L0
+    s[3] = 0x01; // Second byte of L0
+    s[4] = int_alg_id; // P1
+    s[5] = 0x00; // First byte of L1
+    s[6] = 0x01; // Second byte of L1
 
-        // Derive KNASint
-        sha2_hmac(k_asme, 32, s, 7, k_nas_int, 0);
+    // Derive KNASint
+    sha2_hmac(k_asme, 32, s, 7, k_nas_int, 0);
 
-        err = LIBLTE_SUCCESS;
-    }
-
-    return(err);
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -363,41 +343,35 @@ LIBLTE_ERROR_ENUM liblte_security_generate_k_rrc(uint8                          
                                                  uint8                                       *k_rrc_enc,
                                                  uint8                                       *k_rrc_int)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    uint8             s[7];
+    if(k_enb == NULL || k_rrc_enc == NULL || k_rrc_int == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k_enb     != NULL &&
-       k_rrc_enc != NULL &&
-       k_rrc_int != NULL)
-    {
-        // Construct S for KRRCenc
-        s[0] = 0x15; // FC
-        s[1] = 0x03; // P0
-        s[2] = 0x00; // First byte of L0
-        s[3] = 0x01; // Second byte of L0
-        s[4] = enc_alg_id; // P1
-        s[5] = 0x00; // First byte of L1
-        s[6] = 0x01; // Second byte of L1
+    // Construct S for KRRCenc
+    uint8 s[7];
+    s[0] = 0x15; // FC
+    s[1] = 0x03; // P0
+    s[2] = 0x00; // First byte of L0
+    s[3] = 0x01; // Second byte of L0
+    s[4] = enc_alg_id; // P1
+    s[5] = 0x00; // First byte of L1
+    s[6] = 0x01; // Second byte of L1
 
-        // Derive KRRCenc
-        sha2_hmac(k_enb, 32, s, 7, k_rrc_enc, 0);
+    // Derive KRRCenc
+    sha2_hmac(k_enb, 32, s, 7, k_rrc_enc, 0);
 
-        // Construct S for KRRCint
-        s[0] = 0x15; // FC
-        s[1] = 0x04; // P0
-        s[2] = 0x00; // First byte of L0
-        s[3] = 0x01; // Second byte of L0
-        s[4] = int_alg_id; // P1
-        s[5] = 0x00; // First byte of L1
-        s[6] = 0x01; // Second byte of L1
+    // Construct S for KRRCint
+    s[0] = 0x15; // FC
+    s[1] = 0x04; // P0
+    s[2] = 0x00; // First byte of L0
+    s[3] = 0x01; // Second byte of L0
+    s[4] = int_alg_id; // P1
+    s[5] = 0x00; // First byte of L1
+    s[6] = 0x01; // Second byte of L1
 
-        // Derive KRRCint
-        sha2_hmac(k_enb, 32, s, 7, k_rrc_int, 0);
+    // Derive KRRCint
+    sha2_hmac(k_enb, 32, s, 7, k_rrc_int, 0);
 
-        err = LIBLTE_SUCCESS;
-    }
-
-    return(err);
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -414,41 +388,35 @@ LIBLTE_ERROR_ENUM liblte_security_generate_k_up(uint8                           
                                                 uint8                                       *k_up_enc,
                                                 uint8                                       *k_up_int)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    uint8             s[7];
+    if(k_enb == NULL || k_up_enc == NULL || k_up_int == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k_enb    != NULL &&
-       k_up_enc != NULL &&
-       k_up_int != NULL)
-    {
-        // Construct S for KUPenc
-        s[0] = 0x15; // FC
-        s[1] = 0x05; // P0
-        s[2] = 0x00; // First byte of L0
-        s[3] = 0x01; // Second byte of L0
-        s[4] = enc_alg_id; // P1
-        s[5] = 0x00; // First byte of L1
-        s[6] = 0x01; // Second byte of L1
+    // Construct S for KUPenc
+    uint8 s[7];
+    s[0] = 0x15; // FC
+    s[1] = 0x05; // P0
+    s[2] = 0x00; // First byte of L0
+    s[3] = 0x01; // Second byte of L0
+    s[4] = enc_alg_id; // P1
+    s[5] = 0x00; // First byte of L1
+    s[6] = 0x01; // Second byte of L1
 
-        // Derive KUPenc
-        sha2_hmac(k_enb, 32, s, 7, k_up_enc, 0);
+    // Derive KUPenc
+    sha2_hmac(k_enb, 32, s, 7, k_up_enc, 0);
 
-        // Construct S for KUPint
-        s[0] = 0x15; // FC
-        s[1] = 0x06; // P0
-        s[2] = 0x00; // First byte of L0
-        s[3] = 0x01; // Second byte of L0
-        s[4] = int_alg_id; // P1
-        s[5] = 0x00; // First byte of L1
-        s[6] = 0x01; // Second byte of L1
+    // Construct S for KUPint
+    s[0] = 0x15; // FC
+    s[1] = 0x06; // P0
+    s[2] = 0x00; // First byte of L0
+    s[3] = 0x01; // Second byte of L0
+    s[4] = int_alg_id; // P1
+    s[5] = 0x00; // First byte of L1
+    s[6] = 0x01; // Second byte of L1
 
-        // Derive KUPint
-        sha2_hmac(k_enb, 32, s, 7, k_up_int, 0);
+    // Derive KUPint
+    sha2_hmac(k_enb, 32, s, 7, k_up_int, 0);
 
-        err = LIBLTE_SUCCESS;
-    }
-
-    return(err);
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -468,103 +436,73 @@ LIBLTE_ERROR_ENUM liblte_security_128_eia2(uint8  *key,
                                            uint32  msg_len,
                                            uint8  *mac)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    uint8             M[msg_len+8+16];
-    aes_context       ctx;
-    uint32            i;
-    uint32            j;
-    uint32            n;
-    uint32            pad_bits;
-    uint8             const_zero[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-    uint8             L[16];
-    uint8             K1[16];
-    uint8             K2[16];
-    uint8             T[16];
-    uint8             tmp[16];
+    if(key == NULL || msg == NULL || mac == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(key != NULL &&
-       msg != NULL &&
-       mac != NULL)
+    // Subkey L generation
+    aes_context ctx;
+    aes_setkey_enc(&ctx, key, 128);
+    uint8 const_zero[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    uint8 L[16];
+    aes_crypt_ecb(&ctx, AES_ENCRYPT, const_zero, L);
+
+    // Subkey K1 generation
+    uint8 K1[16];
+    for(uint32 i=0; i<15; i++)
+        K1[i] = (L[i] << 1) | ((L[i+1] >> 7) & 0x01);
+    K1[15] = L[15] << 1;
+    if(L[0] & 0x80)
+        K1[15] ^= 0x87;
+
+    // Subkey K2 generation
+    uint8 K2[16];
+    for(uint32 i=0; i<15; i++)
+        K2[i] = (K1[i] << 1) | ((K1[i+1] >> 7) & 0x01);
+    K2[15] = K1[15] << 1;
+    if(K1[0] & 0x80)
+        K2[15] ^= 0x87;
+
+    // Construct M
+    uint8 M[msg_len+8+16];
+    memset(M, 0, msg_len+8+16);
+    M[0] = (count >> 24) & 0xFF;
+    M[1] = (count >> 16) & 0xFF;
+    M[2] = (count >> 8) & 0xFF;
+    M[3] = count & 0xFF;
+    M[4] = (bearer << 3) | (direction << 2);
+    for(uint32 i=0; i<msg_len; i++)
+        M[8+i] = msg[i];
+
+    // MAC generation
+    uint8  T[16];
+    uint8  tmp[16];
+    uint32 n = (uint32)(ceilf((float)(msg_len+8)/(float)(16)));
+    for(uint32 i=0; i<16; i++)
+        T[i] = 0;
+    for(uint32 i=0; i<n-1; i++)
     {
-        // Subkey L generation
-        aes_setkey_enc(&ctx, key, 128);
-        aes_crypt_ecb(&ctx, AES_ENCRYPT, const_zero, L);
-
-        // Subkey K1 generation
-        for(i=0; i<15; i++)
-        {
-            K1[i] = (L[i] << 1) | ((L[i+1] >> 7) & 0x01);
-        }
-        K1[15] = L[15] << 1;
-        if(L[0] & 0x80)
-        {
-            K1[15] ^= 0x87;
-        }
-
-        // Subkey K2 generation
-        for(i=0; i<15; i++)
-        {
-            K2[i] = (K1[i] << 1) | ((K1[i+1] >> 7) & 0x01);
-        }
-        K2[15] = K1[15] << 1;
-        if(K1[0] & 0x80)
-        {
-            K2[15] ^= 0x87;
-        }
-
-        // Construct M
-        memset(M, 0, msg_len+8+16);
-        M[0] = (count >> 24) & 0xFF;
-        M[1] = (count >> 16) & 0xFF;
-        M[2] = (count >> 8) & 0xFF;
-        M[3] = count & 0xFF;
-        M[4] = (bearer << 3) | (direction << 2);
-        for(i=0; i<msg_len; i++)
-        {
-            M[8+i] = msg[i];
-        }
-
-        // MAC generation
-        n = (uint32)(ceilf((float)(msg_len+8)/(float)(16)));
-        for(i=0; i<16; i++)
-        {
-            T[i] = 0;
-        }
-        for(i=0; i<n-1; i++)
-        {
-            for(j=0; j<16; j++)
-            {
-                tmp[j] = T[j] ^ M[i*16 + j];
-            }
-            aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
-        }
-        pad_bits = ((msg_len*8) + 64) % 128;
-        if(pad_bits == 0)
-        {
-            for(j=0; j<16; j++)
-            {
-                tmp[j] = T[j] ^ K1[j] ^ M[i*16 + j];
-            }
-            aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
-        }else{
-            pad_bits                       = (128 - pad_bits) - 1;
-            M[i*16 + (15 - (pad_bits/8))] |= 0x1 << (pad_bits % 8);
-            for(j=0; j<16; j++)
-            {
-                tmp[j] = T[j] ^ K2[j] ^ M[i*16 + j];
-            }
-            aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
-        }
-
-        for(i=0; i<4; i++)
-        {
-            mac[i] = T[i];
-        }
-
-        err = LIBLTE_SUCCESS;
+        for(uint32 j=0; j<16; j++)
+            tmp[j] = T[j] ^ M[i*16 + j];
+        aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
+    }
+    uint32 pad_bits = ((msg_len*8) + 64) % 128;
+    if(pad_bits == 0)
+    {
+        for(uint32 j=0; j<16; j++)
+            tmp[j] = T[j] ^ K1[j] ^ M[(n-1)*16 + j];
+        aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
+    }else{
+        pad_bits                           = (128 - pad_bits) - 1;
+        M[(n-1)*16 + (15 - (pad_bits/8))] |= 0x1 << (pad_bits % 8);
+        for(uint32 j=0; j<16; j++)
+            tmp[j] = T[j] ^ K2[j] ^ M[(n-1)*16 + j];
+        aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
     }
 
-    return(err);
+    for(uint32 i=0; i<4; i++)
+        mac[i] = T[i];
+
+    return LIBLTE_SUCCESS;
 }
 LIBLTE_ERROR_ENUM liblte_security_128_eia2(uint8                 *key,
                                            uint32                 count,
@@ -573,115 +511,83 @@ LIBLTE_ERROR_ENUM liblte_security_128_eia2(uint8                 *key,
                                            LIBLTE_BIT_MSG_STRUCT *msg,
                                            uint8                 *mac)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    uint8             M[msg->N_bits*8+8+16];
-    aes_context       ctx;
-    uint32            i;
-    uint32            j;
-    uint32            n;
-    uint32            pad_bits;
-    uint8             const_zero[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-    uint8             L[16];
-    uint8             K1[16];
-    uint8             K2[16];
-    uint8             T[16];
-    uint8             tmp[16];
+    if(key == NULL || msg == NULL || mac == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(key != NULL &&
-       msg != NULL &&
-       mac != NULL)
+    // Subkey L generation
+    aes_context ctx;
+    aes_setkey_enc(&ctx, key, 128);
+    uint8 const_zero[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    uint8 L[16];
+    aes_crypt_ecb(&ctx, AES_ENCRYPT, const_zero, L);
+
+    // Subkey K1 generation
+    uint8 K1[16];
+    for(uint32 i=0; i<15; i++)
+        K1[i] = (L[i] << 1) | ((L[i+1] >> 7) & 0x01);
+    K1[15] = L[15] << 1;
+    if(L[0] & 0x80)
+        K1[15] ^= 0x87;
+
+    // Subkey K2 generation
+    uint8 K2[16];
+    for(uint32 i=0; i<15; i++)
+        K2[i] = (K1[i] << 1) | ((K1[i+1] >> 7) & 0x01);
+    K2[15] = K1[15] << 1;
+    if(K1[0] & 0x80)
+        K2[15] ^= 0x87;
+
+    // Construct M
+    uint8 M[msg->N_bits*8+8+16];
+    memset(M, 0, msg->N_bits*8+8+16);
+    M[0] = (count >> 24) & 0xFF;
+    M[1] = (count >> 16) & 0xFF;
+    M[2] = (count >> 8) & 0xFF;
+    M[3] = count & 0xFF;
+    M[4] = (bearer << 3) | (direction << 2);
+    for(uint32 i=0; i<msg->N_bits/8; i++)
     {
-        // Subkey L generation
-        aes_setkey_enc(&ctx, key, 128);
-        aes_crypt_ecb(&ctx, AES_ENCRYPT, const_zero, L);
-
-        // Subkey K1 generation
-        for(i=0; i<15; i++)
-        {
-            K1[i] = (L[i] << 1) | ((L[i+1] >> 7) & 0x01);
-        }
-        K1[15] = L[15] << 1;
-        if(L[0] & 0x80)
-        {
-            K1[15] ^= 0x87;
-        }
-
-        // Subkey K2 generation
-        for(i=0; i<15; i++)
-        {
-            K2[i] = (K1[i] << 1) | ((K1[i+1] >> 7) & 0x01);
-        }
-        K2[15] = K1[15] << 1;
-        if(K1[0] & 0x80)
-        {
-            K2[15] ^= 0x87;
-        }
-
-        // Construct M
-        memset(M, 0, msg->N_bits*8+8+16);
-        M[0] = (count >> 24) & 0xFF;
-        M[1] = (count >> 16) & 0xFF;
-        M[2] = (count >> 8) & 0xFF;
-        M[3] = count & 0xFF;
-        M[4] = (bearer << 3) | (direction << 2);
-        for(i=0; i<msg->N_bits/8; i++)
-        {
-            M[8+i] = 0;
-            for(j=0; j<8; j++)
-            {
-                M[8+i] |= msg->msg[i*8+j] << (7-j);
-            }
-        }
-        if((msg->N_bits % 8) != 0)
-        {
-            M[8+i] = 0;
-            for(j=0; j<msg->N_bits % 8; j++)
-            {
-                M[8+i] |= msg->msg[i*8+j] << (7-j);
-            }
-        }
-
-        // MAC generation
-        n = (uint32)(ceilf((float)(msg->N_bits+64)/(float)(128)));
-        for(i=0; i<16; i++)
-        {
-            T[i] = 0;
-        }
-        for(i=0; i<n-1; i++)
-        {
-            for(j=0; j<16; j++)
-            {
-                tmp[j] = T[j] ^ M[i*16 + j];
-            }
-            aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
-        }
-        pad_bits = (msg->N_bits + 64) % 128;
-        if(pad_bits == 0)
-        {
-            for(j=0; j<16; j++)
-            {
-                tmp[j] = T[j] ^ K1[j] ^ M[i*16 + j];
-            }
-            aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
-        }else{
-            pad_bits                       = (128 - pad_bits) - 1;
-            M[i*16 + (15 - (pad_bits/8))] |= 0x1 << (pad_bits % 8);
-            for(j=0; j<16; j++)
-            {
-                tmp[j] = T[j] ^ K2[j] ^ M[i*16 + j];
-            }
-            aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
-        }
-
-        for(i=0; i<4; i++)
-        {
-            mac[i] = T[i];
-        }
-
-        err = LIBLTE_SUCCESS;
+        M[8+i] = 0;
+        for(uint32 j=0; j<8; j++)
+            M[8+i] |= msg->msg[i*8+j] << (7-j);
+    }
+    if((msg->N_bits % 8) != 0)
+    {
+        M[8+(msg->N_bits/8)] = 0;
+        for(uint32 j=0; j<msg->N_bits % 8; j++)
+            M[8+(msg->N_bits/8)] |= msg->msg[(msg->N_bits/8)*8+j] << (7-j);
     }
 
-    return(err);
+    // MAC generation
+    uint8  T[16];
+    uint8  tmp[16];
+    uint32 n = (uint32)(ceilf((float)(msg->N_bits+64)/(float)(128)));
+    for(uint32 i=0; i<16; i++)
+        T[i] = 0;
+    for(uint32 i=0; i<n-1; i++)
+    {
+        for(uint32 j=0; j<16; j++)
+            tmp[j] = T[j] ^ M[i*16 + j];
+        aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
+    }
+    uint32 pad_bits = (msg->N_bits + 64) % 128;
+    if(pad_bits == 0)
+    {
+        for(uint32 j=0; j<16; j++)
+            tmp[j] = T[j] ^ K1[j] ^ M[(n-1)*16 + j];
+        aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
+    }else{
+        pad_bits                           = (128 - pad_bits) - 1;
+        M[(n-1)*16 + (15 - (pad_bits/8))] |= 0x1 << (pad_bits % 8);
+        for(uint32 j=0; j<16; j++)
+            tmp[j] = T[j] ^ K2[j] ^ M[(n-1)*16 + j];
+        aes_crypt_ecb(&ctx, AES_ENCRYPT, tmp, T);
+    }
+
+    for(uint32 i=0; i<4; i++)
+        mac[i] = T[i];
+
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -700,71 +606,52 @@ LIBLTE_ERROR_ENUM liblte_security_milenage_f1(uint8 *k,
                                               uint8 *amf,
                                               uint8 *mac_a)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    ROUND_KEY_STRUCT  round_keys;
-    uint32            i;
-    uint8             op_c[16];
-    uint8             temp[16];
-    uint8             in1[16];
-    uint8             out1[16];
-    uint8             rijndael_input[16];
+    if(k == NULL || rand == NULL || sqn == NULL || amf == NULL || mac_a == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k     != NULL &&
-       rand  != NULL &&
-       sqn   != NULL &&
-       amf   != NULL &&
-       mac_a != NULL)
+    // Initialize the round keys
+    ROUND_KEY_STRUCT round_keys;
+    rijndael_key_schedule(k, &round_keys);
+
+    // Compute OPc
+    uint8 op_c[16];
+    compute_OPc(&round_keys, (uint8 *)OP, op_c);
+
+    // Compute temp
+    uint8 rijndael_input[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[i] = rand[i] ^ op_c[i];
+    uint8 temp[16];
+    rijndael_encrypt(rijndael_input, &round_keys, temp);
+
+    // Construct in1
+    uint8 in1[16];
+    for(uint32 i=0; i<6; i++)
     {
-        // Initialize the round keys
-        rijndael_key_schedule(k, &round_keys);
-
-        // Compute OPc
-        compute_OPc(&round_keys, (uint8 *)OP, op_c);
-
-        // Compute temp
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[i] = rand[i] ^ op_c[i];
-        }
-        rijndael_encrypt(rijndael_input, &round_keys, temp);
-
-        // Construct in1
-        for(i=0; i<6; i++)
-        {
-            in1[i]   = sqn[i];
-            in1[i+8] = sqn[i];
-        }
-        for(i=0; i<2; i++)
-        {
-            in1[i+6]  = amf[i];
-            in1[i+14] = amf[i];
-        }
-
-        // Compute out1
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[(i+8) % 16] = in1[i] ^ op_c[i];
-        }
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[i] ^= temp[i];
-        }
-        rijndael_encrypt(rijndael_input, &round_keys, out1);
-        for(i=0; i<16; i++)
-        {
-            out1[i] ^= op_c[i];
-        }
-
-        // Return MAC-A
-        for(i=0; i<8; i++)
-        {
-            mac_a[i] = out1[i];
-        }
-
-        err = LIBLTE_SUCCESS;
+        in1[i]   = sqn[i];
+        in1[i+8] = sqn[i];
+    }
+    for(uint32 i=0; i<2; i++)
+    {
+        in1[i+6]  = amf[i];
+        in1[i+14] = amf[i];
     }
 
-    return(err);
+    // Compute out1
+    uint8 out1[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[(i+8) % 16] = in1[i] ^ op_c[i];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[i] ^= temp[i];
+    rijndael_encrypt(rijndael_input, &round_keys, out1);
+    for(uint32 i=0; i<16; i++)
+        out1[i] ^= op_c[i];
+
+    // Return MAC-A
+    for(uint32 i=0; i<8; i++)
+        mac_a[i] = out1[i];
+
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -783,71 +670,52 @@ LIBLTE_ERROR_ENUM liblte_security_milenage_f1_star(uint8 *k,
                                                    uint8 *amf,
                                                    uint8 *mac_s)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    ROUND_KEY_STRUCT  round_keys;
-    uint32            i;
-    uint8             op_c[16];
-    uint8             temp[16];
-    uint8             in1[16];
-    uint8             out1[16];
-    uint8             rijndael_input[16];
+    if(k == NULL || rand == NULL || sqn == NULL || amf == NULL || mac_s == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k     != NULL &&
-       rand  != NULL &&
-       sqn   != NULL &&
-       amf   != NULL &&
-       mac_s != NULL)
+    // Initialize the round keys
+    ROUND_KEY_STRUCT round_keys;
+    rijndael_key_schedule(k, &round_keys);
+
+    // Compute OPc
+    uint8 op_c[16];
+    compute_OPc(&round_keys, (uint8 *)OP, op_c);
+
+    // Compute temp
+    uint8 rijndael_input[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[i] = rand[i] ^ op_c[i];
+    uint8 temp[16];
+    rijndael_encrypt(rijndael_input, &round_keys, temp);
+
+    // Construct in1
+    uint8 in1[16];
+    for(uint32 i=0; i<6; i++)
     {
-        // Initialize the round keys
-        rijndael_key_schedule(k, &round_keys);
-
-        // Compute OPc
-        compute_OPc(&round_keys, (uint8 *)OP, op_c);
-
-        // Compute temp
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[i] = rand[i] ^ op_c[i];
-        }
-        rijndael_encrypt(rijndael_input, &round_keys, temp);
-
-        // Construct in1
-        for(i=0; i<6; i++)
-        {
-            in1[i]   = sqn[i];
-            in1[i+8] = sqn[i];
-        }
-        for(i=0; i<2; i++)
-        {
-            in1[i+6]  = amf[i];
-            in1[i+14] = amf[i];
-        }
-
-        // Compute out1
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[(i+8) % 16] = in1[i] ^ op_c[i];
-        }
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[i] ^= temp[i];
-        }
-        rijndael_encrypt(rijndael_input, &round_keys, out1);
-        for(i=0; i<16; i++)
-        {
-            out1[i] ^= op_c[i];
-        }
-
-        // Return MAC-S
-        for(i=0; i<8; i++)
-        {
-            mac_s[i] = out1[i+8];
-        }
-
-        err = LIBLTE_SUCCESS;
+        in1[i]   = sqn[i];
+        in1[i+8] = sqn[i];
+    }
+    for(uint32 i=0; i<2; i++)
+    {
+        in1[i+6]  = amf[i];
+        in1[i+14] = amf[i];
     }
 
-    return(err);
+    // Compute out1
+    uint8 out1[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[(i+8) % 16] = in1[i] ^ op_c[i];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[i] ^= temp[i];
+    rijndael_encrypt(rijndael_input, &round_keys, out1);
+    for(uint32 i=0; i<16; i++)
+        out1[i] ^= op_c[i];
+
+    // Return MAC-S
+    for(uint32 i=0; i<8; i++)
+        mac_s[i] = out1[i+8];
+
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -867,98 +735,66 @@ LIBLTE_ERROR_ENUM liblte_security_milenage_f2345(uint8 *k,
                                                  uint8 *ik,
                                                  uint8 *ak)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    ROUND_KEY_STRUCT  round_keys;
-    uint32            i;
-    uint8             op_c[16];
-    uint8             temp[16];
-    uint8             out[16];
-    uint8             rijndael_input[16];
+    if(k == NULL || rand == NULL || res == NULL || ck == NULL || ik == NULL || ak == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k    != NULL &&
-       rand != NULL &&
-       res  != NULL &&
-       ck   != NULL &&
-       ik   != NULL &&
-       ak   != NULL)
-    {
-        // Initialize the round keys
-        rijndael_key_schedule(k, &round_keys);
+    // Initialize the round keys
+    ROUND_KEY_STRUCT round_keys;
+    rijndael_key_schedule(k, &round_keys);
 
-        // Compute OPc
-        compute_OPc(&round_keys, (uint8 *)OP, op_c);
+    // Compute OPc
+    uint8 op_c[16];
+    compute_OPc(&round_keys, (uint8 *)OP, op_c);
 
-        // Compute temp
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[i] = rand[i] ^ op_c[i];
-        }
-        rijndael_encrypt(rijndael_input, &round_keys, temp);
+    // Compute temp
+    uint8 rijndael_input[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[i] = rand[i] ^ op_c[i];
+    uint8 temp[16];
+    rijndael_encrypt(rijndael_input, &round_keys, temp);
 
-        // Compute out for RES and AK
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[i] = temp[i] ^ op_c[i];
-        }
-        rijndael_input[15] ^= 1;
-        rijndael_encrypt(rijndael_input, &round_keys, out);
-        for(i=0; i<16; i++)
-        {
-            out[i] ^= op_c[i];
-        }
+    // Compute out for RES and AK
+    uint8 out[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[i] = temp[i] ^ op_c[i];
+    rijndael_input[15] ^= 1;
+    rijndael_encrypt(rijndael_input, &round_keys, out);
+    for(uint32 i=0; i<16; i++)
+        out[i] ^= op_c[i];
 
-        // Return RES
-        for(i=0; i<8; i++)
-        {
-            res[i] = out[i+8];
-        }
+    // Return RES
+    for(uint32 i=0; i<8; i++)
+        res[i] = out[i+8];
 
-        // Return AK
-        for(i=0; i<6; i++)
-        {
-            ak[i] = out[i];
-        }
+    // Return AK
+    for(uint32 i=0; i<6; i++)
+        ak[i] = out[i];
 
-        // Compute out for CK
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[(i+12) % 16] = temp[i] ^ op_c[i];
-        }
-        rijndael_input[15] ^= 2;
-        rijndael_encrypt(rijndael_input, &round_keys, out);
-        for(i=0; i<16; i++)
-        {
-            out[i] ^= op_c[i];
-        }
+    // Compute out for CK
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[(i+12) % 16] = temp[i] ^ op_c[i];
+    rijndael_input[15] ^= 2;
+    rijndael_encrypt(rijndael_input, &round_keys, out);
+    for(uint32 i=0; i<16; i++)
+        out[i] ^= op_c[i];
 
-        // Return CK
-        for(i=0; i<16; i++)
-        {
-            ck[i] = out[i];
-        }
+    // Return CK
+    for(uint32 i=0; i<16; i++)
+        ck[i] = out[i];
 
-        // Compute out for IK
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[(i+8) % 16] = temp[i] ^ op_c[i];
-        }
-        rijndael_input[15] ^= 4;
-        rijndael_encrypt(rijndael_input, &round_keys, out);
-        for(i=0; i<16; i++)
-        {
-            out[i] ^= op_c[i];
-        }
+    // Compute out for IK
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[(i+8) % 16] = temp[i] ^ op_c[i];
+    rijndael_input[15] ^= 4;
+    rijndael_encrypt(rijndael_input, &round_keys, out);
+    for(uint32 i=0; i<16; i++)
+        out[i] ^= op_c[i];
 
-        // Return IK
-        for(i=0; i<16; i++)
-        {
-            ik[i] = out[i];
-        }
+    // Return IK
+    for(uint32 i=0; i<16; i++)
+        ik[i] = out[i];
 
-        err = LIBLTE_SUCCESS;
-    }
-
-    return(err);
+    return LIBLTE_SUCCESS;
 }
 
 /*********************************************************************
@@ -974,53 +810,38 @@ LIBLTE_ERROR_ENUM liblte_security_milenage_f5_star(uint8 *k,
                                                    uint8 *rand,
                                                    uint8 *ak)
 {
-    LIBLTE_ERROR_ENUM err = LIBLTE_ERROR_INVALID_INPUTS;
-    ROUND_KEY_STRUCT  round_keys;
-    uint32            i;
-    uint8             op_c[16];
-    uint8             temp[16];
-    uint8             out[16];
-    uint8             rijndael_input[16];
+    if(k == NULL || rand == NULL || ak == NULL)
+        return LIBLTE_ERROR_INVALID_INPUTS;
 
-    if(k    != NULL &&
-       rand != NULL &&
-       ak   != NULL)
-    {
-        // Initialize the round keys
-        rijndael_key_schedule(k, &round_keys);
+    // Initialize the round keys
+    ROUND_KEY_STRUCT round_keys;
+    rijndael_key_schedule(k, &round_keys);
 
-        // Compute OPc
-        compute_OPc(&round_keys, (uint8 *)OP, op_c);
+    // Compute OPc
+    uint8 op_c[16];
+    compute_OPc(&round_keys, (uint8 *)OP, op_c);
 
-        // Compute temp
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[i] = rand[i] ^ op_c[i];
-        }
-        rijndael_encrypt(rijndael_input, &round_keys, temp);
+    // Compute temp
+    uint8 rijndael_input[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[i] = rand[i] ^ op_c[i];
+    uint8 temp[16];
+    rijndael_encrypt(rijndael_input, &round_keys, temp);
 
-        // Compute out
-        for(i=0; i<16; i++)
-        {
-            rijndael_input[(i+4) % 16] = temp[i] ^ op_c[i];
-        }
-        rijndael_input[15] ^= 8;
-        rijndael_encrypt(rijndael_input, &round_keys, out);
-        for(i=0; i<16; i++)
-        {
-            out[i] ^= op_c[i];
-        }
+    // Compute out
+    uint8 out[16];
+    for(uint32 i=0; i<16; i++)
+        rijndael_input[(i+4) % 16] = temp[i] ^ op_c[i];
+    rijndael_input[15] ^= 8;
+    rijndael_encrypt(rijndael_input, &round_keys, out);
+    for(uint32 i=0; i<16; i++)
+        out[i] ^= op_c[i];
 
-        // Return AK
-        for(i=0; i<6; i++)
-        {
-            ak[i] = out[i];
-        }
+    // Return AK
+    for(uint32 i=0; i<6; i++)
+        ak[i] = out[i];
 
-        err = LIBLTE_SUCCESS;
-    }
-
-    return(err);
+    return LIBLTE_SUCCESS;
 }
 
 /*******************************************************************************
@@ -1038,13 +859,12 @@ void compute_OPc(ROUND_KEY_STRUCT *rk,
                  uint8            *op,
                  uint8            *op_c)
 {
-    uint32 i;
+    if(rk == NULL || op == NULL || op_c == NULL)
+        return;
 
     rijndael_encrypt(op, rk, op_c);
-    for(i=0; i<16; i++)
-    {
+    for(uint32 i=0; i<16; i++)
         op_c[i] ^= op[i];
-    }
 }
 
 /*********************************************************************
@@ -1057,27 +877,24 @@ void compute_OPc(ROUND_KEY_STRUCT *rk,
 void rijndael_key_schedule(uint8            *key,
                            ROUND_KEY_STRUCT *rk)
 {
-    uint32 i;
-    uint32 j;
-    uint8  round_const;
+    if(key == NULL || rk == NULL)
+        return;
 
     // Set first round key to key
-    for(i=0; i<16; i++)
-    {
+    for(uint32 i=0; i<16; i++)
         rk->rk[0][i & 0x03][i >> 2] = key[i];
-    }
 
-    round_const = 1;
+    uint8 round_const = 1;
 
     // Compute the remaining round keys
-    for(i=1; i<11; i++)
+    for(uint32 i=1; i<11; i++)
     {
         rk->rk[i][0][0] = S[rk->rk[i-1][1][3]] ^ rk->rk[i-1][0][0] ^ round_const;
         rk->rk[i][1][0] = S[rk->rk[i-1][2][3]] ^ rk->rk[i-1][1][0];
         rk->rk[i][2][0] = S[rk->rk[i-1][3][3]] ^ rk->rk[i-1][2][0];
         rk->rk[i][3][0] = S[rk->rk[i-1][0][3]] ^ rk->rk[i-1][3][0];
 
-        for(j=0; j<4; j++)
+        for(uint32 j=0; j<4; j++)
         {
             rk->rk[i][j][1] = rk->rk[i-1][j][1] ^ rk->rk[i][j][0];
             rk->rk[i][j][2] = rk->rk[i-1][j][2] ^ rk->rk[i][j][1];
@@ -1099,19 +916,17 @@ void rijndael_encrypt(uint8            *input,
                       ROUND_KEY_STRUCT *rk,
                       uint8            *output)
 {
-    STATE_STRUCT state;
-    uint32       i;
-    uint32       r;
+    if(input == NULL || rk == NULL || output == NULL)
+        return;
 
     // Initialize and perform round 0
-    for(i=0; i<16; i++)
-    {
+    STATE_STRUCT state;
+    for(uint32 i=0; i<16; i++)
         state.state[i & 0x03][i >> 2] = input[i];
-    }
     key_add(&state, rk, 0);
 
     // Perform rounds 1 through 9
-    for(r=1; r<=9; r++)
+    for(uint32 r=1; r<=9; r++)
     {
         byte_sub(&state);
         shift_row(&state);
@@ -1122,13 +937,11 @@ void rijndael_encrypt(uint8            *input,
     // Perform round 10
     byte_sub(&state);
     shift_row(&state);
-    key_add(&state, rk, r);
+    key_add(&state, rk, 10);
 
     // Return output
-    for(i=0; i<16; i++)
-    {
+    for(uint32 i=0; i<16; i++)
         output[i] = state.state[i & 0x03][i >> 2];
-    }
 }
 
 /*********************************************************************
@@ -1142,16 +955,12 @@ void key_add(STATE_STRUCT     *state,
              ROUND_KEY_STRUCT *rk,
              uint32            round)
 {
-    uint32 i;
-    uint32 j;
+    if(state == NULL || rk == NULL)
+        return;
 
-    for(i=0; i<4; i++)
-    {
-        for(j=0; j<4; j++)
-        {
+    for(uint32 i=0; i<4; i++)
+        for(uint32 j=0; j<4; j++)
             state->state[i][j] ^= rk->rk[round][i][j];
-        }
-    }
 }
 
 /*********************************************************************
@@ -1163,16 +972,12 @@ void key_add(STATE_STRUCT     *state,
 *********************************************************************/
 void byte_sub(STATE_STRUCT *state)
 {
-    uint32 i;
-    uint32 j;
+    if(state == NULL)
+        return;
 
-    for(i=0; i<4; i++)
-    {
-        for(j=0; j<4; j++)
-        {
+    for(uint32 i=0; i<4; i++)
+        for(uint32 j=0; j<4; j++)
             state->state[i][j] = S[state->state[i][j]];
-        }
-    }
 }
 
 /*********************************************************************
@@ -1184,10 +989,11 @@ void byte_sub(STATE_STRUCT *state)
 *********************************************************************/
 void shift_row(STATE_STRUCT *state)
 {
-    uint8 temp;
+    if(state == NULL)
+        return;
 
     // Left rotate row 1 by 1
-    temp               = state->state[1][0];
+    uint8 temp         = state->state[1][0];
     state->state[1][0] = state->state[1][1];
     state->state[1][1] = state->state[1][2];
     state->state[1][2] = state->state[1][3];
@@ -1218,17 +1024,15 @@ void shift_row(STATE_STRUCT *state)
 *********************************************************************/
 void mix_column(STATE_STRUCT *state)
 {
-    uint32 i;
-    uint8  temp;
-    uint8  tmp0;
-    uint8  tmp;
+    if(state == NULL)
+        return;
 
-    for(i=0; i<4; i++)
+    for(uint32 i=0; i<4; i++)
     {
-        temp = state->state[0][i] ^ state->state[1][i] ^ state->state[2][i] ^ state->state[3][i];
-        tmp0 = state->state[0][i];
+        uint8 temp = state->state[0][i] ^ state->state[1][i] ^ state->state[2][i] ^ state->state[3][i];
+        uint8 tmp0 = state->state[0][i];
 
-        tmp                 = X_TIME[state->state[0][i] ^ state->state[1][i]];
+        uint8 tmp           = X_TIME[state->state[0][i] ^ state->state[1][i]];
         state->state[0][i] ^= temp ^ tmp;
 
         tmp                 = X_TIME[state->state[1][i] ^ state->state[2][i]];

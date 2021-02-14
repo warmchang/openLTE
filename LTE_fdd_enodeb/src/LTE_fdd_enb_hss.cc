@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_hss.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014-2017 Ben Wojtowicz
+    Copyright 2014-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -39,6 +39,8 @@
     07/03/2016    Ben Wojtowicz    Fixed a bug in print_all_users.  Thanks to
                                    Sultan Qasim Khan for finding this.
     07/29/2017    Ben Wojtowicz    Using the latest tools library.
+    02/14/2021    Ben Wojtowicz    Massive reformat and using the new RRC
+                                   library.
 
 *******************************************************************************/
 
@@ -47,9 +49,7 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_hss.h"
-#include "LTE_fdd_enb_cnfg_db.h"
 #include "liblte_security.h"
-#include "libtools_scoped_lock.h"
 #include "libtools_helpers.h"
 
 /*******************************************************************************
@@ -66,58 +66,25 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_hss*       LTE_fdd_enb_hss::instance = NULL;
-static pthread_mutex_t hss_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
 *******************************************************************************/
 
-/*******************/
-/*    Singleton    */
-/*******************/
-LTE_fdd_enb_hss* LTE_fdd_enb_hss::get_instance(void)
-{
-    libtools_scoped_lock lock(hss_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_fdd_enb_hss();
-    }
-
-    return(instance);
-}
-void LTE_fdd_enb_hss::cleanup(void)
-{
-    libtools_scoped_lock lock(hss_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
-    }
-}
-
 /********************************/
 /*    Constructor/Destructor    */
 /********************************/
-LTE_fdd_enb_hss::LTE_fdd_enb_hss()
+LTE_fdd_enb_hss::LTE_fdd_enb_hss() :
+    use_user_file{false}
 {
-    sem_init(&user_sem, 0, 1);
     user_list.clear();
-    use_user_file = false;
 }
 LTE_fdd_enb_hss::~LTE_fdd_enb_hss()
 {
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    sem_wait(&user_sem);
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
-    {
-        delete (*iter);
-    }
-    sem_post(&user_sem);
-    sem_destroy(&user_sem);
+    for(auto user : user_list)
+        delete user;
 }
 
 /****************************/
@@ -127,9 +94,8 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
                                                  std::string imei,
                                                  std::string k)
 {
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_HSS_USER_STRUCT                        *new_user = new LTE_FDD_ENB_HSS_USER_STRUCT;
-    LTE_FDD_ENB_ERROR_ENUM                              err      = LTE_FDD_ENB_ERROR_BAD_ALLOC;
+    LTE_FDD_ENB_HSS_USER_STRUCT *new_user = new LTE_FDD_ENB_HSS_USER_STRUCT;
+    LTE_FDD_ENB_ERROR_ENUM       err      = LTE_FDD_ENB_ERROR_BAD_ALLOC;
 
     if(NULL != new_user      &&
        15   == imsi.length() &&
@@ -144,49 +110,42 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::add_user(std::string imsi,
         new_user->generated_data.seq_he = 0;
         new_user->generated_data.ind_he = 0;
 
-        sem_wait(&user_sem);
+        user_mutex.lock();
         err = LTE_FDD_ENB_ERROR_NONE;
-        for(iter=user_list.begin(); iter!=user_list.end(); iter++)
-        {
-            if((*iter)->id.imsi == new_user->id.imsi &&
-               (*iter)->id.imei == new_user->id.imei)
-            {
+        for(auto user : user_list)
+            if(user->id.imsi == new_user->id.imsi &&
+               user->id.imei == new_user->id.imei)
                 err = LTE_FDD_ENB_ERROR_DUPLICATE_ENTRY;
-            }
-        }
         if(LTE_FDD_ENB_ERROR_NONE == err)
         {
             user_list.push_back(new_user);
         }else{
             delete new_user;
         }
-        sem_post(&user_sem);
+        user_mutex.unlock();
 
         if(use_user_file)
-        {
             write_user_file();
-        }
     }
 
-    return(err);
+    return err;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::del_user(std::string imsi)
 {
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_HSS_USER_STRUCT                        *user = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                              err  = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
-    uint64                                              imsi_num;
-    bool                                                update_user_file = false;
+    LTE_FDD_ENB_HSS_USER_STRUCT *user = NULL;
+    LTE_FDD_ENB_ERROR_ENUM       err  = LTE_FDD_ENB_ERROR_USER_NOT_FOUND;
+    uint64                       imsi_num;
+    bool                         update_user_file = false;
 
     to_number(imsi, 15, &imsi_num);
 
-    sem_wait(&user_sem);
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    user_mutex.lock();
+    for(auto user_it=user_list.begin(); user_it!=user_list.end(); user_it++)
     {
-        if(imsi_num == (*iter)->id.imsi)
+        if(imsi_num == (*user_it)->id.imsi)
         {
-            user = (*iter);
-            user_list.erase(iter);
+            user = (*user_it);
+            user_list.erase(user_it);
             delete user;
             err = LTE_FDD_ENB_ERROR_NONE;
             break;
@@ -194,236 +153,205 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_hss::del_user(std::string imsi)
 
         update_user_file = true;
     }
-    sem_post(&user_sem);
+    user_mutex.unlock();
 
     if(update_user_file &&
        use_user_file)
-    {
         write_user_file();
-    }
 
-    return(err);
+    return err;
 }
-std::string LTE_fdd_enb_hss::print_all_users(void)
+std::string LTE_fdd_enb_hss::print_all_users()
 {
-    libtools_scoped_lock                               lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
-    std::string                                        output;
+    std::lock_guard<std::mutex> lock(user_mutex);
+    std::string                 output;
 
-    output = to_string((uint32)user_list.size());
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    output = std::to_string((uint32)user_list.size());
+    for(auto user : user_list)
     {
         output += "\n";
-        output += "imsi=" + to_string((*iter)->id.imsi, 15) + " ";
-        output += "imei=" + to_string((*iter)->id.imei, 15) + " ";
-        output += "k=" + to_string((*iter)->stored_data.k, 16);
+        output += "imsi=" + to_string(user->id.imsi, 15) + " ";
+        output += "imei=" + to_string(user->id.imei, 15) + " ";
+        output += "k=" + to_string(user->stored_data.k, 16);
     }
 
-    return(output);
+    return output;
 }
 bool LTE_fdd_enb_hss::is_imsi_allowed(uint64 imsi)
 {
-    libtools_scoped_lock                               lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
-    bool                                               ret = false;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
-    {
-        if(imsi == (*iter)->id.imsi)
-        {
-            ret = true;
-            break;
-        }
-    }
+    for(auto user : user_list)
+        if(imsi == user->id.imsi)
+            return true;
 
-    return(ret);
+    return false;
 }
 bool LTE_fdd_enb_hss::is_imei_allowed(uint64 imei)
 {
-    libtools_scoped_lock                               lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
-    bool                                               ret = false;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
-    {
-        if(imei == (*iter)->id.imei)
-        {
-            ret = true;
-            break;
-        }
-    }
+    for(auto user : user_list)
+        if(imei == user->id.imei)
+            return true;
 
-    return(ret);
+    return false;
 }
 LTE_FDD_ENB_USER_ID_STRUCT* LTE_fdd_enb_hss::get_user_id_from_imsi(uint64 imsi)
 {
-    libtools_scoped_lock                                lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_USER_ID_STRUCT                         *id = NULL;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
-    {
-        if(imsi == (*iter)->id.imsi)
-        {
-            id = &(*iter)->id;
-        }
-    }
+    for(auto user : user_list)
+        if(imsi == user->id.imsi)
+            return &user->id;
 
-    return(id);
+    return NULL;
 }
 LTE_FDD_ENB_USER_ID_STRUCT* LTE_fdd_enb_hss::get_user_id_from_imei(uint64 imei)
 {
-    libtools_scoped_lock                                lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_USER_ID_STRUCT                         *id = NULL;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
-    {
-        if(imei == (*iter)->id.imei)
-        {
-            id = &(*iter)->id;
-        }
-    }
+    for(auto user : user_list)
+        if(imei == user->id.imei)
+            return &user->id;
 
-    return(id);
+    return NULL;
 }
 void LTE_fdd_enb_hss::generate_security_data(LTE_FDD_ENB_USER_ID_STRUCT *id,
-                                             uint16                      mcc,
-                                             uint16                      mnc)
+                                             const MCC                  &mcc,
+                                             const MNC                  &mnc)
 {
-    libtools_scoped_lock                               lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
-    uint32                                             i;
-    uint32                                             rand_val;
-    uint8                                              sqn[6];
-    uint8                                              amf[2] = {0x80, 0x00}; // 3GPP 33.102 v10.0.0 Annex H
+    std::lock_guard<std::mutex> lock(user_mutex);
+    uint32                      i;
+    uint32                      rand_val;
+    uint8                       sqn[6];
+    uint8                       amf[2] = {0x80, 0x00}; // 3GPP 33.102 v10.0.0 Annex H
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    for(auto user : user_list)
     {
-        if(id->imei == (*iter)->id.imei &&
-           id->imsi == (*iter)->id.imsi)
+        if(id->imei == user->id.imei &&
+           id->imsi == user->id.imsi)
         {
             // Generate sqn
             // From 33.102 v10.0.0 section C.3.2
-            (*iter)->generated_data.seq_he = ((*iter)->generated_data.seq_he + 1) % LTE_FDD_ENB_SEQ_HE_MAX_VALUE;
-            (*iter)->generated_data.ind_he = ((*iter)->generated_data.ind_he + 1) % LTE_FDD_ENB_IND_HE_MAX_VALUE;
-            (*iter)->generated_data.sqn_he = ((*iter)->generated_data.seq_he << LTE_FDD_ENB_IND_HE_N_BITS) | (*iter)->generated_data.ind_he;
+            user->generated_data.seq_he = (user->generated_data.seq_he + 1) % LTE_FDD_ENB_SEQ_HE_MAX_VALUE;
+            user->generated_data.ind_he = (user->generated_data.ind_he + 1) % LTE_FDD_ENB_IND_HE_MAX_VALUE;
+            user->generated_data.sqn_he = (user->generated_data.seq_he << LTE_FDD_ENB_IND_HE_N_BITS) | user->generated_data.ind_he;
             for(i=0; i<6; i++)
             {
-                sqn[i] = ((*iter)->generated_data.sqn_he >> (5-i)*8) & 0xFF;
+                sqn[i] = (user->generated_data.sqn_he >> (5-i)*8) & 0xFF;
             }
 
             // Generate RAND
             for(i=0; i<4; i++)
             {
-                rand_val                                     = rand();
-                (*iter)->generated_data.auth_vec.rand[i*4+0] = rand_val & 0xFF;
-                (*iter)->generated_data.auth_vec.rand[i*4+1] = (rand_val >> 8) & 0xFF;
-                (*iter)->generated_data.auth_vec.rand[i*4+2] = (rand_val >> 16) & 0xFF;
-                (*iter)->generated_data.auth_vec.rand[i*4+3] = (rand_val >> 24) & 0xFF;
+                rand_val                                  = rand();
+                user->generated_data.auth_vec.rand[i*4+0] = rand_val & 0xFF;
+                user->generated_data.auth_vec.rand[i*4+1] = (rand_val >> 8) & 0xFF;
+                user->generated_data.auth_vec.rand[i*4+2] = (rand_val >> 16) & 0xFF;
+                user->generated_data.auth_vec.rand[i*4+3] = (rand_val >> 24) & 0xFF;
             }
 
             // Generate MAC, RES, CK, IK, and AK
-            liblte_security_milenage_f1((*iter)->stored_data.k,
-                                        (*iter)->generated_data.auth_vec.rand,
+            liblte_security_milenage_f1(user->stored_data.k,
+                                        user->generated_data.auth_vec.rand,
                                         sqn,
                                         amf,
-                                        (*iter)->generated_data.mac);
-            liblte_security_milenage_f2345((*iter)->stored_data.k,
-                                           (*iter)->generated_data.auth_vec.rand,
-                                           (*iter)->generated_data.auth_vec.res,
-                                           (*iter)->generated_data.auth_vec.ck,
-                                           (*iter)->generated_data.auth_vec.ik,
-                                           (*iter)->generated_data.ak);
+                                        user->generated_data.mac);
+            liblte_security_milenage_f2345(user->stored_data.k,
+                                           user->generated_data.auth_vec.rand,
+                                           user->generated_data.auth_vec.res,
+                                           user->generated_data.auth_vec.ck,
+                                           user->generated_data.auth_vec.ik,
+                                           user->generated_data.ak);
 
             // Construct AUTN
             for(i=0; i<6; i++)
             {
-                (*iter)->generated_data.auth_vec.autn[i] = sqn[i] ^ (*iter)->generated_data.ak[i];
+                user->generated_data.auth_vec.autn[i] = sqn[i] ^ user->generated_data.ak[i];
             }
             for(i=0; i<2; i++)
             {
-                (*iter)->generated_data.auth_vec.autn[6+i] = amf[i];
+                user->generated_data.auth_vec.autn[6+i] = amf[i];
             }
             for(i=0; i<8; i++)
             {
-                (*iter)->generated_data.auth_vec.autn[8+i] = (*iter)->generated_data.mac[i];
+                user->generated_data.auth_vec.autn[8+i] = user->generated_data.mac[i];
             }
 
             // Reset NAS counts
             // 3GPP 33.401 v10.0.0 section 6.5
-            (*iter)->generated_data.auth_vec.nas_count_ul = 0;
-            (*iter)->generated_data.auth_vec.nas_count_dl = 0;
+            user->generated_data.auth_vec.nas_count_ul = 0;
+            user->generated_data.auth_vec.nas_count_dl = 0;
 
             // Generate Kasme
-            liblte_security_generate_k_asme((*iter)->generated_data.auth_vec.ck,
-                                            (*iter)->generated_data.auth_vec.ik,
-                                            (*iter)->generated_data.ak,
+            liblte_security_generate_k_asme(user->generated_data.auth_vec.ck,
+                                            user->generated_data.auth_vec.ik,
+                                            user->generated_data.ak,
                                             sqn,
                                             mcc,
                                             mnc,
-                                            (*iter)->generated_data.k_asme);
+                                            user->generated_data.k_asme);
 
             // Generate K_nas_enc and K_nas_int
-            liblte_security_generate_k_nas((*iter)->generated_data.k_asme,
+            liblte_security_generate_k_nas(user->generated_data.k_asme,
                                            LIBLTE_SECURITY_CIPHERING_ALGORITHM_ID_EEA0,
                                            LIBLTE_SECURITY_INTEGRITY_ALGORITHM_ID_128_EIA2,
-                                           (*iter)->generated_data.auth_vec.k_nas_enc,
-                                           (*iter)->generated_data.auth_vec.k_nas_int);
+                                           user->generated_data.auth_vec.k_nas_enc,
+                                           user->generated_data.auth_vec.k_nas_int);
 
             // Generate K_enb
-            liblte_security_generate_k_enb((*iter)->generated_data.k_asme,
-                                           (*iter)->generated_data.auth_vec.nas_count_ul,
-                                           (*iter)->generated_data.k_enb);
+            liblte_security_generate_k_enb(user->generated_data.k_asme,
+                                           user->generated_data.auth_vec.nas_count_ul,
+                                           user->generated_data.k_enb);
 
             // Generate K_rrc_enc and K_rrc_int
-            liblte_security_generate_k_rrc((*iter)->generated_data.k_enb,
+            liblte_security_generate_k_rrc(user->generated_data.k_enb,
                                            LIBLTE_SECURITY_CIPHERING_ALGORITHM_ID_EEA0,
                                            LIBLTE_SECURITY_INTEGRITY_ALGORITHM_ID_128_EIA2,
-                                           (*iter)->generated_data.auth_vec.k_rrc_enc,
-                                           (*iter)->generated_data.auth_vec.k_rrc_int);
+                                           user->generated_data.auth_vec.k_rrc_enc,
+                                           user->generated_data.auth_vec.k_rrc_int);
 
             // Generate K_up_enc and K_up_int
-            liblte_security_generate_k_up((*iter)->generated_data.k_enb,
+            liblte_security_generate_k_up(user->generated_data.k_enb,
                                           LIBLTE_SECURITY_CIPHERING_ALGORITHM_ID_EEA0,
                                           LIBLTE_SECURITY_INTEGRITY_ALGORITHM_ID_128_EIA2,
-                                          (*iter)->generated_data.k_up_enc,
-                                          (*iter)->generated_data.k_up_int);
+                                          user->generated_data.k_up_enc,
+                                          user->generated_data.k_up_int);
 
             break;
         }
     }
 }
 void LTE_fdd_enb_hss::security_resynch(LTE_FDD_ENB_USER_ID_STRUCT *id,
-                                       uint16                      mcc,
-                                       uint16                      mnc,
+                                       const MCC                  &mcc,
+                                       const MNC                  &mnc,
                                        uint8                      *auts)
 {
-    libtools_scoped_lock                               lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator iter;
-    uint32                                             i;
-    uint8                                              sqn[6];
+    std::lock_guard<std::mutex> lock(user_mutex);
+    uint32                      i;
+    uint8                       sqn[6];
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    for(auto user : user_list)
     {
-        if(id->imei == (*iter)->id.imei &&
-           id->imsi == (*iter)->id.imsi)
+        if(id->imei == user->id.imei &&
+           id->imsi == user->id.imsi)
         {
             // Decode returned SQN and break into SEQ and IND
-            liblte_security_milenage_f5_star((*iter)->stored_data.k,
-                                             (*iter)->generated_data.auth_vec.rand,
-                                             (*iter)->generated_data.ak);
-            (*iter)->generated_data.sqn_he = 0;
+            liblte_security_milenage_f5_star(user->stored_data.k,
+                                             user->generated_data.auth_vec.rand,
+                                             user->generated_data.ak);
+            user->generated_data.sqn_he = 0;
             for(i=0; i<6; i++)
             {
-                sqn[i]                          = auts[i] ^ (*iter)->generated_data.ak[i];
-                (*iter)->generated_data.sqn_he |= (uint64)sqn[i] << (5-i)*8;
+                sqn[i]                       = auts[i] ^ user->generated_data.ak[i];
+                user->generated_data.sqn_he |= (uint64)sqn[i] << (5-i)*8;
             }
-            (*iter)->generated_data.seq_he = (*iter)->generated_data.sqn_he >> LTE_FDD_ENB_IND_HE_N_BITS;
-            (*iter)->generated_data.ind_he = (*iter)->generated_data.sqn_he & LTE_FDD_ENB_IND_HE_MASK;
-            if((*iter)->generated_data.ind_he > 0)
+            user->generated_data.seq_he = user->generated_data.sqn_he >> LTE_FDD_ENB_IND_HE_N_BITS;
+            user->generated_data.ind_he = user->generated_data.sqn_he & LTE_FDD_ENB_IND_HE_MASK;
+            if(user->generated_data.ind_he > 0)
             {
-                (*iter)->generated_data.ind_he--;
+                user->generated_data.ind_he--;
             }
 
             break;
@@ -433,60 +361,48 @@ void LTE_fdd_enb_hss::security_resynch(LTE_FDD_ENB_USER_ID_STRUCT *id,
 LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT* LTE_fdd_enb_hss::regenerate_enb_security_data(LTE_FDD_ENB_USER_ID_STRUCT *id,
                                                                                         uint32                      nas_count_ul)
 {
-    libtools_scoped_lock                                lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT           *auth_vec = NULL;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+    for(auto user : user_list)
     {
-        if(id->imei == (*iter)->id.imei &&
-           id->imsi == (*iter)->id.imsi)
+        if(id->imei == user->id.imei &&
+           id->imsi == user->id.imsi)
         {
             // Generate K_enb
-            liblte_security_generate_k_enb((*iter)->generated_data.k_asme,
+            liblte_security_generate_k_enb(user->generated_data.k_asme,
                                            nas_count_ul,
-                                           (*iter)->generated_data.k_enb);
+                                           user->generated_data.k_enb);
 
             // Generate K_rrc_enc and K_rrc_int
-            liblte_security_generate_k_rrc((*iter)->generated_data.k_enb,
+            liblte_security_generate_k_rrc(user->generated_data.k_enb,
                                            LIBLTE_SECURITY_CIPHERING_ALGORITHM_ID_EEA0,
                                            LIBLTE_SECURITY_INTEGRITY_ALGORITHM_ID_128_EIA2,
-                                           (*iter)->generated_data.auth_vec.k_rrc_enc,
-                                           (*iter)->generated_data.auth_vec.k_rrc_int);
+                                           user->generated_data.auth_vec.k_rrc_enc,
+                                           user->generated_data.auth_vec.k_rrc_int);
 
             // Generate K_up_enc and K_up_int
-            liblte_security_generate_k_up((*iter)->generated_data.k_enb,
+            liblte_security_generate_k_up(user->generated_data.k_enb,
                                           LIBLTE_SECURITY_CIPHERING_ALGORITHM_ID_EEA0,
                                           LIBLTE_SECURITY_INTEGRITY_ALGORITHM_ID_128_EIA2,
-                                          (*iter)->generated_data.k_up_enc,
-                                          (*iter)->generated_data.k_up_int);
+                                          user->generated_data.k_up_enc,
+                                          user->generated_data.k_up_int);
 
-            auth_vec = &(*iter)->generated_data.auth_vec;
-
-            break;
+            return &user->generated_data.auth_vec;
         }
     }
 
-    return(auth_vec);
+    return NULL;
 }
 LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT* LTE_fdd_enb_hss::get_auth_vec(LTE_FDD_ENB_USER_ID_STRUCT *id)
 {
-    libtools_scoped_lock                                lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    LTE_FDD_ENB_AUTHENTICATION_VECTOR_STRUCT           *auth_vec = NULL;
+    std::lock_guard<std::mutex> lock(user_mutex);
 
-    for(iter=user_list.begin(); iter!=user_list.end(); iter++)
-    {
-        if(id->imei == (*iter)->id.imei &&
-           id->imsi == (*iter)->id.imsi)
-        {
-            auth_vec = &(*iter)->generated_data.auth_vec;
+    for(auto user : user_list)
+        if(id->imei == user->id.imei &&
+           id->imsi == user->id.imsi)
+            return &user->generated_data.auth_vec;
 
-            break;
-        }
-    }
-
-    return(auth_vec);
+    return NULL;
 }
 
 /*******************/
@@ -503,53 +419,42 @@ void LTE_fdd_enb_hss::set_use_user_file(bool uuf)
         delete_user_file();
     }
 }
-void LTE_fdd_enb_hss::read_user_file(void)
+void LTE_fdd_enb_hss::read_user_file(LTE_fdd_enb_interface *interface)
 {
-    LTE_fdd_enb_interface *interface = LTE_fdd_enb_interface::get_instance();
-    LTE_fdd_enb_cnfg_db   *cnfg_db   = LTE_fdd_enb_cnfg_db::get_instance();
-    std::string            line_str;
-    FILE                  *user_file = NULL;
-    int64                  uuf       = 1;
-    char                   str[LTE_FDD_ENB_MAX_LINE_SIZE];
-
-    user_file = fopen("/tmp/LTE_fdd_enodeb.user_db", "r");
-
-    if(NULL != user_file)
+    FILE *user_file = fopen("/tmp/LTE_fdd_enb.user_db", "r");
+    if(NULL == user_file)
+        return;
+    char str[LTE_FDD_ENB_MAX_LINE_SIZE];
+    while(NULL != fgets(str, LTE_FDD_ENB_MAX_LINE_SIZE, user_file))
     {
-        while(NULL != fgets(str, LTE_FDD_ENB_MAX_LINE_SIZE, user_file))
-        {
-            line_str = str;
-            interface->handle_add_user(line_str.substr(0, line_str.length()-1));
-        }
-        fclose(user_file);
-        use_user_file = true;
-        cnfg_db->set_param(LTE_FDD_ENB_PARAM_USE_USER_FILE, uuf);
+        std::string line_str = str;
+        interface->handle_add_user(line_str.substr(0, line_str.length()-1));
     }
+    fclose(user_file);
+    use_user_file = true;
+    interface->set_use_user_file("on");
 }
-void LTE_fdd_enb_hss::write_user_file(void)
+void LTE_fdd_enb_hss::write_user_file()
 {
-    libtools_scoped_lock                                lock(user_sem);
-    std::list<LTE_FDD_ENB_HSS_USER_STRUCT *>::iterator  iter;
-    FILE                                               *user_file = NULL;
-    uint32                                              i;
+    std::lock_guard<std::mutex>  lock(user_mutex);
+    FILE                        *user_file = NULL;
+    uint32                       i;
 
     user_file = fopen("/tmp/LTE_fdd_enodeb.user_db", "w");
 
     if(NULL != user_file)
     {
-        for(iter=user_list.begin(); iter!=user_list.end(); iter++)
+        for(auto user : user_list)
         {
-            fprintf(user_file, "imsi=%015llu imei=%015llu k=", (*iter)->id.imsi, (*iter)->id.imei);
+            fprintf(user_file, "imsi=%015llu imei=%015llu k=", user->id.imsi, user->id.imei);
             for(i=0; i<16; i++)
-            {
-                fprintf(user_file, "%02X", (*iter)->stored_data.k[i]);
-            }
+                fprintf(user_file, "%02X", user->stored_data.k[i]);
             fprintf(user_file, "\n");
         }
         fclose(user_file);
     }
 }
-void LTE_fdd_enb_hss::delete_user_file(void)
+void LTE_fdd_enb_hss::delete_user_file()
 {
     remove("/tmp/LTE_fdd_enodeb.user_db");
 }

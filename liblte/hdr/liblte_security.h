@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2014 Ben Wojtowicz
+    Copyright 2014, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -26,6 +26,7 @@
     ----------    -------------    --------------------------------------------
     08/03/2014    Ben Wojtowicz    Created file.
     09/03/2014    Ben Wojtowicz    Added key generation and EIA2.
+    02/14/2021    Ben Wojtowicz    Using the new RRC library.
 
 *******************************************************************************/
 
@@ -37,6 +38,7 @@
 *******************************************************************************/
 
 #include "liblte_common.h"
+#include "EUTRA_RRC_Definitions.h"
 
 /*******************************************************************************
                               DEFINES
@@ -63,13 +65,13 @@
 // Enums
 // Structs
 // Functions
-LIBLTE_ERROR_ENUM liblte_security_generate_k_asme(uint8  *ck,
-                                                  uint8  *ik,
-                                                  uint8  *ak,
-                                                  uint8  *sqn,
-                                                  uint16  mcc,
-                                                  uint16  mnc,
-                                                  uint8  *k_asme);
+LIBLTE_ERROR_ENUM liblte_security_generate_k_asme(uint8     *ck,
+                                                  uint8     *ik,
+                                                  uint8     *ak,
+                                                  uint8     *sqn,
+                                                  const MCC &mcc,
+                                                  const MNC &mnc,
+                                                  uint8     *k_asme);
 
 /*********************************************************************
     Name: liblte_security_generate_k_enb

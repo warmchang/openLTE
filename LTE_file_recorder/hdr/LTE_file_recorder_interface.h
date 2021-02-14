@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013,2015 Ben Wojtowicz
+    Copyright 2013, 2015, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -26,6 +26,7 @@
     ----------    -------------    --------------------------------------------
     08/26/2013    Ben Wojtowicz    Created file
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -36,15 +37,16 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "liblte_interface.h"
-#include "libtools_socket_wrap.h"
+#include "LTE_file_recorder_flowgraph.h"
+#include "libtools_server_socket.h"
 #include <string>
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
 *******************************************************************************/
 
-#define LTE_FILE_RECORDER_DEFAULT_CTRL_PORT 25000
+#define LTE_FILE_RECORDER_CTRL_PORT 25000
 
 /*******************************************************************************
                               FORWARD DECLARATIONS
@@ -55,10 +57,6 @@
                               TYPEDEFS
 *******************************************************************************/
 
-typedef enum{
-    LTE_FILE_RECORDER_STATUS_OK = 0,
-    LTE_FILE_RECORDER_STATUS_FAIL,
-}LTE_FILE_RECORDER_STATUS_ENUM;
 
 /*******************************************************************************
                               CLASS DECLARATIONS
@@ -67,52 +65,36 @@ typedef enum{
 class LTE_file_recorder_interface
 {
 public:
-    // Singleton
-    static LTE_file_recorder_interface* get_instance(void);
-    static void cleanup(void);
-
-    // Communication
-    void set_ctrl_port(int16 port);
-    void start_ctrl_port(void);
-    void stop_ctrl_port(void);
-    void send_ctrl_msg(std::string msg);
-    void send_ctrl_info_msg(std::string msg);
-    void send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_ENUM status, std::string msg);
-    static void handle_ctrl_msg(std::string msg);
-    static void handle_ctrl_connect(void);
-    static void handle_ctrl_disconnect(void);
-    static void handle_ctrl_error(LIBTOOLS_SOCKET_WRAP_ERROR_ENUM err);
-    pthread_mutex_t       ctrl_mutex;
-    libtools_socket_wrap *ctrl_socket;
-    int16                 ctrl_port;
-    static bool           ctrl_connected;
-
-    // Get/Set
-    bool get_shutdown(void);
-
-private:
-    // Singleton
-    static LTE_file_recorder_interface *instance;
     LTE_file_recorder_interface();
     ~LTE_file_recorder_interface();
 
-    // Handlers
+    void start_ctrl_port();
+    void stop_ctrl_port();
+    void send_ctrl_msg(std::string msg);
+    void handle_ctrl_msg(const std::string msg, const int32 sock_fd);
+    void handle_ctrl_connect(const int32 sock_fd);
+    void handle_ctrl_disconnect(const int32 sock_fd);
+    void handle_ctrl_error(const LIBTOOLS_SERVER_SOCKET_ERROR_ENUM err);
+    bool get_shutdown();
+
+private:
     void handle_read(std::string msg);
     void handle_write(std::string msg);
-    void handle_start(void);
-    void handle_stop(void);
-    void handle_help(void);
-
-    // Reads/Writes
-    void read_earfcn(void);
     void write_earfcn(std::string earfcn_str);
-    void read_file_name(void);
-    void write_file_name(std::string file_name_str);
+    void handle_start();
+    void handle_stop();
+    void handle_help();
 
-    // Variables
-    std::string file_name;
-    uint16      earfcn;
-    bool        shutdown;
+    LTE_file_recorder_flowgraph *flowgraph;
+    std::mutex                   ctrl_mutex;
+    std::string                  file_name;
+    std::string                  earfcn_token;
+    std::string                  file_name_token;
+    libtools_server_socket      *ctrl_socket;
+    int32                        ctrl_sock_fd;
+    uint16                       earfcn;
+    bool                         ctrl_connected;
+    bool                         shutdown;
 };
 
 #endif /* __LTE_FILE_RECORDER_INTERFACE_H__ */

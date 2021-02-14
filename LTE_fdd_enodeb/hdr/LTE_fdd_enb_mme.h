@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -42,6 +42,8 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Removed boost message queue include.
     07/29/2017    Ben Wojtowicz    Moved away from singleton pattern.
+    02/14/2021    Ben Wojtowicz    Massive reformat and added tracking area
+                                   update handling.
 
 *******************************************************************************/
 
@@ -52,8 +54,9 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_enb_cnfg_db.h"
+#include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_msgq.h"
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -78,24 +81,26 @@ class LTE_fdd_enb_mme
 {
 public:
     // Constructor/Destructor
-    LTE_fdd_enb_mme();
+    LTE_fdd_enb_mme(LTE_fdd_enb_interface *iface, LTE_fdd_enb_user_mgr *um, LTE_fdd_enb_hss *_hss);
     ~LTE_fdd_enb_mme();
 
     // Start/Stop
-    void start(LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *to_rrc, LTE_fdd_enb_interface *iface);
-    void stop(void);
+    void start(LTE_fdd_enb_msgq *from_rrc, LTE_fdd_enb_msgq *to_rrc);
+    void stop();
 
     // External interface
-    void update_sys_info(void);
+    void update_sys_info();
 
 private:
     // Start/Stop
     LTE_fdd_enb_interface *interface;
-    sem_t                  start_sem;
+    std::mutex             start_mutex;
     bool                   started;
 
     // Communication
     void handle_rrc_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void send_rrc_cmd_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LTE_FDD_ENB_RRC_CMD_ENUM cmd, LIBLTE_BYTE_MSG_STRUCT *msg);
+    void send_rrc_nas_msg_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *msg);
     LTE_fdd_enb_msgq *msgq_from_rrc;
     LTE_fdd_enb_msgq *msgq_to_rrc;
 
@@ -113,6 +118,7 @@ private:
     void parse_security_mode_complete(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_security_mode_reject(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_service_request(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void parse_tracking_area_update_request(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_activate_default_eps_bearer_context_accept(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_esm_information_response(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void parse_pdn_connectivity_request(LIBLTE_BYTE_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
@@ -121,6 +127,7 @@ private:
     void attach_sm(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void service_req_sm(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
     void detach_sm(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void tau_sm(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Message Senders
     void send_attach_accept(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
@@ -137,11 +144,13 @@ private:
     void send_rrc_command(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LTE_FDD_ENB_RRC_CMD_ENUM cmd);
 
     // Parameters
-    sem_t                       sys_info_sem;
-    LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
+    LTE_fdd_enb_user_mgr        *user_mgr;
+    LTE_fdd_enb_hss             *hss;
+    std::mutex                   sys_info_mutex;
+    LTE_FDD_ENB_SYS_INFO_STRUCT  sys_info;
 
     // Helpers
-    uint32 get_next_ip_addr(void);
+    uint32 get_next_ip_addr();
     uint32 next_ip_addr;
     uint32 dns_addr;
 };

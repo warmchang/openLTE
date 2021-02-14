@@ -23,7 +23,7 @@
 ########################################################################
 cmake_minimum_required(VERSION 2.6)
 project(openLTE CXX C)
-set(openLTE_version 0.20.5)
+set(openLTE_version 0.21.0)
 enable_testing()
 
 #select the release build type by default to get optimization flags
@@ -53,6 +53,9 @@ SET(BOOST_REQUIRED_COMPONENTS
 if(UNIX AND EXISTS "/usr/lib64")
     list(APPEND BOOST_LIBRARYDIR "/usr/lib64") #fedora 64-bit fix
 endif(UNIX AND EXISTS "/usr/lib64")
+if(UNIX AND EXISTS "/usr/lib/x86_64-linux-gnu")
+    list(APPEND BOOST_LIBRARYDIR "/usr/lib/x86_64-linux-gnu") #fedora 64-bit fix
+endif(UNIX AND EXISTS "/usr/lib/x86_64-linux-gnu")
 set(Boost_ADDITIONAL_VERSIONS
     "1.35.0" "1.35" "1.36.0" "1.36" "1.37.0" "1.37" "1.38.0" "1.38" "1.39.0" "1.39"
     "1.40.0" "1.40" "1.41.0" "1.41" "1.42.0" "1.42" "1.43.0" "1.43" "1.44.0" "1.44"
@@ -62,41 +65,29 @@ set(Boost_ADDITIONAL_VERSIONS
     "1.60.0" "1.60" "1.61.0" "1.61" "1.62.0" "1.62" "1.63.0" "1.63" "1.64.0" "1.64"
     "1.65.0" "1.65" "1.66.0" "1.66" "1.67.0" "1.67" "1.68.0" "1.68" "1.69.0" "1.69"
 )
-find_package(Boost "1.35" COMPONENTS ${BOOST_REQUIRED_COMPONENTS})
+find_package(Boost "1.58" COMPONENTS ${BOOST_REQUIRED_COMPONENTS})
+
+Set(Boost_LIBRARIES boost_chrono-mt-x64 boost_date_time-mt-x64 boost_filesystem-mt-x64 boost_program_options-mt-x64 boost_regex-mt-x64 boost_system-mt-x64 boost_unit_test_framework-mt-x64 boost_serialization-mt-x64 boost_thread-mt-x64)
 
 if(NOT Boost_FOUND)
     message(FATAL_ERROR "Boost required to compile openLTE")
 endif()
 
 ########################################################################
-# Install directories
-########################################################################
-include(GrPlatform) #define LIB_SUFFIX
-set(GR_RUNTIME_DIR      bin)
-set(GR_LIBRARY_DIR      lib${LIB_SUFFIX})
-set(GR_INCLUDE_DIR      include)
-set(GR_DATA_DIR         share)
-set(GR_PKG_DATA_DIR     ${GR_DATA_DIR}/${CMAKE_PROJECT_NAME})
-set(GR_DOC_DIR          ${GR_DATA_DIR}/doc)
-set(GR_PKG_DOC_DIR      ${GR_DOC_DIR}/${CMAKE_PROJECT_NAME})
-set(GR_CONF_DIR         etc)
-set(GR_PKG_CONF_DIR     ${GR_CONF_DIR}/${CMAKE_PROJECT_NAME}/conf.d)
-set(GR_LIBEXEC_DIR      libexec)
-set(GR_PKG_LIBEXEC_DIR  ${GR_LIBEXEC_DIR}/${CMAKE_PROJECT_NAME})
-set(GRC_BLOCKS_DIR      ${GR_PKG_DATA_DIR}/grc/blocks)
-
-########################################################################
 # Find gnuradio build dependencies
 ########################################################################
-set(GR_REQUIRED_COMPONENTS RUNTIME BLOCKS FILTER PMT)
-find_package(Gnuradio "3.7.0")
+find_package(Gnuradio "3.8" REQUIRED COMPONENTS runtime blocks filter pmt fft)
+include(GrVersion) #setup version info
+find_package(gnuradio-blocks PATHS ${Gnuradio_DIR})
+find_package(UHD)
+find_package(gnuradio-uhd PATHS ${Gnuradio_DIR})
+find_package(Volk REQUIRED)
 find_package(GnuradioOsmosdr)
-find_package(Uhd)
 find_package(LibbladeRF)
 find_package(FFTW3F)
 find_package(Polarssl)
 
-if(NOT GNURADIO_RUNTIME_FOUND)
+if(NOT Gnuradio_FOUND)
     message(FATAL_ERROR "GNURadio required to compile openLTE")
 endif()
 
@@ -115,32 +106,6 @@ endif()
 if(NOT FFTW3F_FOUND)
     message(FATAL_ERROR "FFTW3 required to compile openLTE")
 endif()
-
-########################################################################
-# Setup the include and linker paths
-########################################################################
-include_directories(
-    ${Boost_INCLUDE_DIRS}
-    ${FFTW3F_INCLUDE_DIRS}
-    ${GNURADIO_RUNTIME_INCLUDE_DIRS}
-    ${GNURADIO_BLOCKS_INCLUDE_DIRS}
-    ${GNURADIO_FILTER_INCLUDE_DIRS}
-    ${GNURADIO_PMT_INCLUDE_DIRS}
-    ${GNURADIO_OSMOSDR_INCLUDE_DIRS}
-    ${GR_UHD_INCLUDE_DIRS}
-    ${UHD_INCLUDE_DIRS}
-)
-
-link_directories(
-    ${Boost_LIBRARY_DIRS}
-    ${FFTW3F_LIBRARY_DIRS}
-    ${GNURADIO_RUNTIME_LIBRARY_DIRS}
-    ${GNURADIO_BLOCKS_LIBRARY_DIRS}
-    ${GNURADIO_FILTER_LIBRARY_DIRS}
-    ${GNURADIO_PMT_LIBRARY_DIRS}
-    ${GNURADIO_OSMOSDR_LIBRARY_DIRS}
-    ${UHD_LIBRARY_DIRS}
-)
 
 ########################################################################
 # Create uninstall target

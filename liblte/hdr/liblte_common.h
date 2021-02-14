@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2016 Ben Wojtowicz
+    Copyright 2012-2016, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -33,6 +33,7 @@
     07/14/2015    Ben Wojtowicz    Added an error code for DCIs with invalid
                                    contents.
     07/03/2016    Ben Wojtowicz    Increased the maximum message size.
+    02/14/2021    Ben Wojtowicz    Added a full stack message class.
 
 *******************************************************************************/
 
@@ -45,6 +46,7 @@
 
 #include "typedefs.h"
 #include <string.h>
+#include <vector>
 
 /*******************************************************************************
                               DEFINES
@@ -67,13 +69,31 @@ typedef enum{
 
 typedef struct{
     uint32 N_bits;
-    uint8  msg[LIBLTE_MAX_MSG_SIZE];
+    uint8  msg[LIBLTE_MAX_MSG_SIZE*8];
 }LIBLTE_BIT_MSG_STRUCT;
 
 typedef struct{
     uint32 N_bytes;
     uint8  msg[LIBLTE_MAX_MSG_SIZE];
 }LIBLTE_BYTE_MSG_STRUCT;
+
+/*******************************************************************************
+                              CLASS DECLARATIONS
+*******************************************************************************/
+
+class liblte_full_stack_message
+{
+public:
+    liblte_full_stack_message();
+    ~liblte_full_stack_message();
+
+    std::vector<uint8>               mme;
+    std::vector<uint8_t>             rrc;
+    std::vector<uint8>               gw;
+    std::vector<uint8>               pdcp;
+    std::vector<std::vector<uint8> > rlc;
+    std::vector<bool>                mac;
+};
 
 /*******************************************************************************
                               DECLARATIONS

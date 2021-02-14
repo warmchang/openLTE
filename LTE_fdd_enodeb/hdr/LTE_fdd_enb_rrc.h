@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
     Copyright 2016 Przemek Bereski (send_ue_capability_enquiry)
 
     This program is free software: you can redistribute it and/or modify
@@ -44,6 +44,7 @@
                                    and connection reestablishment reject.
     07/03/2016    Przemek Bereski  Added send_ue_capability_enquiry.
     07/29/2017    Ben Wojtowicz    Added SR support.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -54,9 +55,10 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_enb_cnfg_db.h"
+#include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_user.h"
 #include "LTE_fdd_enb_msgq.h"
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -80,32 +82,28 @@
 class LTE_fdd_enb_rrc
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_rrc* get_instance(void);
-    static void cleanup(void);
-
-    // Start/Stop
-    void start(LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *from_mme, LTE_fdd_enb_msgq *to_pdcp, LTE_fdd_enb_msgq *to_mme, LTE_fdd_enb_interface *iface);
-    void stop(void);
-
-    // External interface
-    void update_sys_info(void);
-    void handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd);
-
-private:
-    // Singleton
-    static LTE_fdd_enb_rrc *instance;
-    LTE_fdd_enb_rrc();
+    LTE_fdd_enb_rrc(LTE_fdd_enb_interface *iface, LTE_fdd_enb_user_mgr *um, LTE_fdd_enb_mac *_mac);
     ~LTE_fdd_enb_rrc();
 
     // Start/Stop
+    void start(LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *from_mme, LTE_fdd_enb_msgq *to_pdcp, LTE_fdd_enb_msgq *to_mme);
+    void stop();
+
+    // External interface
+    void update_sys_info();
+    void handle_cmd(LTE_FDD_ENB_RRC_CMD_READY_MSG_STRUCT *cmd);
+
+private:
+    // Start/Stop
     LTE_fdd_enb_interface *interface;
-    sem_t                  start_sem;
+    std::mutex             start_mutex;
     bool                   started;
 
     // Communication
     void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
     void handle_mme_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void send_pdcp_sdu_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, std::vector<uint8_t> &sdu);
+    void send_mme_nas_msg_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, const std::vector<uint8_t> &nas_msg);
     LTE_fdd_enb_msgq *msgq_from_pdcp;
     LTE_fdd_enb_msgq *msgq_from_mme;
     LTE_fdd_enb_msgq *msgq_to_pdcp;
@@ -118,12 +116,12 @@ private:
     void handle_nas_msg(LTE_FDD_ENB_RRC_NAS_MSG_READY_MSG_STRUCT *nas_msg);
 
     // State Machines
-    void ccch_sm(LIBLTE_BIT_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
-    void dcch_sm(LIBLTE_BIT_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void ccch_sm(std::vector<uint8_t> &msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void dcch_sm(std::vector<uint8_t> &msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Message Parsers
-    void parse_ul_ccch_message(LIBLTE_BIT_MSG_STRUCT *msg, LTE_fdd_enb_user **user, LTE_fdd_enb_rb **rb);
-    void parse_ul_dcch_message(LIBLTE_BIT_MSG_STRUCT *msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+    void parse_ul_ccch_message(std::vector<uint8_t> &msg, LTE_fdd_enb_user **user, LTE_fdd_enb_rb **rb);
+    void parse_ul_dcch_message(std::vector<uint8_t> &msg, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Message Senders
     void send_dl_info_transfer(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *msg);
@@ -136,12 +134,14 @@ private:
     void send_ue_capability_enquiry(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Helpers
-    void increment_i_sr(void);
+    void increment_i_sr();
 
     // Parameters
-    sem_t                       sys_info_sem;
-    LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
-    uint32                      i_sr;
+    LTE_fdd_enb_user_mgr        *user_mgr;
+    LTE_fdd_enb_mac             *mac;
+    std::mutex                   sys_info_mutex;
+    LTE_FDD_ENB_SYS_INFO_STRUCT  sys_info;
+    uint32                       i_sr;
 };
 
 #endif /* __LTE_FDD_ENB_RRC_H__ */

@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2017 Ben Wojtowicz
+    Copyright 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -25,6 +25,7 @@
     Revision History
     ----------    -------------    --------------------------------------------
     07/29/2017    Ben Wojtowicz    Created file
+    02/14/2021    Ben Wojtowicz    Massive reformat and using complex.
 
 *******************************************************************************/
 
@@ -38,6 +39,7 @@
 #include "typedefs.h"
 #include "liblte_phy.h"
 #include <string>
+#include <thread>
 
 /*******************************************************************************
                               DEFINES
@@ -87,14 +89,14 @@ typedef struct{
 typedef struct{
     uint32 size;
     uint32 tti;
+    uint16 rnti;
 }LIBTOOLS_IPC_MSGQ_UL_ALLOC_MSG_STRUCT;
 
 typedef struct{
-    float  i_buf[4][LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
-    float  q_buf[4][LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
-    uint32 N_samps_per_ant;
-    uint16 current_tti;
-    uint8  N_ant;
+    complex samps[4][LIBLTE_PHY_N_SAMPS_PER_SUBFR_30_72MHZ];
+    uint32  N_samps_per_ant;
+    uint16  current_tti;
+    uint8   N_ant;
 }LIBTOOLS_IPC_MSGQ_PHY_SAMPS_MSG_STRUCT;
 
 typedef union{
@@ -102,7 +104,6 @@ typedef union{
     LIBTOOLS_IPC_MSGQ_MAC_PDU_MSG_STRUCT   mac_pdu_msg;
     LIBTOOLS_IPC_MSGQ_RAR_PDU_MSG_STRUCT   rar_pdu_msg;
     LIBTOOLS_IPC_MSGQ_UL_ALLOC_MSG_STRUCT  ul_alloc_msg;
-    LIBTOOLS_IPC_MSGQ_PHY_SAMPS_MSG_STRUCT phy_samps_msg;
 }LIBTOOLS_IPC_MSGQ_MESSAGE_UNION;
 
 typedef struct{
@@ -137,18 +138,19 @@ class libtools_ipc_msgq
 public:
     libtools_ipc_msgq(std::string          _msgq_name,
                       libtools_ipc_msgq_cb cb);
+    libtools_ipc_msgq(std::string _msgq_name);
     ~libtools_ipc_msgq();
 
     // Send/Receive
     void send(LIBTOOLS_IPC_MSGQ_MESSAGE_TYPE_ENUM type, LIBTOOLS_IPC_MSGQ_MESSAGE_UNION *msg_content, uint32 msg_content_size);
 private:
     // Send/Receive
-    static void* receive_thread(void *inputs);
+    static void receive_thread(libtools_ipc_msgq *msgq);
 
     // Variables
-    libtools_ipc_msgq_cb callback;
-    std::string          msgq_name;
-    pthread_t            rx_thread;
+    libtools_ipc_msgq_cb *callback;
+    std::string           msgq_name;
+    std::thread          *rx_thread;
 };
 
 #endif /* __LIBTOOLS_IPC_MSGQ_H__ */

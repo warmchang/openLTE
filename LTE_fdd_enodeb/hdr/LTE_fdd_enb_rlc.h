@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2016, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -34,6 +34,7 @@
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to sem_t.
     02/13/2016    Ben Wojtowicz    Removed boost message queue include.
     12/18/2016    Ben Wojtowicz    Properly handling multiple AMD PDUs.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -44,8 +45,9 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_enb_cnfg_db.h"
+#include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_msgq.h"
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -69,32 +71,28 @@
 class LTE_fdd_enb_rlc
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_rlc* get_instance(void);
-    static void cleanup(void);
-
-    // Start/Stop
-    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *to_mac, LTE_fdd_enb_msgq *to_pdcp, LTE_fdd_enb_interface *iface);
-    void stop(void);
-
-    // External interface
-    void update_sys_info(void);
-    void handle_retransmit(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
-
-private:
-    // Singleton
-    static LTE_fdd_enb_rlc *instance;
-    LTE_fdd_enb_rlc();
+    LTE_fdd_enb_rlc(LTE_fdd_enb_interface *iface);
     ~LTE_fdd_enb_rlc();
 
     // Start/Stop
+    void start(LTE_fdd_enb_msgq *from_mac, LTE_fdd_enb_msgq *from_pdcp, LTE_fdd_enb_msgq *to_mac, LTE_fdd_enb_msgq *to_pdcp);
+    void stop();
+
+    // External interface
+    void update_sys_info();
+    void handle_retransmit(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
+
+private:
+    // Start/Stop
     LTE_fdd_enb_interface *interface;
-    sem_t                  start_sem;
+    std::mutex             start_mutex;
     bool                   started;
 
     // Communication
     void handle_mac_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
     void handle_pdcp_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg);
+    void send_mac_sdu_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *sdu);
+    void send_pdcp_pdu_ready(LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb, LIBLTE_BYTE_MSG_STRUCT *pdu);
     LTE_fdd_enb_msgq *msgq_from_mac;
     LTE_fdd_enb_msgq *msgq_from_pdcp;
     LTE_fdd_enb_msgq *msgq_to_mac;
@@ -118,7 +116,7 @@ private:
     void send_amd_pdu(LIBLTE_RLC_SINGLE_AMD_PDU_STRUCT *amd, LTE_fdd_enb_user *user, LTE_fdd_enb_rb *rb);
 
     // Parameters
-    sem_t                       sys_info_sem;
+    std::mutex                  sys_info_mutex;
     LTE_FDD_ENB_SYS_INFO_STRUCT sys_info;
 };
 

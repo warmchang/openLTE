@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2016, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -36,6 +36,7 @@
                                    user deletion procedure.
     02/13/2016    Ben Wojtowicz    Added ability to retrieve a string of all
                                    registered users.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -49,6 +50,7 @@
 #include "LTE_fdd_enb_interface.h"
 #include "LTE_fdd_enb_user.h"
 #include <string>
+#include <mutex>
 
 /*******************************************************************************
                               DEFINES
@@ -72,48 +74,44 @@
 class LTE_fdd_enb_user_mgr
 {
 public:
-    // Singleton
-    static LTE_fdd_enb_user_mgr* get_instance(void);
-    static void cleanup(void);
+    LTE_fdd_enb_user_mgr(LTE_fdd_enb_interface *iface, LTE_fdd_enb_timer_mgr *tm);
+    ~LTE_fdd_enb_user_mgr();
 
     // External interface
     LTE_FDD_ENB_ERROR_ENUM assign_c_rnti(LTE_fdd_enb_user *user, uint16 *c_rnti);
     LTE_FDD_ENB_ERROR_ENUM release_c_rnti(uint16 c_rnti);
     LTE_FDD_ENB_ERROR_ENUM transfer_c_rnti(LTE_fdd_enb_user *old_user, LTE_fdd_enb_user *new_user);
     LTE_FDD_ENB_ERROR_ENUM reset_c_rnti_timer(uint16 c_rnti);
-    uint32 get_next_m_tmsi(void);
-    LTE_FDD_ENB_ERROR_ENUM add_user(LTE_fdd_enb_user **user);
+    uint32 get_next_m_tmsi();
+    LTE_FDD_ENB_ERROR_ENUM add_user(LTE_fdd_enb_user **user, LTE_fdd_enb_rrc *rrc, LTE_fdd_enb_rlc *rlc);
     LTE_FDD_ENB_ERROR_ENUM find_user(std::string imsi, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM find_user(uint16 c_rnti, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM find_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti, LTE_fdd_enb_user **user);
-    LTE_FDD_ENB_ERROR_ENUM find_user(LIBLTE_RRC_S_TMSI_STRUCT *s_tmsi, LTE_fdd_enb_user **user);
+    LTE_FDD_ENB_ERROR_ENUM find_user(const S_TMSI &s_tmsi, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM find_user(uint32 ip_addr, LTE_fdd_enb_user **user);
     LTE_FDD_ENB_ERROR_ENUM del_user(LTE_fdd_enb_user *user);
     LTE_FDD_ENB_ERROR_ENUM del_user(std::string imsi);
     LTE_FDD_ENB_ERROR_ENUM del_user(uint16 c_rnti);
     LTE_FDD_ENB_ERROR_ENUM del_user(LIBLTE_MME_EPS_MOBILE_ID_GUTI_STRUCT *guti);
-    std::string print_all_users(void);
+    std::string print_all_users();
 
 private:
-    // Singleton
-    static LTE_fdd_enb_user_mgr *instance;
-    LTE_fdd_enb_user_mgr();
-    ~LTE_fdd_enb_user_mgr();
-
     // C-RNTI Timer
     void handle_c_rnti_timer_expiry(uint32 timer_id);
 
     // User storage
-    std::list<LTE_fdd_enb_user*>        user_list;
-    std::list<LTE_fdd_enb_user*>        delayed_del_user_list;
-    std::map<uint16, LTE_fdd_enb_user*> c_rnti_map;
-    std::map<uint32, uint16>            timer_id_map_forward;
-    std::map<uint16, uint32>            timer_id_map_reverse;
-    sem_t                               user_sem;
-    sem_t                               c_rnti_sem;
-    sem_t                               timer_id_sem;
-    uint32                              next_m_tmsi;
-    uint16                              next_c_rnti;
+    LTE_fdd_enb_interface               *interface;
+    LTE_fdd_enb_timer_mgr               *timer_mgr;
+    std::list<LTE_fdd_enb_user*>         user_list;
+    std::list<LTE_fdd_enb_user*>         delayed_del_user_list;
+    std::map<uint16, LTE_fdd_enb_user*>  c_rnti_map;
+    std::map<uint32, uint16>             timer_id_map_forward;
+    std::map<uint16, uint32>             timer_id_map_reverse;
+    std::mutex                           user_mutex;
+    std::mutex                           c_rnti_mutex;
+    std::mutex                           timer_id_mutex;
+    uint32                               next_m_tmsi;
+    uint16                               next_c_rnti;
 };
 
 #endif /* __LTE_FDD_ENB_USER_MGR_H__ */

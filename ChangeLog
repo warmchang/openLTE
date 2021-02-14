@@ -271,3 +271,6 @@ v00.20.05     Added two codeword support, refactored PUCCH channel decoding for 
               UL scheduling, and refactored the AMD reception buffer to handle more
               than one PDU per SN in LTE_fdd_enodeb, and fixed a typo in
               lte_pucch_demod.m.
+v00.21.00     Massive reformat, new RRC library, migrate LTE_fdd_dl_file_gen and
+              LTE_fdd_dl_file_scan from python to c++, turbo decoder improvements,
+              and many bug fixes.

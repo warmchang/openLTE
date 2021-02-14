@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013, 2016 Ben Wojtowicz
+    Copyright 2013, 2016, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -29,6 +29,7 @@
                                    EARFCNs for FDD configuration
     12/18/2016    Ben Wojtowicz    Added support for band 26, 26, and 28 (thanks
                                    to Jeremy Quirke).
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -80,7 +81,7 @@
 *********************************************************************/
 uint32 liblte_interface_dl_earfcn_to_frequency(uint16 dl_earfcn)
 {
-    uint32 F_dl;
+    uint32 i;
     uint32 F_dl_low[LIBLTE_INTERFACE_BAND_N_ITEMS] = {  2110000000,   1930000000,   1805000000,   2110000000,
                                                          869000000,    875000000, 2620000000UL,    925000000,
                                                         1844900000,   2110000000,   1475900000,    729000000,
@@ -91,7 +92,6 @@ uint32 liblte_interface_dl_earfcn_to_frequency(uint16 dl_earfcn)
                                                         1850000000,   1930000000,   1910000000, 2570000000UL,
                                                         1880000000, 2300000000UL, 2496000000UL, 3400000000UL,
                                                       3600000000UL};
-    uint32 i;
     uint16 N_offs_dl[LIBLTE_INTERFACE_BAND_N_ITEMS] = {    0,   600,  1200,  1950,  2400,  2650,  2750,  3450,
                                                         3800,  4150,  4750,  5010,  5180,  5280,  5730,  5850,
                                                         6000,  6150,  6450,  6600,  7500,  7700,  8040,  8690,
@@ -99,40 +99,33 @@ uint32 liblte_interface_dl_earfcn_to_frequency(uint16 dl_earfcn)
                                                        38250, 38650, 39650, 41590, 43590};
 
     for(i=0; i<LIBLTE_INTERFACE_BAND_N_ITEMS; i++)
-    {
         if(dl_earfcn >= liblte_interface_first_dl_earfcn[i] &&
            dl_earfcn <= liblte_interface_last_dl_earfcn[i])
-        {
             break;
-        }
-    }
+    uint32 F_dl = 0;
     if(LIBLTE_INTERFACE_BAND_N_ITEMS != i)
-    {
         F_dl = F_dl_low[i] + 100000*(dl_earfcn - N_offs_dl[i]);
-    }else{
-        F_dl = 0;
-    }
 
-    return(F_dl);
+    return F_dl;
 }
 uint16 liblte_interface_get_corresponding_dl_earfcn(uint16 ul_earfcn)
 {
     uint16 dl_earfcn = LIBLTE_INTERFACE_DL_EARFCN_INVALID;
 
-    if(0 != liblte_interface_ul_earfcn_to_frequency(ul_earfcn))
+    if(0 == liblte_interface_ul_earfcn_to_frequency(ul_earfcn))
+        return dl_earfcn;
+
+    if(liblte_interface_first_ul_earfcn[0] <= ul_earfcn &&
+       liblte_interface_last_ul_earfcn[25] >= ul_earfcn)
     {
-        if(liblte_interface_first_ul_earfcn[0] <= ul_earfcn &&
-           liblte_interface_last_ul_earfcn[25] >= ul_earfcn)
-        {
-            // FDD
-            dl_earfcn = ul_earfcn - 18000;
-        }else{
-            // TDD
-            dl_earfcn = ul_earfcn;
-        }
+        // FDD
+        dl_earfcn = ul_earfcn - 18000;
+    }else{
+        // TDD
+        dl_earfcn = ul_earfcn;
     }
 
-    return(dl_earfcn);
+    return dl_earfcn;
 }
 
 /*********************************************************************
@@ -145,7 +138,7 @@ uint16 liblte_interface_get_corresponding_dl_earfcn(uint16 ul_earfcn)
 *********************************************************************/
 uint32 liblte_interface_ul_earfcn_to_frequency(uint16 ul_earfcn)
 {
-    uint32 F_ul;
+    uint32 i;
     uint32 F_ul_low[LIBLTE_INTERFACE_BAND_N_ITEMS] = {  1920000000,   1850000000,   1710000000,   1710000000,
                                                          824000000,    830000000, 2500000000UL,    880000000,
                                                         1749900000,   1710000000,   1427900000,    699000000,
@@ -156,7 +149,6 @@ uint32 liblte_interface_ul_earfcn_to_frequency(uint16 ul_earfcn)
                                                         1850000000,   1930000000,   1910000000, 2570000000UL,
                                                         1880000000, 2300000000UL, 2496000000UL, 3400000000UL,
                                                       3600000000UL};
-    uint32 i;
     uint16 N_offs_ul[LIBLTE_INTERFACE_BAND_N_ITEMS] = {18000, 18600, 19200, 19950, 20400, 20650, 20750, 21450,
                                                        21800, 22150, 22750, 23010, 23180, 23280, 23730, 23850,
                                                        24000, 24150, 24450, 24600, 25500, 25700, 26040, 26690,
@@ -164,40 +156,33 @@ uint32 liblte_interface_ul_earfcn_to_frequency(uint16 ul_earfcn)
                                                        38250, 38650, 39650, 41590, 43590};
 
     for(i=0; i<LIBLTE_INTERFACE_BAND_N_ITEMS; i++)
-    {
         if(ul_earfcn >= liblte_interface_first_ul_earfcn[i] &&
            ul_earfcn <= liblte_interface_last_ul_earfcn[i])
-        {
             break;
-        }
-    }
+    uint32 F_ul = 0;
     if(LIBLTE_INTERFACE_BAND_N_ITEMS != i)
-    {
         F_ul = F_ul_low[i] + 100000*(ul_earfcn - N_offs_ul[i]);
-    }else{
-        F_ul = 0;
-    }
 
-    return(F_ul);
+    return F_ul;
 }
 uint16 liblte_interface_get_corresponding_ul_earfcn(uint16 dl_earfcn)
 {
     uint16 ul_earfcn = LIBLTE_INTERFACE_UL_EARFCN_INVALID;
 
-    if(0 != liblte_interface_dl_earfcn_to_frequency(dl_earfcn))
+    if(0 == liblte_interface_dl_earfcn_to_frequency(dl_earfcn))
+        return ul_earfcn;
+
+    if(liblte_interface_first_dl_earfcn[0] <= dl_earfcn &&
+       liblte_interface_last_dl_earfcn[25] >= dl_earfcn)
     {
-        if(liblte_interface_first_dl_earfcn[0] <= dl_earfcn &&
-           liblte_interface_last_dl_earfcn[25] >= dl_earfcn)
-        {
-            // FDD
-            ul_earfcn = dl_earfcn + 18000;
-        }else{
-            // TDD
-            ul_earfcn = dl_earfcn;
-        }
+        // FDD
+        ul_earfcn = dl_earfcn + 18000;
+    }else{
+        // TDD
+        ul_earfcn = dl_earfcn;
     }
 
-    return(ul_earfcn);
+    return ul_earfcn;
 }
 
 /*******************************************************************************

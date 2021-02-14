@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013,2015 Ben Wojtowicz
+    Copyright 2013, 2015, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -28,6 +28,7 @@
     11/13/2013    Ben Wojtowicz    Added support for USRP B2X0.
     11/30/2013    Ben Wojtowicz    Added support for bladeRF.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -38,10 +39,12 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_file_recorder_interface.h"
+#include "typedefs.h"
 #include <gnuradio/top_block.h>
 #include <osmosdr/source.h>
 #include <gnuradio/blocks/file_sink.h>
+#include <mutex>
+#include <thread>
 
 /*******************************************************************************
                               DEFINES
@@ -72,32 +75,23 @@ typedef enum{
 class LTE_file_recorder_flowgraph
 {
 public:
-    // Singleton
-    static LTE_file_recorder_flowgraph* get_instance(void);
-    static void cleanup(void);
-
-    // Flowgraph
-    bool is_started(void);
-    LTE_FILE_RECORDER_STATUS_ENUM start(uint16 earfcn, std::string file_name);
-    LTE_FILE_RECORDER_STATUS_ENUM stop(void);
-
-private:
-    // Singleton
-    static LTE_file_recorder_flowgraph *instance;
     LTE_file_recorder_flowgraph();
     ~LTE_file_recorder_flowgraph();
 
-    // Run
-    static void* run_thread(void *inputs);
+    bool is_started();
+    int start(uint16 earfcn, std::string file_name);
+    int stop();
 
-    // Variables
-    gr::top_block_sptr          top_block;
-    osmosdr::source::sptr       samp_src;
-    gr::blocks::file_sink::sptr file_sink;
+private:
+    void setup_sample_source(LTE_FILE_RECORDER_HW_TYPE_ENUM &hw_type);
+    static void thread_runner(LTE_file_recorder_flowgraph *fg);
 
-    pthread_t       start_thread;
-    pthread_mutex_t start_mutex;
-    bool            started;
+    gr::top_block_sptr           top_block;
+    osmosdr::source::sptr        samp_src;
+    gr::blocks::file_sink::sptr  file_sink;
+    std::mutex                   start_mutex;
+    std::thread                 *fr_thread;
+    bool                         started;
 };
 
 #endif /* __LTE_FILE_RECORDER_FLOWGRAPH_H__ */

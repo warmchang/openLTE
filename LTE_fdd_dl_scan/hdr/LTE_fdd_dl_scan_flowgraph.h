@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2015 Ben Wojtowicz
+    Copyright 2013-2015, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -35,6 +35,7 @@
                                    USRP X300 support.
     03/11/2015    Ben Wojtowicz    Added UmTRX support.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -45,12 +46,13 @@
                               INCLUDES
 *******************************************************************************/
 
-#include "LTE_fdd_dl_scan_interface.h"
-#include "LTE_fdd_dl_scan_state_machine.h"
+#include "liblte_fdd_dl_scan_block.h"
 #include <gnuradio/top_block.h>
-#include <gnuradio/filter/rational_resampler_base_ccf.h>
+#include <gnuradio/filter/rational_resampler_base.h>
 #include <gnuradio/filter/firdes.h>
 #include <osmosdr/source.h>
+#include <mutex>
+#include <thread>
 
 /*******************************************************************************
                               DEFINES
@@ -84,35 +86,26 @@ typedef enum{
 class LTE_fdd_dl_scan_flowgraph
 {
 public:
-    // Singleton
-    static LTE_fdd_dl_scan_flowgraph* get_instance(void);
-    static void cleanup(void);
-
-    // Flowgraph
-    bool is_started(void);
-    LTE_FDD_DL_SCAN_STATUS_ENUM start(uint16 dl_earfcn);
-    LTE_FDD_DL_SCAN_STATUS_ENUM stop(void);
-    void update_center_freq(uint16 dl_earfcn);
-
-private:
-    // Singleton
-    static LTE_fdd_dl_scan_flowgraph *instance;
     LTE_fdd_dl_scan_flowgraph();
     ~LTE_fdd_dl_scan_flowgraph();
 
-    // Run
-    static void* run_thread(void *inputs);
+    bool is_started();
+    int start(uint16 dl_earfcn, void *iface);
+    int stop();
+    void update_center_freq(uint16 dl_earfcn);
 
-    // Variables
-    std::vector<float>                            resample_taps;
-    gr::top_block_sptr                            top_block;
-    gr::filter::rational_resampler_base_ccf::sptr resampler_filter;
-    osmosdr::source::sptr                         samp_src;
-    LTE_fdd_dl_scan_state_machine_sptr            state_machine;
+private:
+    void setup_sample_source(LTE_FDD_DL_SCAN_HW_TYPE_ENUM &hw_type);
+    static void thread_runner(LTE_fdd_dl_scan_flowgraph *fg);
 
-    pthread_t       start_thread;
-    pthread_mutex_t start_mutex;
-    bool            started;
+    std::vector<float>                             resample_taps;
+    gr::top_block_sptr                             top_block;
+    gr::filter::rational_resampler_base_ccf::sptr  resampler_filter;
+    osmosdr::source::sptr                          samp_src;
+    liblte_fdd_dl_scan_block_sptr                  scan_block;
+    std::thread                                   *scan_thread;
+    std::mutex                                     start_mutex;
+    bool                                           started;
 };
 
 #endif /* __LTE_FDD_DL_SCAN_FLOWGRAPH_H__ */

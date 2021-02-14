@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013,2015,2017 Ben Wojtowicz
+    Copyright 2013, 2015, 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -27,6 +27,7 @@
     08/26/2013    Ben Wojtowicz    Created file
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t.
     07/29/2017    Ben Wojtowicz    Using the latest tools library.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -35,16 +36,13 @@
 *******************************************************************************/
 
 #include "LTE_file_recorder_interface.h"
-#include "LTE_file_recorder_flowgraph.h"
-#include "libtools_scoped_lock.h"
+#include "liblte_interface.h"
 #include "libtools_helpers.h"
 
 /*******************************************************************************
                               DEFINES
 *******************************************************************************/
 
-#define EARFCN_PARAM    "earfcn"
-#define FILE_NAME_PARAM "file_name"
 
 /*******************************************************************************
                               TYPEDEFS
@@ -55,251 +53,185 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_file_recorder_interface* LTE_file_recorder_interface::instance       = NULL;
-static pthread_mutex_t       interface_instance_mutex                    = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t       connect_mutex                               = PTHREAD_MUTEX_INITIALIZER;
-bool                         LTE_file_recorder_interface::ctrl_connected = false;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
 *******************************************************************************/
 
-// Singleton
-LTE_file_recorder_interface* LTE_file_recorder_interface::get_instance(void)
+LTE_file_recorder_interface::LTE_file_recorder_interface() :
+    flowgraph{NULL}, file_name{"/tmp/lte_iq_file.bin"}, earfcn_token{"earfcn"},
+    file_name_token{"file_name"}, ctrl_socket{NULL},
+    earfcn{liblte_interface_first_dl_earfcn[0]}, ctrl_connected{false}, shutdown{false}
 {
-    libtools_scoped_lock lock(interface_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_file_recorder_interface();
-    }
-
-    return(instance);
-}
-void LTE_file_recorder_interface::cleanup(void)
-{
-    libtools_scoped_lock lock(interface_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
-    }
-}
-
-// Constructor/Destructor
-LTE_file_recorder_interface::LTE_file_recorder_interface()
-{
-    uint32 i;
-
-    // Communication
-    pthread_mutex_init(&ctrl_mutex, NULL);
-    ctrl_socket    = NULL;
-    ctrl_port      = LTE_FILE_RECORDER_DEFAULT_CTRL_PORT;
-    ctrl_connected = false;
-
-    // Variables
-    earfcn    = liblte_interface_first_dl_earfcn[0];
-    file_name = "/tmp/lte_iq_file.bin";
-    shutdown  = false;
 }
 LTE_file_recorder_interface::~LTE_file_recorder_interface()
 {
     stop_ctrl_port();
-    pthread_mutex_destroy(&ctrl_mutex);
+
+    if(flowgraph != NULL)
+        delete flowgraph;
 }
 
-// Communication
-void LTE_file_recorder_interface::set_ctrl_port(int16 port)
+void LTE_file_recorder_interface::start_ctrl_port()
 {
-    libtools_scoped_lock lock(connect_mutex);
-
-    if(!ctrl_connected)
-    {
-        ctrl_port = port;
-    }
-}
-void LTE_file_recorder_interface::start_ctrl_port(void)
-{
-    libtools_scoped_lock            lock(ctrl_mutex);
-    LIBTOOLS_SOCKET_WRAP_ERROR_ENUM error;
-
-    if(NULL == ctrl_socket)
-    {
-        ctrl_socket = new libtools_socket_wrap(NULL,
-                                               ctrl_port,
-                                               LIBTOOLS_SOCKET_WRAP_TYPE_SERVER,
-                                               &handle_ctrl_msg,
-                                               &handle_ctrl_connect,
-                                               &handle_ctrl_disconnect,
-                                               &handle_ctrl_error,
-                                               &error);
-        if(LIBTOOLS_SOCKET_WRAP_SUCCESS != error)
-        {
-            printf("ERROR: Couldn't open ctrl_socket %u\n", error);
-            ctrl_socket = NULL;
-        }
-    }
-}
-void LTE_file_recorder_interface::stop_ctrl_port(void)
-{
-    libtools_scoped_lock lock(ctrl_mutex);
+    std::lock_guard<std::mutex>       lock(ctrl_mutex);
+    LIBTOOLS_SERVER_SOCKET_ERROR_ENUM error;
 
     if(NULL != ctrl_socket)
-    {
-        delete ctrl_socket;
-        ctrl_socket = NULL;
-    }
+        return;
+
+    libtools_server_socket_receive_callback receive_cb(
+        &libtools_server_socket_receive_callback::wrapper<LTE_file_recorder_interface, &LTE_file_recorder_interface::handle_ctrl_msg>,
+        this);
+    libtools_server_socket_connect_disconnect_callback connect_cb(
+        &libtools_server_socket_connect_disconnect_callback::wrapper<LTE_file_recorder_interface, &LTE_file_recorder_interface::handle_ctrl_connect>,
+        this);
+    libtools_server_socket_connect_disconnect_callback disconnect_cb(
+        &libtools_server_socket_connect_disconnect_callback::wrapper<LTE_file_recorder_interface, &LTE_file_recorder_interface::handle_ctrl_disconnect>,
+        this);
+    libtools_server_socket_error_callback error_cb(
+        &libtools_server_socket_error_callback::wrapper<LTE_file_recorder_interface, &LTE_file_recorder_interface::handle_ctrl_error>,
+        this);
+    ctrl_socket = new libtools_server_socket(LTE_FILE_RECORDER_CTRL_PORT, receive_cb,
+                                             connect_cb, disconnect_cb, error_cb, error);
+    if(LIBTOOLS_SERVER_SOCKET_ERROR_NONE == error)
+        return;
+    printf("ERROR: Couldn't open ctrl_socket %u\n", error);
+    ctrl_socket = NULL;
 }
+
+void LTE_file_recorder_interface::stop_ctrl_port()
+{
+    std::lock_guard<std::mutex> lock(ctrl_mutex);
+
+    if(NULL == ctrl_socket)
+        return;
+
+    delete ctrl_socket;
+    ctrl_socket = NULL;
+}
+
 void LTE_file_recorder_interface::send_ctrl_msg(std::string msg)
 {
-    libtools_scoped_lock lock(connect_mutex);
-    std::string          tmp_msg;
+    std::lock_guard<std::mutex> lock(ctrl_mutex);
 
-    if(ctrl_connected)
+    if(!ctrl_connected)
+        return;
+
+    ctrl_socket->send(msg + "\n", ctrl_sock_fd);
+}
+
+void LTE_file_recorder_interface::handle_ctrl_msg(const std::string msg,
+                                                  const int32       sock_fd)
+{
+    if(0 == msg.find("shutdown"))
     {
-        tmp_msg  = msg;
-        tmp_msg += "\n";
-        ctrl_socket->send(tmp_msg);
+        send_ctrl_msg("ok");
+        shutdown = true;
+        return;
     }
+    if(0 == msg.find("read"))
+        return handle_read(msg);
+    if(0 == msg.find("write"))
+        return handle_write(msg);
+    if(0 == msg.find("start"))
+        return handle_start();
+    if(0 == msg.find("stop"))
+        return handle_stop();
+    if(0 == msg.find("help"))
+        return handle_help();
+    send_ctrl_msg("fail invalid command");
 }
-void LTE_file_recorder_interface::send_ctrl_info_msg(std::string msg)
+
+void LTE_file_recorder_interface::handle_ctrl_connect(const int32 sock_fd)
 {
-    libtools_scoped_lock lock(connect_mutex);
-    std::string          tmp_msg;
+    ctrl_mutex.lock();
+    ctrl_connected = true;
+    ctrl_sock_fd   = sock_fd;
+    ctrl_mutex.unlock();
 
-    if(ctrl_connected)
-    {
-        tmp_msg  = "info ";
-        tmp_msg += msg;
-        tmp_msg += "\n";
-        ctrl_socket->send(tmp_msg);
-    }
+    send_ctrl_msg("*** LTE File Recorder ***");
+    send_ctrl_msg("Type help to see a list of commands");
 }
-void LTE_file_recorder_interface::send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_ENUM status,
-                                                       std::string                   msg)
+
+void LTE_file_recorder_interface::handle_ctrl_disconnect(const int32 sock_fd)
 {
-    libtools_scoped_lock lock(connect_mutex);
-    std::string          tmp_msg;
+    std::lock_guard<std::mutex> lock(ctrl_mutex);
 
-    if(ctrl_connected)
-    {
-        if(LTE_FILE_RECORDER_STATUS_OK == status)
-        {
-            tmp_msg = "ok ";
-        }else{
-            tmp_msg = "fail ";
-        }
-        tmp_msg += msg;
-        tmp_msg += "\n";
-
-        ctrl_socket->send(tmp_msg);
-    }
+    ctrl_connected = false;
 }
-void LTE_file_recorder_interface::handle_ctrl_msg(std::string msg)
-{
-    LTE_file_recorder_interface *interface = LTE_file_recorder_interface::get_instance();
 
-    if(std::string::npos != msg.find("read"))
-    {
-        interface->handle_read(msg);
-    }else if(std::string::npos != msg.find("write")){
-        interface->handle_write(msg);
-    }else if(std::string::npos != msg.find("start")){
-        interface->handle_start();
-    }else if(std::string::npos != msg.find("stop")){
-        interface->handle_stop();
-    }else if(std::string::npos != msg.find("shutdown")){
-        interface->shutdown = true;
-        interface->send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, "");
-    }else if(std::string::npos != msg.find("help")){
-        interface->handle_help();
-    }else{
-        interface->send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Invalid param");
-    }
-}
-void LTE_file_recorder_interface::handle_ctrl_connect(void)
-{
-    LTE_file_recorder_interface *interface = LTE_file_recorder_interface::get_instance();
-
-    pthread_mutex_lock(&connect_mutex);
-    LTE_file_recorder_interface::ctrl_connected = true;
-    pthread_mutex_unlock(&connect_mutex);
-
-    interface->send_ctrl_msg("*** LTE File Recorder ***");
-    interface->send_ctrl_msg("Type help to see a list of commands");
-}
-void LTE_file_recorder_interface::handle_ctrl_disconnect(void)
-{
-    libtools_scoped_lock lock(connect_mutex);
-
-    LTE_file_recorder_interface::ctrl_connected = false;
-}
-void LTE_file_recorder_interface::handle_ctrl_error(LIBTOOLS_SOCKET_WRAP_ERROR_ENUM err)
+void LTE_file_recorder_interface::handle_ctrl_error(const LIBTOOLS_SERVER_SOCKET_ERROR_ENUM err)
 {
     printf("ERROR: ctrl_socket error %u\n", err);
     assert(0);
 }
 
-// Handlers
 void LTE_file_recorder_interface::handle_read(std::string msg)
 {
-    if(std::string::npos != msg.find(EARFCN_PARAM))
-    {
-        read_earfcn();
-    }else if(std::string::npos != msg.find(FILE_NAME_PARAM)){
-        read_file_name();
-    }else{
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Invalid read");
-    }
+    if(0 != msg.find("read "))
+        return send_ctrl_msg("fail invalid read command");
+    std::string param = msg.substr(5);
+    if(0 == param.find(earfcn_token))
+        return send_ctrl_msg("ok " + std::to_string(earfcn));
+    if(0 == param.find(file_name_token))
+        return send_ctrl_msg("ok " + file_name);
+    send_ctrl_msg("fail invalid read parameter");
 }
+
 void LTE_file_recorder_interface::handle_write(std::string msg)
 {
-    if(std::string::npos != msg.find(EARFCN_PARAM))
+    if(0 != msg.find("write "))
+        return send_ctrl_msg("fail invalid write command");
+    std::string param = msg.substr(6);
+    if(0 == param.find(earfcn_token))
+        return write_earfcn(param.substr(earfcn_token.length()+1));
+    if(0 == param.find(file_name_token))
     {
-        write_earfcn(msg.substr(msg.find(EARFCN_PARAM)+sizeof(EARFCN_PARAM), std::string::npos).c_str());
-    }else if(std::string::npos != msg.find(FILE_NAME_PARAM)){
-        write_file_name(msg.substr(msg.find(FILE_NAME_PARAM)+sizeof(FILE_NAME_PARAM), std::string::npos).c_str());
-    }else{
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Invalid write");
+        file_name = param.substr(file_name_token.length()+1);
+        return send_ctrl_msg("ok");
     }
+    send_ctrl_msg("fail invalid write parameter");
 }
-void LTE_file_recorder_interface::handle_start(void)
-{
-    LTE_file_recorder_flowgraph *flowgraph = LTE_file_recorder_flowgraph::get_instance();
 
-    if(!flowgraph->is_started())
-    {
-        if(LTE_FILE_RECORDER_STATUS_OK == flowgraph->start(earfcn, file_name))
-        {
-            send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, "");
-        }else{
-            send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Start fail, likely there is no hardware connected");
-        }
-    }else{
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Flowgraph already started");
-    }
+void LTE_file_recorder_interface::write_earfcn(std::string earfcn_str)
+{
+    uint16 tmp_earfcn = LIBLTE_INTERFACE_DL_EARFCN_INVALID;
+
+    to_number(earfcn_str, &tmp_earfcn);
+
+    if(0 == liblte_interface_dl_earfcn_to_frequency(tmp_earfcn) &&
+       0 == liblte_interface_ul_earfcn_to_frequency(tmp_earfcn))
+        return send_ctrl_msg("fail invalid earfcn");
+    earfcn = tmp_earfcn;
+    send_ctrl_msg("ok");
 }
-void LTE_file_recorder_interface::handle_stop(void)
-{
-    LTE_file_recorder_flowgraph *flowgraph = LTE_file_recorder_flowgraph::get_instance();
 
-    if(flowgraph->is_started())
-    {
-        if(LTE_FILE_RECORDER_STATUS_OK == flowgraph->stop())
-        {
-            send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, "");
-        }else{
-            send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Stop fail");
-        }
-    }else{
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Flowgraph not started");
-    }
+void LTE_file_recorder_interface::handle_start()
+{
+    if(flowgraph != NULL)
+        return send_ctrl_msg("fail flowgraph already started");
+
+    flowgraph = new LTE_file_recorder_flowgraph();
+    if(flowgraph->start(earfcn, file_name))
+        return send_ctrl_msg("start fail, likely there is no hardware connected");
+    send_ctrl_msg("ok");
 }
-void LTE_file_recorder_interface::handle_help(void)
-{
-    std::string tmp_str;
 
+void LTE_file_recorder_interface::handle_stop()
+{
+    if(flowgraph == NULL)
+        return send_ctrl_msg("fail not started");
+
+    if(flowgraph->stop())
+        return send_ctrl_msg("fail stop issue");
+    delete flowgraph;
+    flowgraph = NULL;
+    send_ctrl_msg("ok");
+}
+
+void LTE_file_recorder_interface::handle_help()
+{
     send_ctrl_msg("***System Configuration Parameters***");
     send_ctrl_msg("\tRead parameters using read <param> format");
     send_ctrl_msg("\tSet parameters using write <param> <value> format");
@@ -309,53 +241,11 @@ void LTE_file_recorder_interface::handle_help(void)
     send_ctrl_msg("\t\tshutdown - Stops the recording and exits");
     send_ctrl_msg("\t\thelp     - Prints this screen");
     send_ctrl_msg("\tParameters:");
-
-    // EARFCN
-    tmp_str  = "\t\t";
-    tmp_str += EARFCN_PARAM;
-    tmp_str += " = ";
-    tmp_str += to_string(earfcn);
-    send_ctrl_msg(tmp_str);
-
-    // FILE_NAME
-    tmp_str  = "\t\t";
-    tmp_str += FILE_NAME_PARAM;
-    tmp_str += " = " + file_name;
-    send_ctrl_msg(tmp_str);
+    send_ctrl_msg("\t\t" + earfcn_token + " = " + std::to_string(earfcn));
+    send_ctrl_msg("\t\t" + file_name_token + " = " + file_name);
 }
 
-// Gets/Sets
-bool LTE_file_recorder_interface::get_shutdown(void)
+bool LTE_file_recorder_interface::get_shutdown()
 {
-    return(shutdown);
-}
-
-// Reads/Writes
-void LTE_file_recorder_interface::read_earfcn(void)
-{
-    send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, to_string(earfcn).c_str());
-}
-void LTE_file_recorder_interface::write_earfcn(std::string earfcn_str)
-{
-    uint16 tmp_earfcn = LIBLTE_INTERFACE_DL_EARFCN_INVALID;
-
-    to_number(earfcn_str, &tmp_earfcn);
-
-    if(0 != liblte_interface_dl_earfcn_to_frequency(tmp_earfcn) ||
-       0 != liblte_interface_ul_earfcn_to_frequency(tmp_earfcn))
-    {
-        earfcn = tmp_earfcn;
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, "");
-    }else{
-        send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_FAIL, "Invalid earfcn");
-    }
-}
-void LTE_file_recorder_interface::read_file_name(void)
-{
-    send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, file_name.c_str());
-}
-void LTE_file_recorder_interface::write_file_name(std::string file_name_str)
-{
-    file_name = file_name_str;
-    send_ctrl_status_msg(LTE_FILE_RECORDER_STATUS_OK, "\"File name not checked\"");
+    return shutdown;
 }

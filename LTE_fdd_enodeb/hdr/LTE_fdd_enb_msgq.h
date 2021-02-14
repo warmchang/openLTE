@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2017 Ben Wojtowicz
+    Copyright 2013-2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -45,6 +45,7 @@
                                    to sem_t.
     03/12/2016    Ben Wojtowicz    Added PUCCH support.
     07/29/2017    Ben Wojtowicz    Added SR Support.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -56,10 +57,10 @@
 *******************************************************************************/
 
 #include "LTE_fdd_enb_user.h"
-#include "liblte_rrc.h"
 #include "liblte_phy.h"
 #include <boost/circular_buffer.hpp>
 #include <string>
+#include "semaphore.h"
 
 /*******************************************************************************
                               DEFINES
@@ -72,6 +73,7 @@
                               FORWARD DECLARATIONS
 *******************************************************************************/
 
+class LTE_fdd_enb_interface;
 
 /*******************************************************************************
                               TYPEDEFS
@@ -173,11 +175,11 @@ static const char LTE_fdd_enb_dest_layer_text[LTE_FDD_ENB_DEST_LAYER_N_ITEMS][10
 
 // MAC -> PHY Messages
 typedef struct{
-    LIBLTE_PHY_PDCCH_STRUCT dl_allocations;
-    LIBLTE_PHY_PDCCH_STRUCT ul_allocations;
+    LIBLTE_PHY_PDCCH_STRUCT allocations;
     uint32                  N_avail_prbs;
     uint32                  N_sched_prbs;
     uint32                  current_tti;
+    uint8                   next_prb;
 }LTE_FDD_ENB_DL_SCHEDULE_MSG_STRUCT;
 typedef enum{
     LTE_FDD_ENB_PUCCH_TYPE_ACK_NACK = 0,
@@ -400,7 +402,7 @@ template<class class_type, void (class_type::*Func)(LTE_FDD_ENB_MESSAGE_STRUCT&)
 class LTE_fdd_enb_msgq
 {
 public:
-    LTE_fdd_enb_msgq(std::string _msgq_name);
+    LTE_fdd_enb_msgq(LTE_fdd_enb_interface *iface, std::string _msgq_name);
     ~LTE_fdd_enb_msgq();
 
     // Setup
@@ -422,11 +424,12 @@ private:
     static void* receive_thread(void *inputs);
 
     // Variables
+    LTE_fdd_enb_interface                              *interface;
     LTE_fdd_enb_msgq_cb                                 callback;
     sem_t                                               sync_sem;
     sem_t                                               msg_sem;
     boost::circular_buffer<LTE_FDD_ENB_MESSAGE_STRUCT> *circ_buf;
-    std::string                                         msgq_name;
+    const std::string                                   msgq_name;
     pthread_t                                           rx_thread;
     uint32                                              prio;
     bool                                                rx_setup;

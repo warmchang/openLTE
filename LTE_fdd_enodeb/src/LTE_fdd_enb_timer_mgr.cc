@@ -1,7 +1,7 @@
 #line 2 "LTE_fdd_enb_timer_mgr.cc" // Make __FILE__ omit the path
 /*******************************************************************************
 
-    Copyright 2014-2015 Ben Wojtowicz
+    Copyright 2014-2015, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -33,6 +33,7 @@
     02/15/2015    Ben Wojtowicz    Moved to new message queue for timer ticks.
     12/06/2015    Ben Wojtowicz    Changed boost::mutex to pthread_mutex_t and
                                    sem_t.
+    02/14/2021    Ben Wojtowicz    Massive reformat.
 
 *******************************************************************************/
 
@@ -42,7 +43,6 @@
 
 #include "LTE_fdd_enb_timer_mgr.h"
 #include "LTE_fdd_enb_user_mgr.h"
-#include "libtools_scoped_lock.h"
 #include <list>
 
 /*******************************************************************************
@@ -59,88 +59,47 @@
                               GLOBAL VARIABLES
 *******************************************************************************/
 
-LTE_fdd_enb_timer_mgr* LTE_fdd_enb_timer_mgr::instance = NULL;
-static pthread_mutex_t timer_mgr_instance_mutex        = PTHREAD_MUTEX_INITIALIZER;
 
 /*******************************************************************************
                               CLASS IMPLEMENTATIONS
 *******************************************************************************/
 
-/*******************/
-/*    Singleton    */
-/*******************/
-LTE_fdd_enb_timer_mgr* LTE_fdd_enb_timer_mgr::get_instance(void)
-{
-    libtools_scoped_lock lock(timer_mgr_instance_mutex);
-
-    if(NULL == instance)
-    {
-        instance = new LTE_fdd_enb_timer_mgr();
-    }
-
-    return(instance);
-}
-void LTE_fdd_enb_timer_mgr::cleanup(void)
-{
-    libtools_scoped_lock lock(timer_mgr_instance_mutex);
-
-    if(NULL != instance)
-    {
-        delete instance;
-        instance = NULL;
-    }
-}
-
 /********************************/
 /*    Constructor/Destructor    */
 /********************************/
-LTE_fdd_enb_timer_mgr::LTE_fdd_enb_timer_mgr()
+LTE_fdd_enb_timer_mgr::LTE_fdd_enb_timer_mgr(LTE_fdd_enb_interface *iface) :
+    interface{iface}, started{false}
 {
-    sem_init(&start_sem, 0, 1);
-    sem_init(&timer_sem, 0, 1);
-    interface = NULL;
-    started   = false;
 }
 LTE_fdd_enb_timer_mgr::~LTE_fdd_enb_timer_mgr()
 {
-    std::map<uint32, LTE_fdd_enb_timer *>::iterator iter;
-
-    sem_wait(&timer_sem);
-    for(iter=timer_map.begin(); iter!=timer_map.end(); iter++)
-    {
-        delete (*iter).second;
-    }
-    sem_post(&timer_sem);
-    sem_destroy(&timer_sem);
-    sem_destroy(&start_sem);
+    std::lock_guard<std::mutex> lock(timer_mutex);
+    for(auto timer : timer_map)
+        delete timer.second;
 }
 
 /********************/
 /*    Start/Stop    */
 /********************/
-void LTE_fdd_enb_timer_mgr::start(LTE_fdd_enb_msgq      *from_mac,
-                                  LTE_fdd_enb_interface *iface)
+void LTE_fdd_enb_timer_mgr::start(LTE_fdd_enb_msgq *from_mac)
 {
-    libtools_scoped_lock lock(start_sem);
-    LTE_fdd_enb_msgq_cb  timer_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_timer_mgr, &LTE_fdd_enb_timer_mgr::handle_msg>, this);
-
-    if(!started)
-    {
-        interface     = iface;
-        started       = true;
-        next_timer_id = 0;
-        msgq_from_mac = from_mac;
-        msgq_from_mac->attach_rx(timer_cb);
-    }
-}
-void LTE_fdd_enb_timer_mgr::stop(void)
-{
-    libtools_scoped_lock lock(start_sem);
+    std::lock_guard<std::mutex> lock(start_mutex);
+    LTE_fdd_enb_msgq_cb         timer_cb(&LTE_fdd_enb_msgq_cb_wrapper<LTE_fdd_enb_timer_mgr, &LTE_fdd_enb_timer_mgr::handle_msg>, this);
 
     if(started)
-    {
+        return;
+
+    started       = true;
+    next_timer_id = 0;
+    msgq_from_mac = from_mac;
+    msgq_from_mac->attach_rx(timer_cb);
+}
+void LTE_fdd_enb_timer_mgr::stop()
+{
+    std::lock_guard<std::mutex> lock(start_mutex);
+
+    if(started)
         started = false;
-    }
 }
 
 /****************************/
@@ -150,16 +109,16 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::start_timer(uint32                
                                                           LTE_fdd_enb_timer_cb  cb,
                                                           uint32               *timer_id)
 {
-    libtools_scoped_lock                             lock(timer_sem);
-    std::map<uint32, LTE_fdd_enb_timer *>::iterator  iter      = timer_map.find(next_timer_id);
-    LTE_fdd_enb_timer                               *new_timer = NULL;
-    LTE_FDD_ENB_ERROR_ENUM                           err       = LTE_FDD_ENB_ERROR_BAD_ALLOC;
+    std::lock_guard<std::mutex>  lock(timer_mutex);
+    auto                         timer_it  = timer_map.find(next_timer_id);
+    LTE_fdd_enb_timer           *new_timer = NULL;
+    LTE_FDD_ENB_ERROR_ENUM       err       = LTE_FDD_ENB_ERROR_BAD_ALLOC;
 
-    while(timer_map.end()              != iter &&
+    while(timer_map.end()              != timer_it &&
           LTE_FDD_ENB_INVALID_TIMER_ID != next_timer_id)
     {
         next_timer_id++;
-        iter = timer_map.find(next_timer_id);
+        timer_it = timer_map.find(next_timer_id);
     }
     new_timer = new LTE_fdd_enb_timer(m_seconds, next_timer_id, cb);
 
@@ -170,36 +129,30 @@ LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::start_timer(uint32                
         err                        = LTE_FDD_ENB_ERROR_NONE;
     }
 
-    return(err);
+    return err;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::stop_timer(uint32 timer_id)
 {
-    libtools_scoped_lock                            lock(timer_sem);
-    std::map<uint32, LTE_fdd_enb_timer *>::iterator iter = timer_map.find(timer_id);
-    LTE_FDD_ENB_ERROR_ENUM                          err  = LTE_FDD_ENB_ERROR_TIMER_NOT_FOUND;
+    std::lock_guard<std::mutex> lock(timer_mutex);
+    auto                        timer_it = timer_map.find(timer_id);
 
-    if(timer_map.end() != iter)
-    {
-        delete (*iter).second;
-        timer_map.erase(iter);
-        err = LTE_FDD_ENB_ERROR_NONE;
-    }
+    if(timer_map.end() == timer_it)
+        return LTE_FDD_ENB_ERROR_TIMER_NOT_FOUND;
 
-    return(err);
+    delete (*timer_it).second;
+    timer_map.erase(timer_it);
+    return LTE_FDD_ENB_ERROR_NONE;
 }
 LTE_FDD_ENB_ERROR_ENUM LTE_fdd_enb_timer_mgr::reset_timer(uint32 timer_id)
 {
-    libtools_scoped_lock                            lock(timer_sem);
-    std::map<uint32, LTE_fdd_enb_timer *>::iterator iter = timer_map.find(timer_id);
-    LTE_FDD_ENB_ERROR_ENUM                          err  = LTE_FDD_ENB_ERROR_TIMER_NOT_FOUND;
+    std::lock_guard<std::mutex> lock(timer_mutex);
+    auto                        timer_it = timer_map.find(timer_id);
 
-    if(timer_map.end() != iter)
-    {
-        (*iter).second->reset();
-        err = LTE_FDD_ENB_ERROR_NONE;
-    }
+    if(timer_map.end() == timer_it)
+        return LTE_FDD_ENB_ERROR_TIMER_NOT_FOUND;
 
-    return(err);
+    (*timer_it).second->reset();
+    return LTE_FDD_ENB_ERROR_NONE;
 }
 
 /***********************/
@@ -233,33 +186,31 @@ void LTE_fdd_enb_timer_mgr::handle_msg(LTE_FDD_ENB_MESSAGE_STRUCT &msg)
                                   LTE_fdd_enb_dest_layer_text[msg.dest_layer]);
     }
 }
-void LTE_fdd_enb_timer_mgr::handle_tick(void)
+void LTE_fdd_enb_timer_mgr::handle_tick()
 {
-    LTE_fdd_enb_user_mgr                            *user_mgr = LTE_fdd_enb_user_mgr::get_instance();
-    std::map<uint32, LTE_fdd_enb_timer *>::iterator  iter;
-    std::list<uint32>                                expired_list;
+    std::list<uint32> expired_list;
 
-    sem_wait(&timer_sem);
-    for(iter=timer_map.begin(); iter!=timer_map.end(); iter++)
+    timer_mutex.lock();
+    for(auto timer : timer_map)
     {
-        (*iter).second->increment();
+        timer.second->increment();
 
-        if((*iter).second->expired())
+        if(timer.second->expired())
         {
-            expired_list.push_back((*iter).first);
+            expired_list.push_back(timer.first);
         }
     }
-    sem_post(&timer_sem);
+    timer_mutex.unlock();
 
     // Delete expired timers
     while(0 != expired_list.size())
     {
-        iter = timer_map.find(expired_list.front());
-        if(timer_map.end() != iter)
+        auto timer_it = timer_map.find(expired_list.front());
+        if(timer_map.end() != timer_it)
         {
-            (*iter).second->call_callback();
-            delete (*iter).second;
-            timer_map.erase(iter);
+            (*timer_it).second->call_callback();
+            delete (*timer_it).second;
+            timer_map.erase(timer_it);
         }
         expired_list.pop_front();
     }

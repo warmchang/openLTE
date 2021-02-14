@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2013-2016 Ben Wojtowicz
+    Copyright 2013-2016, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -34,6 +34,7 @@
     03/11/2015    Ben Wojtowicz    Fixed long BSR CE and added extended power
                                    headroom CE support.
     07/03/2016    Ben Wojtowicz    Fixed extended power headroom CE.
+    02/14/2021    Ben Wojtowicz    Moved max buffer size variables to uint8.
 
 *******************************************************************************/
 
@@ -123,14 +124,14 @@ LIBLTE_ERROR_ENUM liblte_mac_unpack_short_bsr_ce(uint8                          
 // Enums
 // Structs
 typedef struct{
-    uint8 max_buffer_size_0;
-    uint8 min_buffer_size_0;
-    uint8 max_buffer_size_1;
-    uint8 min_buffer_size_1;
-    uint8 max_buffer_size_2;
-    uint8 min_buffer_size_2;
-    uint8 max_buffer_size_3;
-    uint8 min_buffer_size_3;
+    uint32 max_buffer_size_0;
+    uint32 min_buffer_size_0;
+    uint32 max_buffer_size_1;
+    uint32 min_buffer_size_1;
+    uint32 max_buffer_size_2;
+    uint32 min_buffer_size_2;
+    uint32 max_buffer_size_3;
+    uint32 min_buffer_size_3;
 }LIBLTE_MAC_LONG_BSR_CE_STRUCT;
 // Functions
 LIBLTE_ERROR_ENUM liblte_mac_pack_long_bsr_ce(LIBLTE_MAC_LONG_BSR_CE_STRUCT  *long_bsr,

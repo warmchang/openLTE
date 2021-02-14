@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-    Copyright 2012-2014, 2017 Ben Wojtowicz
+    Copyright 2012-2014, 2017, 2021 Ben Wojtowicz
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU Affero General Public License as published by
@@ -49,6 +49,8 @@
     05/04/2014    Ben Wojtowicz    Added PHICH support.
     11/01/2014    Ben Wojtowicz    Using the latest LTE library.
     07/29/2017    Ben Wojtowicz    Using the latest LTE library.
+    02/14/2021    Ben Wojtowicz    Massive reformat and using the new RRC
+                                   library.
 
 *******************************************************************************/
 
@@ -93,11 +95,11 @@ LTE_fdd_dl_fg_samp_buf_sptr LTE_fdd_dl_fg_make_samp_buf(size_t out_size_val)
 LTE_fdd_dl_fg_samp_buf::LTE_fdd_dl_fg_samp_buf(size_t out_size_val)
     : gr::sync_block ("samp_buf",
                       gr::io_signature::make(MIN_IN,  MAX_IN,  sizeof(int8)),
-                      gr::io_signature::make(MIN_OUT, MAX_OUT, out_size_val))
+                      gr::io_signature::make(MIN_OUT, MAX_OUT, out_size_val)),
+      mib{NULL}, sib1{NULL}, sib2{NULL}, sib3{NULL}, sib4{NULL}, sib8{NULL},
+    N_frames{NULL}, N_ant{NULL}, N_id_cell{NULL}, percent_load{NULL}, sib3_present{NULL},
+    sib4_present{NULL}, sib8_present{NULL}
 {
-    uint32 i;
-    uint32 j;
-
     // Parse the inputs
     if(out_size_val == sizeof(gr_complex))
     {
@@ -109,149 +111,16 @@ LTE_fdd_dl_fg_samp_buf::LTE_fdd_dl_fg_samp_buf(size_t out_size_val)
     }
 
     // Initialize the LTE parameters
-    // General
-    bandwidth    = 20;
-    N_rb_dl      = LIBLTE_PHY_N_RB_DL_20MHZ;
-    fs           = LIBLTE_PHY_FS_30_72MHZ;
-    sfn          = 0;
-    N_frames     = 30;
-    N_ant        = 1;
-    N_id_cell    = 0;
-    N_id_2       = (N_id_cell % 3);
-    N_id_1       = (N_id_cell - N_id_2)/3;
-    sib_tx_mode  = 1;
-    percent_load = 0;
-    // MIB
-    mib.dl_bw            = LIBLTE_RRC_DL_BANDWIDTH_100;
-    mib.phich_config.dur = LIBLTE_RRC_PHICH_DURATION_NORMAL;
-    mib.phich_config.res = LIBLTE_RRC_PHICH_RESOURCE_1;
-    phich_res            = 1;
-    mib.sfn_div_4        = sfn/4;
-    // SIB1
-    sib1.N_plmn_ids                       = 1;
-    sib1.plmn_id[0].id.mcc                = 0xF001;
-    sib1.plmn_id[0].id.mnc                = 0xFF01;
-    sib1.plmn_id[0].resv_for_oper         = LIBLTE_RRC_NOT_RESV_FOR_OPER;
-    sib1.N_sched_info                     = 1;
-    sib1.sched_info[0].N_sib_mapping_info = 0;
-    sib1.sched_info[0].si_periodicity     = LIBLTE_RRC_SI_PERIODICITY_RF8;
-    si_periodicity_T                      = 8;
-    sib1.cell_barred                      = LIBLTE_RRC_CELL_NOT_BARRED;
-    sib1.intra_freq_reselection           = LIBLTE_RRC_INTRA_FREQ_RESELECTION_ALLOWED;
-    sib1.si_window_length                 = LIBLTE_RRC_SI_WINDOW_LENGTH_MS2;
-    si_win_len                            = 2;
-    sib1.tdd_cnfg.sf_assignment           = LIBLTE_RRC_SUBFRAME_ASSIGNMENT_0;
-    sib1.tdd_cnfg.special_sf_patterns     = LIBLTE_RRC_SPECIAL_SUBFRAME_PATTERNS_0;
-    sib1.cell_id                          = 0;
-    sib1.csg_id                           = 0;
-    sib1.tracking_area_code               = 0;
-    sib1.q_rx_lev_min                     = -140;
-    sib1.csg_indication                   = 0;
-    sib1.q_rx_lev_min_offset              = 1;
-    sib1.freq_band_indicator              = 1;
-    sib1.system_info_value_tag            = 0;
-    sib1.p_max_present                    = true;
-    sib1.p_max                            = -30;
-    sib1.tdd                              = false;
-    // SIB2
-    sib2.ac_barring_info_present                                                      = false;
-    sib2.rr_config_common_sib.rach_cnfg.num_ra_preambles                              = LIBLTE_RRC_NUMBER_OF_RA_PREAMBLES_N64;
-    sib2.rr_config_common_sib.rach_cnfg.preambles_group_a_cnfg.present                = false;
-    sib2.rr_config_common_sib.rach_cnfg.pwr_ramping_step                              = LIBLTE_RRC_POWER_RAMPING_STEP_DB6;
-    sib2.rr_config_common_sib.rach_cnfg.preamble_init_rx_target_pwr                   = LIBLTE_RRC_PREAMBLE_INITIAL_RECEIVED_TARGET_POWER_DBM_N100;
-    sib2.rr_config_common_sib.rach_cnfg.preamble_trans_max                            = LIBLTE_RRC_PREAMBLE_TRANS_MAX_N200;
-    sib2.rr_config_common_sib.rach_cnfg.ra_resp_win_size                              = LIBLTE_RRC_RA_RESPONSE_WINDOW_SIZE_SF10;
-    sib2.rr_config_common_sib.rach_cnfg.mac_con_res_timer                             = LIBLTE_RRC_MAC_CONTENTION_RESOLUTION_TIMER_SF64;
-    sib2.rr_config_common_sib.rach_cnfg.max_harq_msg3_tx                              = 1;
-    sib2.rr_config_common_sib.bcch_cnfg.modification_period_coeff                     = LIBLTE_RRC_MODIFICATION_PERIOD_COEFF_N2;
-    sib2.rr_config_common_sib.pcch_cnfg.default_paging_cycle                          = LIBLTE_RRC_DEFAULT_PAGING_CYCLE_RF256;
-    sib2.rr_config_common_sib.pcch_cnfg.nB                                            = LIBLTE_RRC_NB_ONE_T;
-    sib2.rr_config_common_sib.prach_cnfg.root_sequence_index                          = 0;
-    sib2.rr_config_common_sib.prach_cnfg.prach_cnfg_info.prach_config_index           = 0;
-    sib2.rr_config_common_sib.prach_cnfg.prach_cnfg_info.high_speed_flag              = false;
-    sib2.rr_config_common_sib.prach_cnfg.prach_cnfg_info.zero_correlation_zone_config = 0;
-    sib2.rr_config_common_sib.prach_cnfg.prach_cnfg_info.prach_freq_offset            = 0;
-    sib2.rr_config_common_sib.pdsch_cnfg.rs_power                                     = -60;
-    sib2.rr_config_common_sib.pdsch_cnfg.p_b                                          = 0;
-    sib2.rr_config_common_sib.pusch_cnfg.n_sb                                         = 1;
-    sib2.rr_config_common_sib.pusch_cnfg.hopping_mode                                 = LIBLTE_RRC_HOPPING_MODE_INTER_SUBFRAME;
-    sib2.rr_config_common_sib.pusch_cnfg.pusch_hopping_offset                         = 0;
-    sib2.rr_config_common_sib.pusch_cnfg.enable_64_qam                                = true;
-    sib2.rr_config_common_sib.pusch_cnfg.ul_rs.group_hopping_enabled                  = false;
-    sib2.rr_config_common_sib.pusch_cnfg.ul_rs.group_assignment_pusch                 = 0;
-    sib2.rr_config_common_sib.pusch_cnfg.ul_rs.sequence_hopping_enabled               = false;
-    sib2.rr_config_common_sib.pusch_cnfg.ul_rs.cyclic_shift                           = 0;
-    sib2.rr_config_common_sib.pucch_cnfg.delta_pucch_shift                            = LIBLTE_RRC_DELTA_PUCCH_SHIFT_DS1;
-    sib2.rr_config_common_sib.pucch_cnfg.n_rb_cqi                                     = 0;
-    sib2.rr_config_common_sib.pucch_cnfg.n_cs_an                                      = 0;
-    sib2.rr_config_common_sib.pucch_cnfg.n1_pucch_an                                  = 0;
-    sib2.rr_config_common_sib.srs_ul_cnfg.present                                     = false;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.p0_nominal_pusch                            = -70;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.alpha                                       = LIBLTE_RRC_UL_POWER_CONTROL_ALPHA_1;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.p0_nominal_pucch                            = -96;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.delta_flist_pucch.format_1                  = LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1_0;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.delta_flist_pucch.format_1b                 = LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_1B_1;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.delta_flist_pucch.format_2                  = LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2_0;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.delta_flist_pucch.format_2a                 = LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2A_0;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.delta_flist_pucch.format_2b                 = LIBLTE_RRC_DELTA_F_PUCCH_FORMAT_2B_0;
-    sib2.rr_config_common_sib.ul_pwr_ctrl.delta_preamble_msg3                         = -2;
-    sib2.rr_config_common_sib.ul_cp_length                                            = LIBLTE_RRC_UL_CP_LENGTH_1;
-    sib2.ue_timers_and_constants.t300                                                 = LIBLTE_RRC_T300_MS1000;
-    sib2.ue_timers_and_constants.t301                                                 = LIBLTE_RRC_T301_MS1000;
-    sib2.ue_timers_and_constants.t310                                                 = LIBLTE_RRC_T310_MS1000;
-    sib2.ue_timers_and_constants.n310                                                 = LIBLTE_RRC_N310_N20;
-    sib2.ue_timers_and_constants.t311                                                 = LIBLTE_RRC_T311_MS1000;
-    sib2.ue_timers_and_constants.n311                                                 = LIBLTE_RRC_N311_N10;
-    sib2.arfcn_value_eutra.present                                                    = false;
-    sib2.ul_bw.present                                                                = false;
-    sib2.additional_spectrum_emission                                                 = 1;
-    sib2.mbsfn_subfr_cnfg_list_size                                                   = 0;
-    sib2.time_alignment_timer                                                         = LIBLTE_RRC_TIME_ALIGNMENT_TIMER_SF500;
-    // SIB3
-    sib3_present                          = 0;
-    sib3.q_hyst                           = LIBLTE_RRC_Q_HYST_DB_0;
-    sib3.speed_state_resel_params.present = false;
-    sib3.s_non_intra_search_present       = false;
-    sib3.thresh_serving_low               = 0;
-    sib3.cell_resel_prio                  = 0;
-    sib3.q_rx_lev_min                     = sib1.q_rx_lev_min;
-    sib3.p_max_present                    = true;
-    sib3.p_max                            = sib1.p_max;
-    sib3.s_intra_search_present           = false;
-    sib3.allowed_meas_bw_present          = false;
-    sib3.presence_ant_port_1              = false;
-    sib3.neigh_cell_cnfg                  = 0;
-    sib3.t_resel_eutra                    = 0;
-    sib3.t_resel_eutra_sf_present         = false;
-    // SIB4
-    sib4_present                         = 0;
-    sib4.intra_freq_neigh_cell_list_size = 0;
-    sib4.intra_freq_black_cell_list_size = 0;
-    sib4.csg_phys_cell_id_range_present  = false;
-    // SIB8
-    sib8_present                 = 0;
-    sib8.sys_time_info_present   = false;
-    sib8.search_win_size_present = true;
-    sib8.search_win_size         = 0;
-    sib8.params_hrpd_present     = false;
-    sib8.params_1xrtt_present    = false;
+    sfn = 0;
     // PCFICH
     pcfich.cfi = 2;
     // PHICH
-    for(i=0; i<25; i++)
-    {
-        for(j=0; j<8; j++)
-        {
+    for(uint32 i=0; i<25; i++)
+        for(uint32 j=0; j<8; j++)
             phich.present[i][j] = false;
-        }
-    }
-
-    // Initialize the configuration
-    need_config = true;
 
     // Allocate the sample buffer
-    i_buf           = (float *)malloc(4*LTE_FDD_DL_FG_SAMP_BUF_SIZE*sizeof(float));
-    q_buf           = (float *)malloc(4*LTE_FDD_DL_FG_SAMP_BUF_SIZE*sizeof(float));
+    samp_buf        = (complex *)malloc(4*LTE_FDD_DL_FG_SAMP_BUF_SIZE*sizeof(complex));
     samp_buf_idx    = 0;
     samples_ready   = false;
     last_samp_was_i = false;
@@ -262,8 +131,7 @@ LTE_fdd_dl_fg_samp_buf::~LTE_fdd_dl_fg_samp_buf()
     liblte_phy_cleanup(phy_struct);
 
     // Free the sample buffer
-    free(i_buf);
-    free(q_buf);
+    free(samp_buf);
 }
 
 int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
@@ -271,306 +139,285 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                                    gr_vector_void_star       &output_items)
 {
     gr_complex *gr_complex_out = (gr_complex *)output_items[0];
-    float       i_samp;
-    float       q_samp;
-    int32       act_noutput_items;
-    uint32      out_idx;
     uint32      loop_cnt;
-    uint32      i;
-    uint32      j;
-    uint32      k;
-    uint32      p;
-    uint32      N_sfr;
-    uint32      last_prb;
-    uint32      max_N_prb;
-    size_t      line_size = LINE_MAX;
-    ssize_t     N_line_chars;
     int8       *int8_out = (int8 *)output_items[0];
-    char       *line;
     bool        done = false;
 
-    line = (char *)malloc(line_size);
-    if(need_config)
-    {
-        print_config();
-    }
-    while(need_config)
-    {
-        N_line_chars         = getline(&line, &line_size, stdin);
-        line[strlen(line)-1] = '\0';
-        change_config(line);
-        if(!need_config)
-        {
-            // Initialize the LTE library
-            liblte_phy_init(&phy_struct,
-                            fs,
-                            N_id_cell,
-                            N_ant,
-                            N_rb_dl,
-                            LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP,
-                            phich_res);
-        }
-    }
-    free(line);
 
     if(false == samples_ready)
     {
         // Generate frame
-        if(sfn < N_frames)
+        if(sfn < *N_frames)
         {
-            for(N_sfr=0; N_sfr<10; N_sfr++)
+            for(uint32 N_sfr=0; N_sfr<10; N_sfr++)
             {
                 // Initialize the output to all zeros
-                for(p=0; p<N_ant; p++)
-                {
-                    for(j=0; j<16; j++)
-                    {
-                        for(k=0; k<LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP; k++)
-                        {
-                            subframe.tx_symb_re[p][j][k] = 0;
-                            subframe.tx_symb_im[p][j][k] = 0;
-                        }
-                    }
-                }
+                for(uint32 p=0; p<*N_ant; p++)
+                    for(uint32 j=0; j<16; j++)
+                        for(uint32 k=0; k<LIBLTE_PHY_N_RB_DL_20MHZ*LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP; k++)
+                            subframe.tx_symb[p][j][k] = complex(0, 0);
                 subframe.num = N_sfr;
 
                 // PSS and SSS
-                if(subframe.num == 0 ||
-                   subframe.num == 5)
+                if(subframe.num == 0 || subframe.num == 5)
                 {
                     liblte_phy_map_pss(phy_struct,
                                        &subframe,
                                        N_id_2,
-                                       N_ant);
+                                       *N_ant);
                     liblte_phy_map_sss(phy_struct,
                                        &subframe,
                                        N_id_1,
                                        N_id_2,
-                                       N_ant);
+                                       *N_ant);
                 }
 
                 // CRS
                 liblte_phy_map_crs(phy_struct,
                                    &subframe,
-                                   N_id_cell,
-                                   N_ant);
+                                   *N_id_cell,
+                                   *N_ant);
 
                 // PBCH
                 if(subframe.num == 0)
                 {
-                    mib.sfn_div_4 = sfn/4;
-                    liblte_rrc_pack_bcch_bch_msg(&mib,
-                                                 &rrc_msg);
+                    mib->systemFrameNumber_SetValue(sfn/4);
+                    bcch_bch.message_Set()->MasterInformationBlock_value_Set(*mib);
+                    std::vector<uint8_t> bits;
+                    bcch_bch.Pack(bits);
+                    rrc_msg.N_bits = bits.size();
+                    for(uint32 i=0; i<bits.size(); i++)
+                        rrc_msg.msg[i] = bits[i];
                     liblte_phy_bch_channel_encode(phy_struct,
                                                   rrc_msg.msg,
                                                   rrc_msg.N_bits,
-                                                  N_id_cell,
-                                                  N_ant,
+                                                  *N_id_cell,
+                                                  *N_ant,
                                                   &subframe,
                                                   sfn);
                 }
 
                 // PDCCH & PDSCH
-                pdcch.N_alloc = 0;
-                if(subframe.num == 5 &&
-                   (sfn % 2)    == 0)
+                pdcch.N_dl_alloc = 0;
+                if(subframe.num == 5 && (sfn % 2) == 0)
                 {
                     // SIB1
-                    bcch_dlsch_msg.N_sibs           = 0;
-                    bcch_dlsch_msg.sibs[0].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1;
-                    memcpy(&bcch_dlsch_msg.sibs[0].sib, &sib1, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_1_STRUCT));
-                    liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                                   &pdcch.alloc[pdcch.N_alloc].msg[0]);
-                    liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg[0].N_bits,
+                    bcch_dlsch.message_Set()->SetChoice(BCCH_DL_SCH_MessageType::k_c1);
+                    bcch_dlsch.message_Set()->c1_SetChoice(BCCH_DL_SCH_MessageType::k_c1_systemInformationBlockType1);
+                    bcch_dlsch.message_Set()->c1_systemInformationBlockType1_Set(*sib1);
+                    std::vector<uint8_t> bits;
+                    bcch_dlsch.Pack(bits);
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].N_bits = bits.size();
+                    for(uint32 i=0; i<bits.size(); i++)
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].msg[i] = bits[i];
+                    liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].N_bits,
                                                             subframe.num,
                                                             N_rb_dl,
                                                             LIBLTE_MAC_SI_RNTI,
-                                                            &pdcch.alloc[pdcch.N_alloc].tbs,
-                                                            &pdcch.alloc[pdcch.N_alloc].mcs,
-                                                            &pdcch.alloc[pdcch.N_alloc].N_prb);
-                    pdcch.alloc[pdcch.N_alloc].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
-                    pdcch.alloc[pdcch.N_alloc].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
-                    pdcch.alloc[pdcch.N_alloc].rv_idx         = (uint32)ceilf(1.5 * ((sfn / 2) % 4)) % 4; //36.321 section 5.3.1
-                    pdcch.alloc[pdcch.N_alloc].N_codewords    = 1;
-                    pdcch.alloc[pdcch.N_alloc].rnti           = LIBLTE_MAC_SI_RNTI;
-                    pdcch.alloc[pdcch.N_alloc].tx_mode        = sib_tx_mode;
-                    pdcch.N_alloc++;
+                                                            &pdcch.dl_alloc[pdcch.N_dl_alloc].tbs,
+                                                            &pdcch.dl_alloc[pdcch.N_dl_alloc].mcs,
+                                                            &pdcch.dl_alloc[pdcch.N_dl_alloc].N_prb);
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].rv_idx         = (uint32)ceilf(1.5 * ((sfn / 2) % 4)) % 4; //36.321 section 5.3.1
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].N_codewords    = 1;
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].rnti           = LIBLTE_MAC_SI_RNTI;
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].tx_mode        = sib_tx_mode;
+                    pdcch.N_dl_alloc++;
                 }
                 if(subframe.num             >=  (0 * si_win_len)%10 &&
                    subframe.num             <   (1 * si_win_len)%10 &&
                    (sfn % si_periodicity_T) == ((0 * si_win_len)/10))
                 {
                     // SIs in 1st scheduling info list entry
-                    bcch_dlsch_msg.N_sibs           = 1;
-                    bcch_dlsch_msg.sibs[0].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_2;
-                    memcpy(&bcch_dlsch_msg.sibs[0].sib, &sib2, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_2_STRUCT));
-                    if(sib1.sched_info[0].N_sib_mapping_info != 0)
+                    std::vector<SystemInformation_r8_IEs::sib_TypeAndInfo_> sibs;
+                    SystemInformation_r8_IEs::sib_TypeAndInfo_ sib;
+                    bcch_dlsch.message_Set()->SetChoice(BCCH_DL_SCH_MessageType::k_c1);
+                    bcch_dlsch.message_Set()->c1_SetChoice(BCCH_DL_SCH_MessageType::k_c1_systemInformation);
+                    bcch_dlsch.message_Set()->c1_systemInformation_Set()->criticalExtensions_SetChoice(SystemInformation::k_criticalExtensions_systemInformation_r8);
+                    sib.sib_TypeAndInfo_SetChoice(SystemInformation_r8_IEs::sib_TypeAndInfo_::k_sib_TypeAndInfo_sib2);
+                    sib.sib_TypeAndInfo_sib2_Set(*sib2);
+                    sibs.push_back(sib);
+                    if(sib1->schedulingInfoList_Set()->Value()[0].sib_MappingInfo_Set()->Value().size() != 0)
                     {
-                        switch(sib1.sched_info[0].sib_mapping_info[0].sib_type)
+                        switch(sib1->schedulingInfoList_Set()->Value()[0].sib_MappingInfo_Set()->Value()[0].Value())
                         {
-                        case LIBLTE_RRC_SIB_TYPE_3:
-                            bcch_dlsch_msg.N_sibs++;
-                            bcch_dlsch_msg.sibs[1].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_3;
-                            memcpy(&bcch_dlsch_msg.sibs[1].sib, &sib3, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_3_STRUCT));
+                        case SIB_Type::k_sibType3:
+                            sib.sib_TypeAndInfo_SetChoice(SystemInformation_r8_IEs::sib_TypeAndInfo_::k_sib_TypeAndInfo_sib3);
+                            sib.sib_TypeAndInfo_sib3_Set(*sib3);
+                            sibs.push_back(sib);
                             break;
-                        case LIBLTE_RRC_SIB_TYPE_4:
-                            bcch_dlsch_msg.N_sibs++;
-                            bcch_dlsch_msg.sibs[1].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_4;
-                            memcpy(&bcch_dlsch_msg.sibs[1].sib, &sib4, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_4_STRUCT));
+                        case SIB_Type::k_sibType4:
+                            sib.sib_TypeAndInfo_SetChoice(SystemInformation_r8_IEs::sib_TypeAndInfo_::k_sib_TypeAndInfo_sib4);
+                            sib.sib_TypeAndInfo_sib4_Set(*sib4);
+                            sibs.push_back(sib);
                             break;
-                        case LIBLTE_RRC_SIB_TYPE_8:
-                            bcch_dlsch_msg.N_sibs++;
-                            bcch_dlsch_msg.sibs[1].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_8;
-                            memcpy(&bcch_dlsch_msg.sibs[1].sib, &sib8, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_8_STRUCT));
+                        case SIB_Type::k_sibType8:
+                            sib.sib_TypeAndInfo_SetChoice(SystemInformation_r8_IEs::sib_TypeAndInfo_::k_sib_TypeAndInfo_sib8);
+                            sib.sib_TypeAndInfo_sib8_Set(*sib8);
+                            sibs.push_back(sib);
                             break;
                         default:
                             break;
                         }
                     }
-                    liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                                   &pdcch.alloc[pdcch.N_alloc].msg[0]);
+                    bcch_dlsch.message_Set()->c1_systemInformation_Set()->criticalExtensions_systemInformation_r8_Set()->sib_TypeAndInfo_SetValue(sibs);
+                    std::vector<uint8_t> bits;
+                    bcch_dlsch.Pack(bits);
+                    pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].N_bits = bits.size();
+                    for(uint32 i=0; i<bits.size(); i++)
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].msg[i] = bits[i];
 
                     // FIXME: This was a hack to allow SIB2 decoding with 1.4MHz BW due to overlap with MIB
-                    if(LIBLTE_SUCCESS == liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg[0].N_bits,
+                    if(LIBLTE_SUCCESS == liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].N_bits,
                                                                                  subframe.num,
                                                                                  N_rb_dl,
                                                                                  LIBLTE_MAC_SI_RNTI,
-                                                                                 &pdcch.alloc[pdcch.N_alloc].tbs,
-                                                                                 &pdcch.alloc[pdcch.N_alloc].mcs,
-                                                                                 &pdcch.alloc[pdcch.N_alloc].N_prb))
+                                                                                 &pdcch.dl_alloc[pdcch.N_dl_alloc].tbs,
+                                                                                 &pdcch.dl_alloc[pdcch.N_dl_alloc].mcs,
+                                                                                 &pdcch.dl_alloc[pdcch.N_dl_alloc].N_prb))
                     {
-                        pdcch.alloc[pdcch.N_alloc].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
-                        pdcch.alloc[pdcch.N_alloc].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
-                        pdcch.alloc[pdcch.N_alloc].rv_idx         = 0; //36.321 section 5.3.1
-                        pdcch.alloc[pdcch.N_alloc].N_codewords    = 1;
-                        pdcch.alloc[pdcch.N_alloc].rnti           = LIBLTE_MAC_SI_RNTI;
-                        pdcch.alloc[pdcch.N_alloc].tx_mode        = sib_tx_mode;
-                        pdcch.N_alloc++;
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].rv_idx         = 0; //36.321 section 5.3.1
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].N_codewords    = 1;
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].rnti           = LIBLTE_MAC_SI_RNTI;
+                        pdcch.dl_alloc[pdcch.N_dl_alloc].tx_mode        = sib_tx_mode;
+                        pdcch.N_dl_alloc++;
                     }
                 }
-                for(j=1; j<sib1.N_sched_info; j++)
+                for(uint32 j=1; j<sib1->schedulingInfoList_Set()->Value().size(); j++)
                 {
                     if(subframe.num             ==  (j * si_win_len)%10 &&
                        (sfn % si_periodicity_T) == ((j * si_win_len)/10))
                     {
                         // SIs in the jth scheduling info list entry
-                        bcch_dlsch_msg.N_sibs = sib1.sched_info[j].N_sib_mapping_info;
-                        for(i=0; i<bcch_dlsch_msg.N_sibs; i++)
+                        std::vector<SystemInformation_r8_IEs::sib_TypeAndInfo_> sibs;
+                        SystemInformation_r8_IEs::sib_TypeAndInfo_ sib;
+                        bcch_dlsch.message_Set()->SetChoice(BCCH_DL_SCH_MessageType::k_c1);
+                        bcch_dlsch.message_Set()->c1_SetChoice(BCCH_DL_SCH_MessageType::k_c1_systemInformation);
+                        bcch_dlsch.message_Set()->c1_systemInformation_Set()->criticalExtensions_SetChoice(SystemInformation::k_criticalExtensions_systemInformation_r8);
+                        for(uint32 i=0; i<sib1->schedulingInfoList_Set()->Value()[j].sib_MappingInfo_Set()->Value().size(); i++)
                         {
-                            switch(sib1.sched_info[j].sib_mapping_info[i].sib_type)
+                            switch(sib1->schedulingInfoList_Set()->Value()[j].sib_MappingInfo_Set()->Value()[i].Value())
                             {
-                            case LIBLTE_RRC_SIB_TYPE_3:
-                                bcch_dlsch_msg.sibs[i].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_3;
-                                memcpy(&bcch_dlsch_msg.sibs[i].sib, &sib3, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_3_STRUCT));
+                            case SIB_Type::k_sibType3:
+                                sib.sib_TypeAndInfo_SetChoice(SystemInformation_r8_IEs::sib_TypeAndInfo_::k_sib_TypeAndInfo_sib3);
+                                sib.sib_TypeAndInfo_sib3_Set(*sib3);
+                                sibs.push_back(sib);
                                 break;
-                            case LIBLTE_RRC_SIB_TYPE_4:
-                                bcch_dlsch_msg.sibs[i].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_4;
-                                memcpy(&bcch_dlsch_msg.sibs[i].sib, &sib4, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_4_STRUCT));
+                            case SIB_Type::k_sibType4:
+                                sib.sib_TypeAndInfo_SetChoice(SystemInformation_r8_IEs::sib_TypeAndInfo_::k_sib_TypeAndInfo_sib4);
+                                sib.sib_TypeAndInfo_sib4_Set(*sib4);
+                                sibs.push_back(sib);
                                 break;
-                            case LIBLTE_RRC_SIB_TYPE_8:
-                                bcch_dlsch_msg.sibs[i].sib_type = LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_8;
-                                memcpy(&bcch_dlsch_msg.sibs[i].sib, &sib8, sizeof(LIBLTE_RRC_SYS_INFO_BLOCK_TYPE_8_STRUCT));
+                            case SIB_Type::k_sibType8:
+                                sib.sib_TypeAndInfo_SetChoice(SystemInformation_r8_IEs::sib_TypeAndInfo_::k_sib_TypeAndInfo_sib8);
+                                sib.sib_TypeAndInfo_sib8_Set(*sib8);
+                                sibs.push_back(sib);
                                 break;
                             default:
                                 break;
                             }
                         }
-                        if(0 != bcch_dlsch_msg.N_sibs)
+                        bcch_dlsch.message_Set()->c1_systemInformation_Set()->criticalExtensions_systemInformation_r8_Set()->sib_TypeAndInfo_SetValue(sibs);
+                        if(0 != sibs.size())
                         {
-                            liblte_rrc_pack_bcch_dlsch_msg(&bcch_dlsch_msg,
-                                                           &pdcch.alloc[pdcch.N_alloc].msg[0]);
-                            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[pdcch.N_alloc].msg[0].N_bits,
+                            std::vector<uint8_t> bits;
+                            bcch_dlsch.Pack(bits);
+                            pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].N_bits = bits.size();
+                            for(uint32 i=0; i<bits.size(); i++)
+                                pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].msg[i] = bits[i];
+                            liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.dl_alloc[pdcch.N_dl_alloc].msg[0].N_bits,
                                                                     subframe.num,
                                                                     N_rb_dl,
                                                                     LIBLTE_MAC_SI_RNTI,
-                                                                    &pdcch.alloc[pdcch.N_alloc].tbs,
-                                                                    &pdcch.alloc[pdcch.N_alloc].mcs,
-                                                                    &pdcch.alloc[pdcch.N_alloc].N_prb);
-                            pdcch.alloc[pdcch.N_alloc].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
-                            pdcch.alloc[pdcch.N_alloc].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
-                            pdcch.alloc[pdcch.N_alloc].rv_idx         = 0; //36.321 section 5.3.1
-                            pdcch.alloc[pdcch.N_alloc].N_codewords    = 1;
-                            pdcch.alloc[pdcch.N_alloc].rnti           = LIBLTE_MAC_SI_RNTI;
-                            pdcch.alloc[pdcch.N_alloc].tx_mode        = sib_tx_mode;
-                            pdcch.N_alloc++;
+                                                                    &pdcch.dl_alloc[pdcch.N_dl_alloc].tbs,
+                                                                    &pdcch.dl_alloc[pdcch.N_dl_alloc].mcs,
+                                                                    &pdcch.dl_alloc[pdcch.N_dl_alloc].N_prb);
+                            pdcch.dl_alloc[pdcch.N_dl_alloc].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
+                            pdcch.dl_alloc[pdcch.N_dl_alloc].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
+                            pdcch.dl_alloc[pdcch.N_dl_alloc].rv_idx         = 0; //36.321 section 5.3.1
+                            pdcch.dl_alloc[pdcch.N_dl_alloc].N_codewords    = 1;
+                            pdcch.dl_alloc[pdcch.N_dl_alloc].rnti           = LIBLTE_MAC_SI_RNTI;
+                            pdcch.dl_alloc[pdcch.N_dl_alloc].tx_mode        = sib_tx_mode;
+                            pdcch.N_dl_alloc++;
                         }
                     }
                 }
                 // Add test load
-                if(0 == pdcch.N_alloc)
+                if(0 == pdcch.N_dl_alloc)
                 {
-                    pdcch.alloc[0].msg[0].N_bits = 0;
-                    pdcch.alloc[0].N_prb         = 0;
+                    pdcch.dl_alloc[0].msg[0].N_bits = 0;
+                    pdcch.dl_alloc[0].N_prb         = 0;
+                    uint32 max_N_prb;
                     liblte_phy_get_tbs_mcs_and_n_prb_for_dl(1480,
                                                             subframe.num,
                                                             N_rb_dl,
                                                             LIBLTE_MAC_P_RNTI,
-                                                            &pdcch.alloc[0].tbs,
-                                                            &pdcch.alloc[0].mcs,
+                                                            &pdcch.dl_alloc[0].tbs,
+                                                            &pdcch.dl_alloc[0].mcs,
                                                             &max_N_prb);
-                    while(pdcch.alloc[0].N_prb < (uint32)((float)(max_N_prb*percent_load)/100.0))
+                    while(pdcch.dl_alloc[0].N_prb < (uint32)((float)(max_N_prb*(*percent_load))/100.0))
                     {
-                        pdcch.alloc[0].msg[0].N_bits += 8;
-                        liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.alloc[0].msg[0].N_bits,
+                        pdcch.dl_alloc[0].msg[0].N_bits += 8;
+                        liblte_phy_get_tbs_mcs_and_n_prb_for_dl(pdcch.dl_alloc[0].msg[0].N_bits,
                                                                 subframe.num,
                                                                 N_rb_dl,
                                                                 LIBLTE_MAC_P_RNTI,
-                                                                &pdcch.alloc[0].tbs,
-                                                                &pdcch.alloc[0].mcs,
-                                                                &pdcch.alloc[0].N_prb);
+                                                                &pdcch.dl_alloc[0].tbs,
+                                                                &pdcch.dl_alloc[0].mcs,
+                                                                &pdcch.dl_alloc[0].N_prb);
                     }
-                    for(i=0; i<pdcch.alloc[0].msg[0].N_bits; i++)
+                    for(uint32 i=0; i<pdcch.dl_alloc[0].msg[0].N_bits; i++)
+                        pdcch.dl_alloc[0].msg[0].msg[i] = i%2;
+                    if(0 != pdcch.dl_alloc[0].N_prb)
                     {
-                        pdcch.alloc[0].msg[0].msg[i] = liblte_rrc_test_fill[i%8];
-                    }
-                    if(0 != pdcch.alloc[0].N_prb)
-                    {
-                        pdcch.alloc[0].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
-                        pdcch.alloc[0].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
-                        pdcch.alloc[0].N_codewords    = 1;
-                        pdcch.alloc[0].rnti           = LIBLTE_MAC_P_RNTI;
-                        pdcch.alloc[0].tx_mode        = sib_tx_mode;
-                        pdcch.N_alloc++;
+                        pdcch.dl_alloc[0].pre_coder_type = LIBLTE_PHY_PRE_CODER_TYPE_TX_DIVERSITY;
+                        pdcch.dl_alloc[0].mod_type       = LIBLTE_PHY_MODULATION_TYPE_QPSK;
+                        pdcch.dl_alloc[0].N_codewords    = 1;
+                        pdcch.dl_alloc[0].rnti           = LIBLTE_MAC_P_RNTI;
+                        pdcch.dl_alloc[0].tx_mode        = sib_tx_mode;
+                        pdcch.N_dl_alloc++;
                     }
                 }
 
                 // Schedule all allocations
                 // FIXME: Scheduler
-                last_prb = 0;
-                for(i=0; i<pdcch.N_alloc; i++)
+                uint32 last_prb = 0;
+                for(uint32 i=0; i<pdcch.N_dl_alloc; i++)
                 {
-                    for(j=0; j<pdcch.alloc[i].N_prb; j++)
+                    for(uint32 j=0; j<pdcch.dl_alloc[i].N_prb; j++)
                     {
-                        pdcch.alloc[i].prb[0][j] = last_prb;
-                        pdcch.alloc[i].prb[1][j] = last_prb++;
+                        pdcch.dl_alloc[i].prb[0][j] = last_prb;
+                        pdcch.dl_alloc[i].prb[1][j] = last_prb++;
                     }
                 }
-                if(0 != pdcch.N_alloc)
+                if(0 != pdcch.N_dl_alloc)
                 {
                     liblte_phy_pdcch_channel_encode(phy_struct,
                                                     &pcfich,
                                                     &phich,
                                                     &pdcch,
-                                                    N_id_cell,
-                                                    N_ant,
+                                                    *N_id_cell,
+                                                    *N_ant,
                                                     phich_res,
-                                                    mib.phich_config.dur,
+                                                    mib->phich_Config_Set()->phich_Duration_Value(),
                                                     &subframe);
                     liblte_phy_pdsch_channel_encode(phy_struct,
                                                     &pdcch,
-                                                    N_id_cell,
-                                                    N_ant,
+                                                    *N_id_cell,
+                                                    *N_ant,
                                                     &subframe);
                 }
 
                 // Construct the output
-                for(p=0; p<N_ant; p++)
+                for(uint32 p=0; p<*N_ant; p++)
                 {
                     liblte_phy_create_dl_subframe(phy_struct,
                                                   &subframe,
                                                   p,
-                                                  &i_buf[(p*phy_struct->N_samps_per_frame) + (subframe.num*phy_struct->N_samps_per_subfr)],
-                                                  &q_buf[(p*phy_struct->N_samps_per_frame) + (subframe.num*phy_struct->N_samps_per_subfr)]);
+                                                  &samp_buf[(p*phy_struct->N_samps_per_frame) + (subframe.num*phy_struct->N_samps_per_subfr)]);
                 }
             }
         }else{
@@ -580,11 +427,12 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
         samples_ready = true;
     }
 
+    int32 act_noutput_items;
     if(false == done &&
        true  == samples_ready)
     {
         act_noutput_items = 0;
-        out_idx           = 0;
+        uint32 out_idx    = 0;
         if(noutput_items > 0)
         {
             if(LTE_FDD_DL_FG_OUT_SIZE_INT8 == out_size)
@@ -592,18 +440,16 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                 // Write out the first half sample if needed
                 if(true == last_samp_was_i)
                 {
-                    q_samp = 0;
-                    for(p=0; p<N_ant; p++)
-                    {
-                        q_samp += q_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
-                    }
+                    float q_samp = 0;
+                    for(uint32 p=0; p<*N_ant; p++)
+                        q_samp += samp_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx].imag();
                     int8_out[out_idx++] = (int8)(q_samp);
                     samp_buf_idx++;
                     act_noutput_items++;
                 }
 
                 // Determine how many full samples to write
-                if((phy_struct->N_samps_per_frame - samp_buf_idx) < ((noutput_items - act_noutput_items) / 2))
+                if((int32)(phy_struct->N_samps_per_frame - samp_buf_idx) < ((noutput_items - act_noutput_items) / 2))
                 {
                     loop_cnt = (phy_struct->N_samps_per_frame - samp_buf_idx)*2;
                 }else{
@@ -611,18 +457,14 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                 }
 
                 // Write out the full samples
-                for(i=0; i<loop_cnt/2; i++)
+                for(uint32 i=0; i<loop_cnt/2; i++)
                 {
-                    i_samp = 0;
-                    q_samp = 0;
-                    for(p=0; p<N_ant; p++)
-                    {
-                        i_samp += i_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
-                        q_samp += q_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
-                    }
+                    complex samp = complex(0, 0);
+                    for(uint32 p=0; p<*N_ant; p++)
+                        samp += samp_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
 
-                    int8_out[out_idx++] = (int8)(i_samp);
-                    int8_out[out_idx++] = (int8)(q_samp);
+                    int8_out[out_idx++] = (int8)(samp.real());
+                    int8_out[out_idx++] = (int8)(samp.imag());
                     samp_buf_idx++;
                     act_noutput_items += 2;
                 }
@@ -630,11 +472,9 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                 // Write out the last half sample if needed
                 if((noutput_items - act_noutput_items) == 1)
                 {
-                    i_samp = 0;
-                    for(p=0; p<N_ant; p++)
-                    {
-                        i_samp += i_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
-                    }
+                    float i_samp = 0;
+                    for(uint32 p=0; p<*N_ant; p++)
+                        i_samp += samp_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx].real();
                     int8_out[out_idx++] = (int8)(i_samp);
                     act_noutput_items++;
                     last_samp_was_i = true;
@@ -643,7 +483,7 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                 }
             }else{ // LTE_FDD_DL_FG_OUT_SIZE_GR_COMPLEX == out_size
                 // Determine how many samples to write
-                if((phy_struct->N_samps_per_frame - samp_buf_idx) < noutput_items)
+                if((int32)(phy_struct->N_samps_per_frame - samp_buf_idx) < noutput_items)
                 {
                     loop_cnt = phy_struct->N_samps_per_frame - samp_buf_idx;
                 }else{
@@ -651,16 +491,12 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
                 }
 
                 // Write out samples
-                for(i=0; i<loop_cnt; i++)
+                for(uint32 i=0; i<loop_cnt; i++)
                 {
-                    i_samp = 0;
-                    q_samp = 0;
-                    for(p=0; p<N_ant; p++)
-                    {
-                        i_samp += i_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
-                        q_samp += q_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
-                    }
-                    gr_complex_out[out_idx++] = gr_complex(i_samp, q_samp);
+                    complex samp = complex(0, 0);
+                    for(uint32 p=0; p<*N_ant; p++)
+                        samp += samp_buf[(p*phy_struct->N_samps_per_frame) + samp_buf_idx];
+                    gr_complex_out[out_idx++] = samp;
                     samp_buf_idx++;
                     act_noutput_items++;
                 }
@@ -686,704 +522,154 @@ int32 LTE_fdd_dl_fg_samp_buf::work(int32                      noutput_items,
     consume_each(0);
 
     // Tell runtime system how many output items we produced
-    return(act_noutput_items);
+    return act_noutput_items;
 }
 
-void LTE_fdd_dl_fg_samp_buf::recreate_sched_info(void)
+void LTE_fdd_dl_fg_samp_buf::set_parameters(MasterInformationBlock *mib_,
+                                            SystemInformationBlockType1 *sib1_,
+                                            SystemInformationBlockType2 *sib2_,
+                                            SystemInformationBlockType3 *sib3_,
+                                            SystemInformationBlockType4 *sib4_,
+                                            SystemInformationBlockType8 *sib8_,
+                                            uint32 *N_frames_,
+                                            uint32 *N_ant_,
+                                            uint32 *N_id_cell_,
+                                            uint32 *percent_load_,
+                                            uint32 *sib3_present_,
+                                            uint32 *sib4_present_,
+                                            uint32 *sib8_present_)
 {
-    LIBLTE_RRC_SIB_TYPE_ENUM sib_array[20];
-    uint32                   num_sibs      = 0;
-    uint32                   sib_idx       = 0;
-    uint32                   N_sibs_to_map = 0;
-    uint32                   i;
+    mib = mib_;
+    sib1 = sib1_;
+    sib2 = sib2_;
+    sib3 = sib3_;
+    sib4 = sib4_;
+    sib8 = sib8_;
+    N_frames = N_frames_;
+    N_ant = N_ant_;
+    N_id_cell = N_id_cell_;
+    percent_load = percent_load_;
+    sib3_present = sib3_present_;
+    sib4_present = sib4_present_;
+    sib8_present = sib8_present_;
 
+    // Derived parameters
+    N_id_2 = (*N_id_cell % 3);
+    N_id_1 = (*N_id_cell - N_id_2)/3;
+    switch(mib->dl_Bandwidth_Value())
+    {
+    case MasterInformationBlock::k_dl_Bandwidth_n6:
+        N_rb_dl = LIBLTE_PHY_N_RB_DL_1_4MHZ;
+        fs      = LIBLTE_PHY_FS_1_92MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n15:
+        N_rb_dl = LIBLTE_PHY_N_RB_DL_3MHZ;
+        fs      = LIBLTE_PHY_FS_3_84MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n25:
+        N_rb_dl = LIBLTE_PHY_N_RB_DL_5MHZ;
+        fs      = LIBLTE_PHY_FS_7_68MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n50:
+        N_rb_dl = LIBLTE_PHY_N_RB_DL_10MHZ;
+        fs      = LIBLTE_PHY_FS_15_36MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n75:
+        N_rb_dl = LIBLTE_PHY_N_RB_DL_15MHZ;
+        fs      = LIBLTE_PHY_FS_15_36MHZ;
+        break;
+    case MasterInformationBlock::k_dl_Bandwidth_n100:
+        N_rb_dl = LIBLTE_PHY_N_RB_DL_20MHZ;
+        fs      = LIBLTE_PHY_FS_30_72MHZ;
+        break;
+    }
+    sib_tx_mode = 1;
+    if(*N_ant != 1)
+        sib_tx_mode = 2;
+    switch(mib->phich_Config_Set()->phich_Resource_Value())
+    {
+    case PHICH_Config::k_phich_Resource_oneSixth:
+        phich_res = 1/6;
+        break;
+    case PHICH_Config::k_phich_Resource_half:
+        phich_res = 0.5;
+        break;
+    case PHICH_Config::k_phich_Resource_one:
+        phich_res = 1;
+        break;
+    case PHICH_Config::k_phich_Resource_two:
+        phich_res = 2;
+        break;
+    }
+    si_periodicity_T = 8;
+    switch(sib1->si_WindowLength_Value())
+    {
+    case SystemInformationBlockType1::k_si_WindowLength_ms1:
+        si_win_len = 1;
+        break;
+    case SystemInformationBlockType1::k_si_WindowLength_ms2:
+        si_win_len = 2;
+        break;
+    case SystemInformationBlockType1::k_si_WindowLength_ms5:
+        si_win_len = 5;
+        break;
+    case SystemInformationBlockType1::k_si_WindowLength_ms10:
+        si_win_len = 10;
+        break;
+    case SystemInformationBlockType1::k_si_WindowLength_ms15:
+        si_win_len = 15;
+        break;
+    case SystemInformationBlockType1::k_si_WindowLength_ms20:
+        si_win_len = 20;
+        break;
+    case SystemInformationBlockType1::k_si_WindowLength_ms40:
+        si_win_len = 40;
+        break;
+    }
     // Determine which SIBs need to be mapped
-    if(1 == sib3_present)
-    {
-        sib_array[num_sibs++] = LIBLTE_RRC_SIB_TYPE_3;
-    }
-    if(1 == sib4_present)
-    {
-        sib_array[num_sibs++] = LIBLTE_RRC_SIB_TYPE_4;
-    }
-    if(1 == sib8_present)
-    {
-        sib_array[num_sibs++] = LIBLTE_RRC_SIB_TYPE_8;
-    }
+    uint32 sib_array[3];
+    uint32 num_sibs = 0;
+    if(1 == *sib3_present)
+        sib_array[num_sibs++] = 3;
+    if(1 == *sib4_present)
+        sib_array[num_sibs++] = 4;
+    if(1 == *sib8_present)
+        sib_array[num_sibs++] = 8;
 
-    // Initialize the scheduling info
-    sib1.N_sched_info                     = 1;
-    sib1.sched_info[0].N_sib_mapping_info = 0;
-
-    // Map the SIBs
-    while(num_sibs > 0)
+    std::vector<SchedulingInfo> sched_info_list;
+    for(uint32 i=0; i<num_sibs; i++)
     {
-        // Determine how many SIBs can be mapped to this scheduling info
-        if(1 == sib1.N_sched_info)
+        // Mapping 1 SIB per scheduling opportunity for simplicity
+        SIB_Type sib_type;
+        if(sib_array[i] == 3)
         {
-            if(0                         == sib1.sched_info[0].N_sib_mapping_info &&
-               LIBLTE_PHY_N_RB_DL_1_4MHZ != N_rb_dl)
-            {
-                N_sibs_to_map = 1;
-            }else{
-                N_sibs_to_map                                         = 2;
-                sib1.sched_info[sib1.N_sched_info].N_sib_mapping_info = 0;
-                sib1.sched_info[sib1.N_sched_info].si_periodicity     = LIBLTE_RRC_SI_PERIODICITY_RF8;
-                sib1.N_sched_info++;
-            }
-        }else{
-            if(2 > sib1.sched_info[sib1.N_sched_info-1].N_sib_mapping_info)
-            {
-                N_sibs_to_map = 2 - sib1.sched_info[sib1.N_sched_info-1].N_sib_mapping_info;
-            }else{
-                N_sibs_to_map                                         = 2;
-                sib1.sched_info[sib1.N_sched_info].N_sib_mapping_info = 0;
-                sib1.sched_info[sib1.N_sched_info].si_periodicity     = LIBLTE_RRC_SI_PERIODICITY_RF8;
-                sib1.N_sched_info++;
-            }
+            sib_type.SetValue(SIB_Type::k_sibType3);
+        }else if(sib_array[i] == 4){
+            sib_type.SetValue(SIB_Type::k_sibType4);
+        }else{ // sib_array[i] == 8
+            sib_type.SetValue(SIB_Type::k_sibType8);
         }
-
-        // Map the SIBs for this scheduling info
-        for(i=0; i<N_sibs_to_map; i++)
-        {
-            sib1.sched_info[sib1.N_sched_info-1].sib_mapping_info[sib1.sched_info[sib1.N_sched_info-1].N_sib_mapping_info].sib_type = sib_array[sib_idx++];
-            sib1.sched_info[sib1.N_sched_info-1].N_sib_mapping_info++;
-            num_sibs--;
-
-            if(0 == num_sibs)
-            {
-                break;
-            }
-        }
+        SchedulingInfo sched_info;
+        sched_info.si_Periodicity_SetValue(SchedulingInfo::k_si_Periodicity_rf8);
+        sched_info.sib_MappingInfo_Set()->SetValue({sib_type});
+        sched_info_list.push_back(sched_info);
     }
-}
-
-void LTE_fdd_dl_fg_samp_buf::print_config(void)
-{
-    uint32 i;
-
-    printf("***System Configuration Parameters***\n");
-    printf("\tType 'help' to reprint this menu\n");
-    printf("\tHit enter to finish config and generate file\n");
-    printf("\tSet parameters using <param>=<value> format\n");
-
-    // BANDWIDTH
-    printf("\t%-30s = ",
-           BANDWIDTH_PARAM);
-    switch(N_rb_dl)
+    if(sched_info_list.size() == 0)
     {
-    case LIBLTE_PHY_N_RB_DL_1_4MHZ:
-        printf("%10s", "1.4");
-        break;
-    case LIBLTE_PHY_N_RB_DL_3MHZ:
-        printf("%10s", "3");
-        break;
-    case LIBLTE_PHY_N_RB_DL_5MHZ:
-        printf("%10s", "5");
-        break;
-    case LIBLTE_PHY_N_RB_DL_10MHZ:
-        printf("%10s", "10");
-        break;
-    case LIBLTE_PHY_N_RB_DL_15MHZ:
-        printf("%10s", "15");
-        break;
-    case LIBLTE_PHY_N_RB_DL_20MHZ:
-        printf("%10s", "20");
-        break;
-    }
-    printf(", values = [1.4, 3, 5, 10, 15, 20]\n");
-
-    // FS
-    printf("\t%-30s = %10s, values = [",
-           FS_PARAM,
-           liblte_phy_fs_text[fs]);
-    for(i=0; i<LIBLTE_PHY_FS_N_ITEMS; i++)
-    {
-        if(0 != i)
-        {
-            printf(", ");
-        }
-        printf("%s", liblte_phy_fs_text[i]);
-    }
-    printf("]\n");
-
-    // FREQ_BAND
-    printf("\t%-30s = %10u, bounds = [1, 25]\n",
-           FREQ_BAND_PARAM,
-           sib1.freq_band_indicator);
-
-    // N_frames
-    printf("\t%-30s = %10u, bounds = [1, 1000]\n",
-           N_FRAMES_PARAM,
-           N_frames);
-
-    // N_ant
-    printf("\t%-30s = %10u, values = [1, 2, 4]\n",
-           N_ANT_PARAM,
-           N_ant);
-
-    // N_id_cell
-    printf("\t%-30s = %10u, bounds = [0, 503]\n",
-           N_ID_CELL_PARAM,
-           N_id_cell);
-
-    // MCC
-    printf("\t%-30s = %7s%03X, bounds = [000, 999]\n",
-           MCC_PARAM, "",
-           (sib1.plmn_id[0].id.mcc & 0x0FFF));
-
-    // MNC
-    if((sib1.plmn_id[0].id.mnc & 0xFF00) == 0xFF00)
-    {
-        printf("\t%-30s = %8s%02X, bounds = [00, 999]\n",
-               MNC_PARAM, "",
-               (sib1.plmn_id[0].id.mnc & 0x00FF));
+        SchedulingInfo sched_info;
+        sched_info.si_Periodicity_SetValue(SchedulingInfo::k_si_Periodicity_rf8);
+        sched_info.sib_MappingInfo_Set()->SetValue({});
+        sched_info_list.push_back(sched_info);
+        sib1->schedulingInfoList_Set()->SetValue(sched_info_list);
     }else{
-        printf("\t%-30s = %7s%03X, bounds = [00, 999]\n",
-               MNC_PARAM, "",
-               (sib1.plmn_id[0].id.mnc & 0x0FFF));
+        sib1->schedulingInfoList_Set()->SetValue(sched_info_list);
     }
 
-    // CELL_ID
-    printf("\t%-30s = %10u, bounds = [0, 268435455]\n",
-           CELL_ID_PARAM,
-           sib1.cell_id);
-
-    // TRACKING_AREA_CODE
-    printf("\t%-30s = %10u, bounds = [0, 65535]\n",
-           TRACKING_AREA_CODE_PARAM,
-           sib1.tracking_area_code);
-
-    // Q_RX_LEV_MIN
-    printf("\t%-30s = %10d, bounds = [-140, -44]\n",
-           Q_RX_LEV_MIN_PARAM,
-           sib1.q_rx_lev_min);
-
-    // P0_NOMINAL_PUSCH
-    printf("\t%-30s = %10d, bounds = [-126, 24]\n",
-           P0_NOMINAL_PUSCH_PARAM,
-           sib2.rr_config_common_sib.ul_pwr_ctrl.p0_nominal_pusch);
-
-    // P0_NOMINAL_PUCCH
-    printf("\t%-30s = %10d, bounds = [-127, -96]\n",
-           P0_NOMINAL_PUCCH_PARAM,
-           sib2.rr_config_common_sib.ul_pwr_ctrl.p0_nominal_pucch);
-
-    // SIB3_PRESENT
-    printf("\t%-30s = %10d, bounds = [0, 1]\n",
-           SIB3_PRESENT_PARAM,
-           sib3_present);
-    if(sib3_present)
-    {
-        // Q_HYST
-        printf("\t%-30s = %10s, values = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]\n",
-               Q_HYST_PARAM,
-               liblte_rrc_q_hyst_text[sib3.q_hyst]);
-    }
-
-    // SIB4_PRESENT
-    printf("\t%-30s = %10d, bounds = [0, 1]\n",
-           SIB4_PRESENT_PARAM,
-           sib4_present);
-    if(sib4_present)
-    {
-        // NEIGH_CELL_LIST
-        printf("\t%-30s = %10d:",
-               NEIGH_CELL_LIST_PARAM,
-               sib4.intra_freq_neigh_cell_list_size);
-        for(i=0; i<sib4.intra_freq_neigh_cell_list_size; i++)
-        {
-            printf("%u,%s;",
-                   sib4.intra_freq_neigh_cell_list[i].phys_cell_id,
-                   liblte_rrc_q_offset_range_text[sib4.intra_freq_neigh_cell_list[i].q_offset_range]);
-        }
-        printf(" format=<list_size>:<phys_cell_id_0>,<q_offset_range_0>;...;<phys_cell_id_n>,<q_offset_range_n>\n");
-    }
-
-    // SIB8_PRESENT
-    printf("\t%-30s = %10d, bounds = [0, 1]\n",
-           SIB8_PRESENT_PARAM,
-           sib8_present);
-    if(sib8_present)
-    {
-        // SEARCH_WIN_SIZE
-        printf("\t%-30s = %10d, bounds = [0, 15]\n",
-               SEARCH_WIN_SIZE_PARAM,
-               sib8.search_win_size);
-    }
-
-    // PERCENT_LOAD
-    printf("\t%-30s = %10u, bounds = [0, 66]\n",
-           PERCENT_LOAD_PARAM,
-           percent_load);
-}
-
-void LTE_fdd_dl_fg_samp_buf::change_config(char *line)
-{
-    char *param;
-    char *value;
-    bool  err = false;
-
-    param = strtok(line, "=");
-    value = strtok(NULL, "=");
-
-    if(param == NULL)
-    {
-        need_config = false;
-    }else{
-        if(!strcasecmp(param, "help"))
-        {
-            print_config();
-        }else if(value != NULL){
-            if(!strcasecmp(param, BANDWIDTH_PARAM))
-            {
-                err = set_bandwidth(value);
-            }else if(!strcasecmp(param, FS_PARAM)){
-                err = set_fs(value);
-            }else if(!strcasecmp(param, FREQ_BAND_PARAM)){
-                err = set_param(&sib1.freq_band_indicator, value, 1, 25);
-            }else if(!strcasecmp(param, N_FRAMES_PARAM)){
-                err = set_param(&N_frames, value, 1, 1000);
-            }else if(!strcasecmp(param, N_ANT_PARAM)){
-                err = set_n_ant(value);
-            }else if(!strcasecmp(param, N_ID_CELL_PARAM)){
-                err = set_n_id_cell(value);
-            }else if(!strcasecmp(param, MCC_PARAM)){
-                err = set_mcc(value);
-            }else if(!strcasecmp(param, MNC_PARAM)){
-                err = set_mnc(value);
-            }else if(!strcasecmp(param, CELL_ID_PARAM)){
-                err = set_param(&sib1.cell_id, value, 0, 268435455);
-            }else if(!strcasecmp(param, TRACKING_AREA_CODE_PARAM)){
-                err = set_param(&sib1.tracking_area_code, value, 0, 65535);
-            }else if(!strcasecmp(param, Q_RX_LEV_MIN_PARAM)){
-                err = set_param(&sib1.q_rx_lev_min, value, -140, -44);
-                sib3.q_rx_lev_min = sib1.q_rx_lev_min;
-            }else if(!strcasecmp(param, P0_NOMINAL_PUSCH_PARAM)){
-                err = set_param(&sib2.rr_config_common_sib.ul_pwr_ctrl.p0_nominal_pusch, value, -126, 24);
-            }else if(!strcasecmp(param, P0_NOMINAL_PUCCH_PARAM)){
-                err = set_param(&sib2.rr_config_common_sib.ul_pwr_ctrl.p0_nominal_pucch, value, -127, -96);
-            }else if(!strcasecmp(param, SIB3_PRESENT_PARAM)){
-                err = set_param(&sib3_present, value, 0, 1);
-                recreate_sched_info();
-            }else if(!strcasecmp(param, Q_HYST_PARAM)){
-                err = set_q_hyst(value);
-            }else if(!strcasecmp(param, SIB4_PRESENT_PARAM)){
-                err = set_param(&sib4_present, value, 0, 1);
-                recreate_sched_info();
-            }else if(!strcasecmp(param, NEIGH_CELL_LIST_PARAM)){
-                err = set_neigh_cell_list(value);
-            }else if(!strcasecmp(param, SIB8_PRESENT_PARAM)){
-                err = set_param(&sib8_present, value, 0, 1);
-                recreate_sched_info();
-            }else if(!strcasecmp(param, SEARCH_WIN_SIZE_PARAM)){
-                err = set_param(&sib8.search_win_size, value, 0, 15);
-            }else if(!strcasecmp(param, PERCENT_LOAD_PARAM)){
-                err = set_param(&percent_load, value, 0, 66); // FIXME: Decode issues if load is greater than 66%
-            }else{
-                printf("Invalid parameter (%s)\n", param);
-            }
-
-            if(err)
-            {
-                printf("Invalid value\n");
-            }
-        }else{
-            printf("Invalid value\n");
-        }
-    }
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_bandwidth(char *char_value)
-{
-    bool err = false;
-
-    if(!strcasecmp(char_value, "1.4"))
-    {
-        bandwidth = 1.4;
-        N_rb_dl   = LIBLTE_PHY_N_RB_DL_1_4MHZ;
-        mib.dl_bw = LIBLTE_RRC_DL_BANDWIDTH_6;
-    }else if(!strcasecmp(char_value, "3") &&
-             fs >= LIBLTE_PHY_FS_3_84MHZ){
-        bandwidth = 3;
-        N_rb_dl   = LIBLTE_PHY_N_RB_DL_3MHZ;
-        mib.dl_bw = LIBLTE_RRC_DL_BANDWIDTH_15;
-    }else if(!strcasecmp(char_value, "5") &&
-             fs >= LIBLTE_PHY_FS_7_68MHZ){
-        bandwidth = 5;
-        N_rb_dl   = LIBLTE_PHY_N_RB_DL_5MHZ;
-        mib.dl_bw = LIBLTE_RRC_DL_BANDWIDTH_25;
-    }else if(!strcasecmp(char_value, "10") &&
-             fs >= LIBLTE_PHY_FS_15_36MHZ){
-        bandwidth = 10;
-        N_rb_dl   = LIBLTE_PHY_N_RB_DL_10MHZ;
-        mib.dl_bw = LIBLTE_RRC_DL_BANDWIDTH_50;
-    }else if(!strcasecmp(char_value, "15") &&
-             fs == LIBLTE_PHY_FS_30_72MHZ){
-        bandwidth = 15;
-        N_rb_dl   = LIBLTE_PHY_N_RB_DL_15MHZ;
-        mib.dl_bw = LIBLTE_RRC_DL_BANDWIDTH_75;
-    }else if(!strcasecmp(char_value, "20") &&
-             fs == LIBLTE_PHY_FS_30_72MHZ){
-        bandwidth = 20;
-        N_rb_dl   = LIBLTE_PHY_N_RB_DL_20MHZ;
-        mib.dl_bw = LIBLTE_RRC_DL_BANDWIDTH_100;
-    }else{
-        err = true;
-    }
-
-    recreate_sched_info();
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_fs(char *char_value)
-{
-    bool err = false;
-
-    if(!strcasecmp(char_value, "1.92") &&
-       N_rb_dl == LIBLTE_PHY_N_RB_DL_1_4MHZ)
-    {
-        fs = LIBLTE_PHY_FS_1_92MHZ;
-    }else if(!strcasecmp(char_value, "3.84") &&
-             bandwidth <= 3){
-        fs = LIBLTE_PHY_FS_3_84MHZ;
-    }else if(!strcasecmp(char_value, "7.68") &&
-             bandwidth <= 5){
-        fs = LIBLTE_PHY_FS_7_68MHZ;
-    }else if(!strcasecmp(char_value, "15.36") &&
-             bandwidth <= 10){
-        fs = LIBLTE_PHY_FS_15_36MHZ;
-    }else if(!strcasecmp(char_value, "30.72")){
-        fs = LIBLTE_PHY_FS_30_72MHZ;
-    }else{
-        err = true;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_n_ant(char *char_value)
-{
-    uint32 value;
-    bool   err = true;
-
-    if(false  == char_to_uint32(char_value, &value) &&
-       (value == 1                                  ||
-        value == 2                                  ||
-        value == 4))
-    {
-        N_ant = value;
-        err   = false;
-
-        // Set the SIB tx_mode
-        if(1 == N_ant)
-        {
-            sib_tx_mode = 1;
-        }else{
-            sib_tx_mode = 2;
-        }
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_n_id_cell(char *char_value)
-{
-    uint32 value;
-    bool   err = true;
-
-    if(false == char_to_uint32(char_value, &value) &&
-       value <= 503)
-    {
-        N_id_cell = value;
-        N_id_2    = (N_id_cell % 3);
-        N_id_1    = (N_id_cell - N_id_2)/3;
-        err       = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_mcc(char *char_value)
-{
-    uint32 i;
-    uint32 length = strlen(char_value);
-    bool   err    = true;
-
-    if(3 >= length)
-    {
-        sib1.plmn_id[0].id.mcc = 0xF000;
-        for(i=0; i<length; i++)
-        {
-            sib1.plmn_id[0].id.mcc |= ((char_value[i] & 0x0F) << ((length-i-1)*4));
-        }
-        err = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_mnc(char *char_value)
-{
-    uint32 i;
-    uint32 length = strlen(char_value);
-    bool   err    = true;
-
-    if(3 >= length)
-    {
-        sib1.plmn_id[0].id.mnc = 0x0000;
-        for(i=0; i<length; i++)
-        {
-            sib1.plmn_id[0].id.mnc |= ((char_value[i] & 0x0F) << ((length-i-1)*4));
-        }
-        if(2 >= length)
-        {
-            sib1.plmn_id[0].id.mnc |= 0xFF00;
-        }else{
-            sib1.plmn_id[0].id.mnc |= 0xF000;
-        }
-        err = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_q_hyst(char *char_value)
-{
-    uint32 i;
-    bool   err = false;
-
-    for(i=0; i<LIBLTE_RRC_Q_HYST_N_ITEMS; i++)
-    {
-        if(!strcasecmp(char_value, liblte_rrc_q_hyst_text[i]))
-        {
-            sib3.q_hyst = (LIBLTE_RRC_Q_HYST_ENUM)i;
-            break;
-        }
-    }
-    if(LIBLTE_RRC_Q_HYST_N_ITEMS == i)
-    {
-        err = true;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_neigh_cell_list(char *char_value)
-{
-    uint32  i;
-    char   *token1;
-    char   *token2;
-    bool    err = false;
-
-    token1 = strtok(char_value, ":");
-    if(NULL  != token1 &&
-       false == set_param(&sib4.intra_freq_neigh_cell_list_size, token1, 0, LIBLTE_RRC_MAX_CELL_INTRA))
-    {
-        for(i=0; i<sib4.intra_freq_neigh_cell_list_size; i++)
-        {
-            token1 = strtok(NULL, ",");
-            token2 = strtok(NULL, ";");
-            if(!(NULL  != token1                                                                      &&
-                 NULL  != token2                                                                      &&
-                 false == set_param(&sib4.intra_freq_neigh_cell_list[i].phys_cell_id, token1, 0, 503) &&
-                 false == set_q_offset_range(&sib4.intra_freq_neigh_cell_list[i].q_offset_range, token2)))
-            {
-                err = true;
-                break;
-            }
-        }
-    }else{
-        err = true;
-    }
-
-    if(true == err)
-    {
-        sib4.intra_freq_neigh_cell_list_size = 0;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_q_offset_range(LIBLTE_RRC_Q_OFFSET_RANGE_ENUM *q_offset_range,
-                                                char                           *char_value)
-{
-    uint32 i;
-    bool   err = false;
-
-    for(i=0; i<LIBLTE_RRC_Q_OFFSET_RANGE_N_ITEMS; i++)
-    {
-        if(!strcasecmp(char_value, liblte_rrc_q_offset_range_text[i]))
-        {
-            *q_offset_range = (LIBLTE_RRC_Q_OFFSET_RANGE_ENUM)i;
-            break;
-        }
-    }
-    if(LIBLTE_RRC_Q_OFFSET_RANGE_N_ITEMS == i)
-    {
-        err = true;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_param(uint32 *param,
-                                       char   *char_value,
-                                       uint32  llimit,
-                                       uint32  ulimit)
-{
-    uint32 value;
-    bool   err = true;
-
-    if(param != NULL                               &&
-       false == char_to_uint32(char_value, &value) &&
-       value >= llimit                             &&
-       value <= ulimit)
-    {
-        *param = value;
-        err    = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_param(uint16 *param,
-                                       char   *char_value,
-                                       uint16  llimit,
-                                       uint16  ulimit)
-{
-    uint32 value;
-    bool   err = true;
-
-    if(param != NULL                               &&
-       false == char_to_uint32(char_value, &value) &&
-       value >= llimit                             &&
-       value <= ulimit)
-    {
-        *param = (uint16)value;
-        err    = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_param(uint8 *param,
-                                       char  *char_value,
-                                       uint8  llimit,
-                                       uint8  ulimit)
-{
-    uint32 value;
-    bool   err = true;
-
-    if(param != NULL                               &&
-       false == char_to_uint32(char_value, &value) &&
-       value >= llimit                             &&
-       value <= ulimit)
-    {
-        *param = (uint8)value;
-        err    = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_param(int32 *param,
-                                       char  *char_value,
-                                       int32  llimit,
-                                       int32  ulimit)
-{
-    int32 value;
-    bool  err = true;
-
-    if(param != NULL                              &&
-       false == char_to_int32(char_value, &value) &&
-       value >= llimit                            &&
-       value <= ulimit)
-    {
-        *param = value;
-        err    = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_param(int16 *param,
-                                       char  *char_value,
-                                       int16  llimit,
-                                       int16  ulimit)
-{
-    int32 value;
-    bool  err = true;
-
-    if(param != NULL                              &&
-       false == char_to_int32(char_value, &value) &&
-       value >= llimit                            &&
-       value <= ulimit)
-    {
-        *param = (int16)value;
-        err    = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::set_param(int8 *param,
-                                       char *char_value,
-                                       int8  llimit,
-                                       int8  ulimit)
-{
-    int32 value;
-    bool  err = true;
-
-    if(param != NULL                              &&
-       false == char_to_int32(char_value, &value) &&
-       value >= llimit                            &&
-       value <= ulimit)
-    {
-        *param = (int8)value;
-        err    = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::char_to_uint32(char   *char_value,
-                                            uint32 *uint32_value)
-{
-    uint32  tmp_value;
-    char   *endptr;
-    bool    err = true;
-
-    errno     = 0;
-    tmp_value = strtoul(char_value, &endptr, 10);
-
-    if(errno          == 0 &&
-       strlen(endptr) == 0)
-    {
-        *uint32_value = tmp_value;
-        err           = false;
-    }
-
-    return(err);
-}
-
-bool LTE_fdd_dl_fg_samp_buf::char_to_int32(char  *char_value,
-                                           int32 *int32_value)
-{
-    int32  tmp_value;
-    char  *endptr;
-    bool   err = true;
-
-    errno     = 0;
-    tmp_value = strtol(char_value, &endptr, 10);
-
-    if(errno          == 0 &&
-       strlen(endptr) == 0)
-    {
-        *int32_value = tmp_value;
-        err          = false;
-    }
-
-    return(err);
+    liblte_phy_init(&phy_struct,
+                    fs,
+                    *N_id_cell,
+                    *N_ant,
+                    N_rb_dl,
+                    LIBLTE_PHY_N_SC_RB_DL_NORMAL_CP,
+                    phich_res);
 }
